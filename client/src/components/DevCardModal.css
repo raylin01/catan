@@ -11,6 +11,27 @@
   animation: fadeIn 0.2s ease-out;
 }
 
+.dev-card-modal .close-btn {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  color: var(--text-primary);
+}
+
+.dev-card-modal .close-btn:hover {
+  background: var(--player-red);
+  border-color: var(--player-red);
+}
+
 .dev-card-modal h2 {
   color: var(--accent-gold);
   text-align: center;
@@ -67,7 +88,8 @@
 }
 
 .card-icon {
-  font-size: 1.5rem;
+  display: inline-flex;
+  align-items: center;
 }
 
 .card-name {
@@ -171,7 +193,8 @@
 }
 
 .resource-pick-btn .icon {
-  font-size: 1.5rem;
+  display: inline-flex;
+  align-items: center;
 }
 
 .resource-pick-btn .name {
@@ -201,4 +224,3 @@
   color: var(--bg-primary);
   font-weight: 600;
 }
-

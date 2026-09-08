@@ -616,3 +616,5 @@
   transform: scale(1.05);
 }
 
+
+@media(prefers-reduced-motion:reduce){.trade-notification-banner,.robber-notification-banner,.discard-notification-banner,.special-build-notification-banner{animation:none}}

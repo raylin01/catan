@@ -1,4 +1,5 @@
 import './PlayerPanel.css';
+import GameIcon from './GameIcon';
 
 function PlayerPanel({ player, isCurrentTurn, isMe, longestRoad, largestArmy, onRightClick, gameOver = false }) {
   const totalCards = typeof player.resources === 'number' 
@@ -68,14 +69,14 @@ function PlayerPanel({ player, isCurrentTurn, isMe, longestRoad, largestArmy, on
             if (onRightClick) {
               onRightClick(e, 'resourceCards', {
                 title: 'Resource Cards',
-                icon: '🃏',
+                icon: 'cards',
                 description: `Total resource cards in hand. ${isMe ? 'Your cards are shown in detail below.' : 'Other players\' cards are hidden.'}`
               });
             }
           }}
           title="Right-click for info"
         >
-          <span className="stat-icon">🃏</span>
+          <GameIcon className="stat-icon" name="cards" size={15} />
           <span className="stat-value">{totalCards}</span>
         </div>
         <div 
@@ -83,7 +84,7 @@ function PlayerPanel({ player, isCurrentTurn, isMe, longestRoad, largestArmy, on
           onContextMenu={(e) => handleRightClick(e, 'devCards')}
           title="Right-click for info"
         >
-          <span className="stat-icon">📜</span>
+          <GameIcon className="stat-icon" name="devCard" size={15} />
           <span className="stat-value">{devCardCount}</span>
         </div>
         <div 
@@ -91,7 +92,7 @@ function PlayerPanel({ player, isCurrentTurn, isMe, longestRoad, largestArmy, on
           onContextMenu={(e) => handleRightClick(e, 'knights')}
           title="Right-click for info"
         >
-          <span className="stat-icon">⚔️</span>
+          <GameIcon className="stat-icon" name="knight" size={15} />
           <span className="stat-value">{player.knightsPlayed}</span>
         </div>
       </div>
@@ -102,7 +103,7 @@ function PlayerPanel({ player, isCurrentTurn, isMe, longestRoad, largestArmy, on
           onContextMenu={(e) => handleRightClick(e, 'settlements')}
           title="Right-click for info"
         >
-          <span className="piece-icon">🏠</span>
+          <GameIcon className="piece-icon" name="settlement" size={15} />
           <span>{player.settlements}</span>
         </div>
         <div 
@@ -110,7 +111,7 @@ function PlayerPanel({ player, isCurrentTurn, isMe, longestRoad, largestArmy, on
           onContextMenu={(e) => handleRightClick(e, 'cities')}
           title="Right-click for info"
         >
-          <span className="piece-icon">🏰</span>
+          <GameIcon className="piece-icon" name="city" size={15} />
           <span>{player.cities}</span>
         </div>
         <div 
@@ -118,7 +119,7 @@ function PlayerPanel({ player, isCurrentTurn, isMe, longestRoad, largestArmy, on
           onContextMenu={(e) => handleRightClick(e, 'roads')}
           title="Right-click for info"
         >
-          <span className="piece-icon">━</span>
+          <GameIcon className="piece-icon" name="road" size={15} />
           <span>{player.roads}</span>
         </div>
       </div>
@@ -130,7 +131,7 @@ function PlayerPanel({ player, isCurrentTurn, isMe, longestRoad, largestArmy, on
             onContextMenu={(e) => handleRightClick(e, 'longestRoad')}
             title="Right-click for info"
           >
-            🛤️ Longest Road
+            <><GameIcon name="road" size={15} /> Longest Road</>
           </div>
         )}
         {largestArmy && (
@@ -139,7 +140,7 @@ function PlayerPanel({ player, isCurrentTurn, isMe, longestRoad, largestArmy, on
             onContextMenu={(e) => handleRightClick(e, 'largestArmy')}
             title="Right-click for info"
           >
-            ⚔️ Largest Army
+            <><GameIcon name="knight" size={15} /> Largest Army</>
           </div>
         )}
       </div>

@@ -126,7 +126,8 @@
 }
 
 .stat-icon {
-  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
 }
 
 .stat-value {
@@ -147,7 +148,8 @@
 }
 
 .piece-icon {
-  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
 }
 
 .player-achievements {
@@ -158,6 +160,10 @@
 }
 
 .achievement {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
   font-size: 0.75rem;
   padding: 0.25rem 0.5rem;
   background: linear-gradient(135deg, var(--accent-gold), var(--accent-copper));
@@ -183,4 +189,3 @@
 .piece-count.has-info:hover {
   transform: scale(1.05);
 }
-

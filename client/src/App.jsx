@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import RoomLobby from './RoomLobby';
 import GameBoard from './components/GameBoard';
+import RoomTradePanel from './components/RoomTradePanel';
 import './App.css';
 import './room.css';
 
 const SESSION_STORAGE_KEY = 'catanRoomSession';
 const POLL_INTERVAL = 1000;
-const RESOURCE_TYPES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
 
 function readStoredSession() {
   if (typeof window === 'undefined') return null;
@@ -121,16 +121,6 @@ function normalizeGameState(snapshot) {
     request: trade.get || {}
   };
   return state;
-}
-
-function bundleText(bundle) {
-  const entries = Object.entries(bundle || {}).filter(([, amount]) => Number(amount) > 0);
-  if (!entries.length) return 'nothing';
-  return entries.map(([resource, amount]) => `${amount} ${resource}`).join(', ');
-}
-
-function emptyBundle() {
-  return Object.fromEntries(RESOURCE_TYPES.map(resource => [resource, 0]));
 }
 
 function readRequestedRoom() {
@@ -300,7 +290,8 @@ function HostToolbar({ paused, busy, onCommand, slots = [], providers = [], phas
   };
 
   return (
-    <div className="room-host-toolbar" aria-label="Host controls">
+    <details className="room-host-toolbar">
+      <summary>Host controls</summary>
       <div className="room-host-toolbar-header">
         <div>
           <strong>{gameEnded ? 'Game ended' : 'Host controls'}</strong>
@@ -399,7 +390,7 @@ function HostToolbar({ paused, busy, onCommand, slots = [], providers = [], phas
           })}
         </div>
       </details>
-    </div>
+    </details>
   );
 }
 
@@ -453,236 +444,6 @@ function LiveClaimSeatForm({ code, defaultName = '', vacantHumanSlots = [], busy
   );
 }
 
-function RoomTradePanel({ snapshot, gameState, seatId, onCommand, onClose, addNotification }) {
-  const [partner, setPartner] = useState('');
-  const [give, setGive] = useState(emptyBundle());
-  const [get, setGet] = useState(emptyBundle());
-  const [countering, setCountering] = useState(false);
-  const [bankGive, setBankGive] = useState('');
-  const [bankGet, setBankGet] = useState('');
-  const [bankAmount, setBankAmount] = useState('');
-
-  const player = gameState?.players?.find(value => value.id === seatId) || null;
-  const occupied = new Set((snapshot?.slots || []).filter(slot => slot.occupied).map(slot => slot.id));
-  const partners = (gameState?.players || []).filter(value => value.id !== seatId && occupied.has(value.id));
-  const trade = snapshot?.trade || null;
-  const isOfferer = trade?.from === seatId;
-  const isRecipient = trade?.to === seatId;
-  const offererName = gameState?.players?.find(value => value.id === trade?.from)?.name || 'Offerer';
-  const recipientName = gameState?.players?.find(value => value.id === trade?.to)?.name || 'Partner';
-  const isMainPhase = gameState?.turnPhase === 'main';
-  const tradeRatio = gameState?.tradeRatios?.[bankGive] || 4;
-
-  useEffect(() => {
-    if (!partner && partners[0]) setPartner(partners[0].id);
-  }, [partner, partners]);
-
-  useEffect(() => {
-    if (bankGive) setBankAmount(String(tradeRatio));
-  }, [bankGive, tradeRatio]);
-
-  const updateBundle = (setter, resource, value) => {
-    const amount = Math.max(0, Number.isFinite(Number(value)) ? Math.floor(Number(value)) : 0);
-    setter(previous => ({ ...previous, [resource]: amount }));
-  };
-
-  const clearBuilder = () => {
-    setGive(emptyBundle());
-    setGet(emptyBundle());
-    setCountering(false);
-  };
-
-  const submitTrade = async event => {
-    event.preventDefault();
-    const giveBundle = Object.fromEntries(Object.entries(give).filter(([, amount]) => amount > 0));
-    const getBundle = Object.fromEntries(Object.entries(get).filter(([, amount]) => amount > 0));
-    if (!partner || !Object.keys(giveBundle).length || !Object.keys(getBundle).length) {
-      addNotification('Choose a partner and positive quantities on both sides.');
-      return;
-    }
-    const result = await onCommand(
-      countering ? 'tradeCounter' : 'tradeOffer',
-      { ...(countering ? { tradeId: trade?.id } : {}), to: partner, give: giveBundle, get: getBundle }
-    );
-    if (result?.success) {
-      addNotification(countering ? 'Counter offer sent.' : 'Trade offer sent.');
-      clearBuilder();
-    }
-  };
-
-  const submitBankTrade = async event => {
-    event.preventDefault();
-    const amount = Math.floor(Number(bankAmount));
-    if (!bankGive || !bankGet || bankGive === bankGet || !Number.isInteger(amount) || amount !== tradeRatio) {
-      addNotification(`Enter exactly ${tradeRatio} ${bankGive || 'resources'} and choose a different resource.`);
-      return;
-    }
-    const result = await onCommand('bankTrade', {
-      giveResource: bankGive,
-      giveAmount: amount,
-      getResource: bankGet
-    });
-    if (result?.success) {
-      addNotification(`Bank trade completed: ${amount} ${bankGive} for 1 ${bankGet}.`);
-      onClose();
-    }
-  };
-
-  const action = async type => {
-    const result = await onCommand(type, { tradeId: trade?.id });
-    if (result?.success) {
-      if (type === 'tradeAccept') addNotification('Trade accepted.');
-      if (type === 'tradeReject') addNotification('Trade rejected.');
-      if (type === 'tradeConfirm') addNotification('Trade completed.');
-      if (type === 'tradeCancel') addNotification('Trade cancelled.');
-      if (type !== 'tradeConfirm') onClose();
-    }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <section className="room-trade-panel" onClick={event => event.stopPropagation()} aria-labelledby="room-trade-title">
-        <div className="room-trade-header">
-          <div>
-            <h2 id="room-trade-title">Trade</h2>
-            <p>{isMainPhase ? 'Player trades are negotiated with one named partner.' : 'Trading is available during the main phase.'}</p>
-          </div>
-          <button type="button" className="room-link-button" onClick={onClose}>Close</button>
-        </div>
-
-        {trade && (
-          <div className="room-trade-status">
-            <strong>
-              {trade.status === 'accepted' ? `${recipientName} accepted ${offererName}'s offer.` : `${offererName} offered a trade to ${recipientName}.`}
-            </strong>
-            <div className="room-trade-line">
-              <span>{offererName} gives {bundleText(trade.give)}</span>
-              <span>for</span>
-              <span>{recipientName} gives {bundleText(trade.get)}</span>
-            </div>
-            <div className="room-trade-actions">
-              {isRecipient && trade.status === 'offered' && (
-                <>
-                  <button type="button" className="room-primary-button" onClick={() => action('tradeAccept')}>Accept</button>
-                  <button type="button" className="room-secondary-button" onClick={() => action('tradeReject')}>Reject</button>
-                  <button
-                    type="button"
-                    className="room-secondary-button"
-                    onClick={() => {
-                      setCountering(true);
-                      setPartner(trade.from);
-                    }}
-                  >
-                    Counter
-                  </button>
-                </>
-              )}
-              {isOfferer && trade.status === 'offered' && (
-                <button type="button" className="room-danger-button" onClick={() => action('tradeCancel')}>Cancel offer</button>
-              )}
-              {isOfferer && trade.status === 'accepted' && (
-                <button type="button" className="room-primary-button" onClick={() => action('tradeConfirm')}>Confirm trade</button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {(!trade || countering) && player && (
-          <form className="room-trade-form" onSubmit={submitTrade}>
-            <label>
-              Partner
-              <select value={partner} onChange={event => setPartner(event.target.value)} disabled={Boolean(trade) && !countering}>
-                <option value="">Select a player</option>
-                {partners.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}
-              </select>
-            </label>
-            <div className="room-trade-column">
-              <h3>You give</h3>
-              {RESOURCE_TYPES.map(resource => (
-                <label className="room-resource-row" key={`give-${resource}`}>
-                  <span>{resource} (you have {player.resources?.[resource] || 0})</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max={player.resources?.[resource] || 0}
-                    value={give[resource]}
-                    onChange={event => updateBundle(setGive, resource, event.target.value)}
-                  />
-                </label>
-              ))}
-            </div>
-            <div className="room-trade-column">
-              <h3>You receive</h3>
-              {RESOURCE_TYPES.map(resource => (
-                <label className="room-resource-row" key={`get-${resource}`}>
-                  <span>{resource}</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="95"
-                    value={get[resource]}
-                    onChange={event => updateBundle(setGet, resource, event.target.value)}
-                  />
-                </label>
-              ))}
-            </div>
-            <div className="room-trade-actions">
-              <button type="submit" className="room-primary-button" disabled={!isMainPhase || !partners.length}>
-                {countering ? 'Send counter offer' : 'Offer trade'}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {!trade && player && (
-          <form className="room-trade-form" onSubmit={submitBankTrade}>
-            <label>
-              Bank exchange
-              <span className="room-field-help">Your port ratio is {bankGive ? `${tradeRatio}:1` : 'selected after choosing a resource'}.</span>
-            </label>
-            <label>
-              Give
-              <select value={bankGive} onChange={event => setBankGive(event.target.value)}>
-                <option value="">Select a resource</option>
-                {RESOURCE_TYPES.map(resource => <option key={`bank-give-${resource}`} value={resource}>{resource}</option>)}
-              </select>
-            </label>
-            <label>
-              Receive
-              <select value={bankGet} onChange={event => setBankGet(event.target.value)}>
-                <option value="">Select a resource</option>
-                {RESOURCE_TYPES.filter(resource => resource !== bankGive).map(resource => (
-                  <option key={`bank-get-${resource}`} value={resource}>{resource}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Quantity to give
-              <input
-                type="number"
-                min="1"
-                max={bankGive ? player.resources?.[bankGive] || 0 : 0}
-                value={bankAmount}
-                onChange={event => setBankAmount(event.target.value)}
-                placeholder={bankGive ? String(tradeRatio) : 'Select a resource'}
-              />
-            </label>
-            <div className="room-trade-actions">
-              <button type="submit" className="room-secondary-button" disabled={!isMainPhase || !bankGive || !bankGet}>
-                Trade with bank
-              </button>
-            </div>
-          </form>
-        )}
-
-        {!player && <p className="room-muted">Spectators can watch trades but cannot submit one.</p>}
-        {trade && !isOfferer && !isRecipient && (
-          <p className="room-muted">This offer is between two other players.</p>
-        )}
-      </section>
-    </div>
-  );
-}
 
 function App() {
   const [session, setSession] = useState(readStoredSession);
@@ -1061,8 +822,9 @@ function App() {
     />
   ) : null;
 
-  const tradePanel = useCallback(onClose => (
+  const tradePanel = useCallback((onClose, mode) => (
     <RoomTradePanel
+      mode={mode}
       snapshot={snapshot}
       gameState={boardState}
       seatId={activeSession?.seatId || null}
@@ -1116,6 +878,7 @@ function App() {
         {hostControls}
         {liveClaimSeatForm}
         <GameBoard
+          key={`${snapshot?.code}:${activeSession?.seatId || 'spectator'}`}
           socket={adapter}
           gameState={boardState}
           playerId={session?.seatId || null}
@@ -1125,6 +888,7 @@ function App() {
           addNotification={addNotification}
           legalActions={snapshot?.legalActions || []}
           events={snapshot?.events || []}
+          rollEvent={snapshot?.rollEvent || null}
           tradePanel={tradePanel}
         />
       </div>

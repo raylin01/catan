@@ -12,6 +12,10 @@
 }
 
 .discard-modal h2 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
   color: var(--player-red);
   margin-bottom: 0.5rem;
 }
@@ -70,7 +74,8 @@
 }
 
 .resource-discard-row .resource-icon {
-  font-size: 1.3rem;
+  display: inline-flex;
+  align-items: center;
 }
 
 .resource-discard-row .resource-name {
@@ -137,4 +142,3 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
-

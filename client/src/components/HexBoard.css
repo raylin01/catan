@@ -1,61 +1,139 @@
 .hex-board {
-  width: 100%;
-  height: 100%;
-  max-width: 500px;
-  max-height: 440px;
+  display: block;
+  width: min(100%, 760px);
+  height: auto;
+  margin: 0 auto;
+  overflow: visible;
+  filter: saturate(1.04) contrast(1.02);
+  isolation: isolate;
+}
+
+.ocean-frame {
+  stroke: rgba(6, 31, 43, 0.9);
+  stroke-width: 5;
+}
+
+.ocean-light {
+  pointer-events: none;
+}
+
+.island-shelf {
+  fill: #d3ad73;
+  stroke: #795437;
+  stroke-width: 1.6;
+  filter: drop-shadow(0 5px 4px rgba(2, 27, 36, 0.55));
+  pointer-events: none;
 }
 
 .hex {
-  transition: all 0.2s ease;
+  transition: filter 180ms ease, transform 180ms ease;
 }
 
 .hex.clickable {
   cursor: pointer;
 }
 
-.hex.clickable:hover path:first-child {
-  filter: brightness(1.2);
+.hex.clickable:hover .terrain-tile {
+  filter: url(#hex-shadow) brightness(1.11) saturate(1.08);
 }
 
-.hex.has-robber path:first-child {
-  filter: brightness(0.7);
+.hex.clickable:hover .tile-bevel {
+  stroke: rgba(255, 241, 174, 0.92);
+  stroke-width: 2.3;
+}
+
+.hex.has-robber .terrain-tile {
+  filter: url(#hex-shadow) brightness(0.76) saturate(0.72);
+}
+
+.terrain-tile,
+.tile-bevel,
+.terrain-art,
+.terrain-badge {
+  pointer-events: none;
+}
+
+.tile-sunwash {
+  fill: rgba(255, 255, 255, 0.11);
+  pointer-events: none;
+}
+
+.tile-bevel {
+  transition: stroke 180ms ease, stroke-width 180ms ease;
+}
+
+.terrain-art {
+  shape-rendering: geometricPrecision;
+}
+
+.terrain-badge > circle {
+  fill: rgba(29, 29, 24, 0.56);
+  stroke: rgba(255, 247, 208, 0.64);
+  stroke-width: 0.8;
+}
+
+.number-token {
+  pointer-events: none;
+}
+
+.number-token text {
+  paint-order: stroke;
+  stroke: rgba(255, 250, 224, 0.3);
+  stroke-width: 0.45;
+}
+
+.number-token--hot > circle:first-child {
+  fill: #b9563c;
 }
 
 .robber {
-  animation: robberBob 2s ease-in-out infinite;
+  animation: robberBob 2.4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  pointer-events: none;
 }
 
 @keyframes robberBob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -2px; }
 }
 
 .vertex-placeholder {
-  fill: rgba(255, 255, 255, 0.2);
-  stroke: rgba(255, 255, 255, 0.5);
+  fill: rgba(255, 250, 220, 0.32);
+  stroke: rgba(255, 247, 196, 0.92);
   stroke-width: 2;
-  stroke-dasharray: 4 2;
+  stroke-dasharray: 3 2;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: fill 160ms ease, stroke 160ms ease, r 160ms ease;
+  filter: drop-shadow(0 1px 2px rgba(3, 23, 29, 0.48));
 }
 
 .vertex-placeholder:hover {
-  fill: rgba(212, 169, 66, 0.5);
-  stroke: var(--accent-gold);
-  stroke-width: 3;
+  fill: rgba(240, 191, 77, 0.72);
+  stroke: #fff0a8;
+  stroke-width: 2.6;
+  r: 11px;
 }
 
 .edge-placeholder {
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: stroke 160ms ease, stroke-width 160ms ease;
 }
 
 .edge-placeholder:hover {
-  stroke: rgba(212, 169, 66, 0.7) !important;
+  stroke: rgba(249, 208, 108, 0.85) !important;
+  stroke-width: 11px;
 }
 
-.settlement {
-  transition: all 0.2s ease;
+.road {
+  pointer-events: none;
+}
+
+.settlement,
+.city {
+  transition: filter 180ms ease, transform 180ms ease;
+  transform-box: fill-box;
+  transform-origin: center bottom;
 }
 
 .settlement.upgradeable {
@@ -63,15 +141,54 @@
 }
 
 .settlement.upgradeable:hover {
-  filter: brightness(1.3) drop-shadow(0 0 8px rgba(212, 169, 66, 0.8));
+  filter: brightness(1.15) drop-shadow(0 0 6px rgba(255, 222, 125, 0.92));
+  transform: translateY(-1px) scale(1.06);
 }
 
 .city {
-  animation: cityGlow 3s ease-in-out infinite;
+  animation: cityGlow 3.2s ease-in-out infinite;
 }
 
 @keyframes cityGlow {
-  0%, 100% { filter: url(#hex-shadow); }
-  50% { filter: url(#hex-shadow) drop-shadow(0 0 4px rgba(255, 255, 255, 0.3)); }
+  0%, 100% { filter: drop-shadow(0 2px 2px rgba(3, 19, 24, 0.58)); }
+  50% { filter: drop-shadow(0 2px 3px rgba(255, 238, 187, 0.45)); }
 }
 
+.port {
+  pointer-events: none;
+}
+
+.port-ratio rect {
+  fill: rgba(24, 29, 29, 0.9);
+  stroke: rgba(250, 222, 160, 0.72);
+  stroke-width: 0.7;
+}
+
+.port-ratio text {
+  fill: #fff4d2;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.2px;
+}
+
+@media (max-width: 720px) {
+  .hex-board {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .terrain-art {
+    opacity: 0.92;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hex,
+  .vertex-placeholder,
+  .edge-placeholder,
+  .settlement,
+  .city,
+  .robber {
+    animation: none;
+    transition: none;
+  }
+}

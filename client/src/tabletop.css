@@ -1,0 +1,154 @@
+/* Shared tabletop materials and responsive composition. Board geometry stays
+   in HexBoard; this layer gives the surrounding controls one visual language. */
+:root {
+  --bg-primary: #101d22;
+  --bg-secondary: #1a2a30;
+  --bg-tertiary: #26383e;
+  --text-primary: #f1ecdf;
+  --text-secondary: #bdc9c9;
+  --text-muted: #96aaa9;
+  --accent-gold: #e0bd78;
+  --border-color: #3a4c50;
+  --accent-green: #70a58b;
+  --accent-blue: #81abb6;
+  color-scheme: dark;
+}
+body, input, select, textarea, button { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+body { font-size: 14px; line-height: 1.45; }
+h1,h2,h3,h4,h5,h6 { font-family: Georgia, 'Times New Roman', serif; }
+button { transition: background-color .18s, border-color .18s, box-shadow .18s; }
+button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #f3ce87; outline-offset: 3px; }
+button:disabled { cursor: not-allowed; }
+.room-app { height: 100dvh; min-height: 0; overflow: hidden; }
+.room-app .game-board { flex: 1; height: auto; min-height: 0; max-height: none; background: radial-gradient(ellipse at 50% 40%, #29434a 0, #15272d 60%, #101d22 100%); }
+.room-session-bar { min-height: 36px; flex-shrink: 0; padding: 7px 24px; background: #101c21; border-color: #2d4146; }
+.room-session-status { font-size: 11px; gap: 14px; }
+.room-session-status strong { font-family: ui-monospace, monospace; color: #b8c9c9; font-size: 11px; letter-spacing: .12em; }
+.room-session-bar .room-link-button { color: var(--text-muted); font-size: 11px; }
+.game-header { min-height: 68px; padding: 12px 24px; background: #16262c; border-color: #41514e; gap: 20px; }
+.table-wordmark { font-family: Georgia, serif; font-size: 24px; letter-spacing: .19em; color: var(--accent-gold); }
+.turn-indicator { gap: 12px; }
+.current-player-badge { border-radius: 5px; padding: 5px 11px; font-size: 12px; box-shadow: inset 0 1px #ffffff50; }
+.status-message { font-size: 13px; color: var(--text-primary); }
+.game-main { padding: 18px 20px 10px; gap: 16px; }
+.sidebar { width: 206px; gap: 10px; }
+.left-sidebar,.right-sidebar { padding: 0; }
+.sidebar h3, .action-panel h3 { font-family: inherit; font-size: 10px; font-weight: 650; color: var(--text-muted); letter-spacing: .14em; margin: 0 0 4px; }
+.board-container { padding: 30px 0 4px; }
+.player-panel { padding: 12px; border: 1px solid #425458; border-radius: 9px; background: #1a2c32; box-shadow: 0 4px 12px #0002, inset 0 1px #ffffff06; }
+.player-panel.is-me { background: #24373b; }
+.player-panel.current-turn { border-color: #c7aa72; box-shadow: 0 0 0 1px #c7aa7230, 0 5px 15px #0002; }
+.player-header { gap: 6px; margin-bottom: 6px; }
+.player-name { font-size: 12px; min-width: 0; flex-wrap: wrap; gap: 4px; overflow-wrap: anywhere; }
+.turn-order-badge { width: 16px; height: 16px; background: transparent; color: var(--text-muted); font-family: inherit; font-size: 10px; flex-shrink: 0; }
+.player-color-badge { width: 11px; height: 11px; flex-shrink: 0; }
+.you-badge { padding: 1px 4px; border-radius: 3px; background: #4a5b58; color: #e4e9dd; font-size: 8px; }
+.victory-points { padding: 0; border-radius: 0; background: none; margin-left: auto; white-space: nowrap; }
+.vp-number { font-family: Georgia, serif; font-size: 23px; font-weight: 400; }
+.vp-label { font-size: 9px; }
+.player-stats { background: none; padding: 0 0 6px; border-radius: 0; border-bottom: 1px solid #ffffff10; gap: 15px; margin-bottom: 6px; }
+.player-stats .stat { font-size: 11px; gap: 5px; }
+.player-pieces { font-size: 10px; justify-content: space-between; gap: 6px; }
+.player-pieces .game-icon { width: 13px; height: 13px; }
+.action-panel { gap: 7px; }
+.action-section { padding-top: 7px; }
+.action-panel h4 { font-family: inherit; font-size: 9px; margin: 0 0 6px; color: var(--text-muted); }
+.action-btn { min-height: 40px; font-size: 12px; padding: 9px 11px; border-color: #43585e; border-radius: 6px; background: #253940; box-shadow: inset 0 1px #ffffff06; }
+.action-btn:hover:not(:disabled) { background: #304850; border-color: #829898; }
+.action-btn:disabled { opacity: .4; }
+.action-btn.primary { background: linear-gradient(#e7cb91,#d2ad69); color: #25302e; border-color: #ead19d; }
+.action-btn.primary:hover:not(:disabled) { transform: none; background: #efd6a2; box-shadow: 0 3px 12px #0003; }
+.build-btn { margin-bottom: 5px; }
+.build-btn .cost { width: auto; padding-left: 0; margin: 0 0 0 auto; font-size: 10px; gap: 3px; }
+.build-btn .cost .game-icon { width: 12px; height: 12px; }
+.build-btn .btn-label { font-size: 11px; }
+.trade-btn { margin-bottom: 5px; background: #233e46; border-color: #4a6c75; }
+.action-btn.highlight { background: #30493d; border-color: #668773; }
+.chat-toggle { padding: 9px; font-size: 12px; border-radius: 6px; background: #1b2d33; }
+.room-event-log { margin-top: 3px; }
+.room-event-log summary { font-family: inherit; font-size: 11px; padding: 10px 0; }
+.room-event { font-size: 11px; }
+.my-resources-bar { padding: 12px 20px 14px; gap: 22px; background: #14252c; border-color: #52605a; box-shadow: 0 -8px 24px #0002; z-index: 12; }
+.resource-cards { gap: 9px; }
+.resource-card { width: 76px; border-radius: 8px; background: #23343a; box-shadow: 0 5px 10px #0004; }
+.card-top { min-height: 37px; background: color-mix(in srgb, var(--resource-color) 64%, #1c3033); }
+.card-bottom { padding: 5px 7px 6px; }
+.resource-name { font-size: 9px; color: #c1cccb; letter-spacing: .07em; }
+.resource-count { font-family: Georgia, serif; font-size: 24px; line-height: 1.15; }
+.dev-cards-summary { background: #24363c; border-radius: 7px; padding: 13px; }
+.dev-cards-summary .label { font-size: 11px; }
+.resource-gain-summary { background: #243c3e; font-size: 12px; }
+.dice-display { --die-size: 36px; top: 0; left: auto; right: 6px; transform: none; min-width: 118px; padding: 9px 11px; background: #16292de8; border-color: #718078; border-radius: 9px; }
+.dice-container { min-height: 40px; gap: 11px; }
+.die-face { padding: 5px; border-radius: 8px; }
+.die-dot { width: 5px; height: 5px; }
+.dice-total { font-size: 18px; }
+.dice-result { margin-top: 2px; }
+.modal-overlay { background: #071216bd; backdrop-filter: blur(5px); padding: 16px; }
+.exchange-dialog { background: #1b2d33; border-color: #687672; box-shadow: 0 25px 100px #0008; }
+.exchange-dialog h2 { font-size: 24px; font-weight: 400; }
+.exchange-header { position: sticky; top: -24px; z-index: 2; background: #1b2d33; padding: 16px 0; margin-top: -16px; border-bottom: 1px solid #ffffff18; }
+.exchange-dialog h3,.exchange-side legend { font-family: inherit; font-size: 13px; }
+.exchange-resource label { font-size: 13px; }
+.exchange-resource small { font-size: 11px; }
+.exchange-footer p { font-size: 12px; }
+.bank-choices button small { font-size: 11px; }
+.room-primary-button { background: linear-gradient(#e7cb91,#d2ad69); color: #1e2a2b; border-color: #dbc28f; }
+.room-primary-button,.room-secondary-button,.room-danger-button { font-size: 12px; border-radius: 6px; }
+.notification { background: #253b40; border: 1px solid #829188; color: var(--text-primary); font-size: 13px; box-shadow: 0 10px 30px #0005; }
+.room-lobby { background: radial-gradient(ellipse at 50% 15%, #29434b 0, #14252b 62%, #0d1b20 100%); }
+.room-home-header h1 { font-weight: 400; font-size: clamp(54px,9vw,86px); text-shadow: 0 5px 25px #0003; }
+.room-subtitle { font-size: 15px; line-height: 1.6; }
+.room-choice { min-height: 160px; padding: 26px; border-color: #526965; background: #1e333a; box-shadow: 0 12px 25px #0002; border-radius: 10px; }
+.room-choice:hover { background: #29434b; }
+.room-choice strong { font-family: Georgia,serif; font-size: 24px; font-weight: 400; }
+.room-choice span { font-size: 13px; }
+.room-form { padding: 26px; border-radius: 10px; box-shadow: 0 16px 40px #0003; }
+.room-seat { border-radius: 8px; padding: 20px; }
+.room-home-footer { font-size: 12px; }
+.room-host-toolbar { max-height: 35dvh; overflow-y: auto; flex-shrink: 0; }
+.room-host-toolbar>summary { cursor: pointer; font-size: 11px; color: var(--text-secondary); }
+.room-host-toolbar[open]>.room-host-toolbar-header { margin-top: 12px; }
+.room-host-toolbar-header p { font-size: 12px; }
+.room-host-roster summary { font-family: inherit; font-size: 12px; }
+@media(min-width: 1200px) { .sidebar { width: 225px; } .game-main { gap: 24px; padding-inline: 28px; } }
+@media(min-width: 701px) and (max-width: 1000px) { .sidebar { width: 174px; } .game-main { gap: 10px; padding: 12px; } .build-btn .cost { width: 100%; padding-left: 27px; } .player-panel { padding: 9px; } }
+@media(max-width: 700px) {
+  .room-app { height: auto; min-height: 100dvh; overflow: visible; }
+  .room-app .room-session-bar { flex-direction: row; align-items: center; padding: 8px 14px; gap: 8px; }
+  .room-session-status { gap: 8px; font-size: 10px; }
+  .room-app .game-header { display: flex; flex-wrap: wrap; min-height: 0; padding: 12px 14px; gap: 8px; }
+  .table-wordmark { font-size: 21px; }
+  .room-app .turn-indicator { flex: 1; justify-content: flex-end; flex-wrap: wrap; }
+  .room-app .status-message { flex: auto; text-align: right; font-size: 11px; }
+  .room-app .game-main { padding: 12px; gap: 16px; }
+  .room-app .board-container { padding: 45px 0 0; }
+  .room-app .left-sidebar { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+  .left-sidebar>h3 { grid-column: 1/-1; }
+  .player-panel { padding: 10px; }
+  .player-name { font-size: 11px; }
+  .room-app .right-sidebar { order: 2; }
+  .room-app .left-sidebar { order: 3; }
+  .action-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .action-panel>h3,.action-panel>.special-action,.action-panel>.special-build-indicator { grid-column: 1/-1; }
+  .action-panel>.roll-btn { grid-column: 1/-1; }
+  .action-panel>.end-turn-btn { grid-column: 1/-1; }
+  .build-btn .cost { width: 100%; padding-left: 27px; }
+  .room-app .my-resources-bar { position: sticky; bottom: 0; padding: 9px 10px; justify-content: center; gap: 8px; }
+  .resource-cards { gap: 5px; }
+  .resource-card { width: 56px; }
+  .card-top { min-height: 29px; }
+  .resource-icon { width: 23px; height: 23px; }
+  .resource-name { font-size: 8px; }
+  .resource-count { font-size: 20px; }
+  .dev-cards-summary { padding: 5px 9px; }
+  .dice-display { top: 0; right: 4px; --die-size: 30px; min-width: 110px; display: flex; align-items: center; gap: 10px; }
+  .dice-container { min-height: 30px; }
+  .die-face { padding: 4px; border-radius: 6px; }
+  .die-dot { width: 4px; height: 4px; }
+  .modal-overlay { padding: 10px; }
+  .exchange-dialog h2 { font-size: 21px; }
+  .exchange-header { top: -18px; padding: 12px 0; margin-top: -12px; }
+  .room-host-toolbar { max-height: none; }
+}
+@media(prefers-reduced-motion:reduce) { .resource-gain-summary { animation: none; } .resource-gain-flyer { display: none; } }

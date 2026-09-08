@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import HexBoard from './HexBoard';
+import GameIcon from './GameIcon';
 import PlayerPanel from './PlayerPanel';
 import ResourceCards from './ResourceCards';
 import ActionPanel from './ActionPanel';
@@ -22,21 +23,24 @@ function GameBoard({
   addNotification,
   legalActions = [],
   events = [],
+  rollEvent = null,
   tradePanel = null
 }) {
   const [selectedAction, setSelectedAction] = useState(null); // 'settlement', 'road', 'city'
   const [lastPlacedSettlement, setLastPlacedSettlement] = useState(null);
   const [showTradeModal, setShowTradeModal] = useState(false);
+  const [tradeMode, setTradeMode] = useState('player');
   const [showDevCardModal, setShowDevCardModal] = useState(false);
   const [pendingRobberHex, setPendingRobberHex] = useState(null);
   const [playersOnHex, setPlayersOnHex] = useState([]);
   const [showChat, setShowChat] = useState(false);
-  const [resourceGainNotification, setResourceGainNotification] = useState(null);
+  const [freshRoll, setFreshRoll] = useState(null);
+  const rollSeen = useRef({identity:`${gameCode}:${playerId}`,id:rollEvent?.id});
   const [revealedCard, setRevealedCard] = useState(null);
   const [lastTradeOfferId, setLastTradeOfferId] = useState(null);
   const [dismissedTradeId, setDismissedTradeId] = useState(null);
-  const [showDice, setShowDice] = useState(false);
-  const [lastNotifiedRoll, setLastNotifiedRoll] = useState(null);
+
+  const [lastNotifiedRoll, setLastNotifiedRoll] = useState(rollEvent?.id || (gameState.diceRoll ? `${gameState.diceRoll.die1}-${gameState.diceRoll.die2}-${gameState.currentPlayerIndex}` : null));
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [lastMessageCount, setLastMessageCount] = useState(0);
   
@@ -69,79 +73,28 @@ function GameBoard({
     }
   }, [gameState.setupAction?.settlement, isSetup]);
 
-  // Auto-hide dice display after 5 seconds
+  // Polls can repeat the same snapshot. Only a new authoritative receipt
+  // animates; initial hydration and seat changes establish a baseline.
   useEffect(() => {
-    if (gameState.diceRoll && gameState.turnPhase !== 'roll') {
-      // Show the dice
-      setShowDice(true);
-      
-      // Hide dice after 5 seconds
-      const timer = setTimeout(() => {
-        setShowDice(false);
-      }, 5000);
-      
-      return () => clearTimeout(timer);
-    } else if (gameState.turnPhase === 'roll') {
-      // Reset when new turn starts (waiting for roll)
-      setShowDice(false);
+    const identity = `${gameCode}:${playerId}`;
+    if (rollSeen.current.identity !== identity) {
+      rollSeen.current = {identity, id: rollEvent?.id};
+      setFreshRoll(null);
+      return;
     }
-  }, [gameState.diceRoll?.dice1, gameState.diceRoll?.dice2, gameState.turnPhase, gameState.currentPlayerIndex]);
-
-  // Listen for personal resource received events (shows center popup for your own gains)
-  useEffect(() => {
-    const handleResourcesReceived = ({ gains, fromRoll }) => {
-      const resourceNames = { brick: '🧱', lumber: '🪵', wool: '🐑', grain: '🌾', ore: '⛏️' };
-      const gainsList = Object.entries(gains)
-        .filter(([_, amount]) => amount > 0)
-        .map(([resource, amount]) => `${resourceNames[resource]} ${amount}`)
-        .join(' ');
-      
-      if (gainsList) {
-        // Show center popup for your own resources
-        setResourceGainNotification({ gains, fromRoll, gainsList });
-        setTimeout(() => setResourceGainNotification(null), 4000);
-      }
-    };
-    
-    socket.on('resourcesReceived', handleResourcesReceived);
-    return () => socket.off('resourcesReceived', handleResourcesReceived);
-  }, [socket]);
-
-  // Listen for all resource distributions (public info - everyone sees who got what)
-  useEffect(() => {
-    const handleResourcesDistributed = ({ fromRoll, allGains }) => {
-      const resourceNames = { brick: '🧱', lumber: '🪵', wool: '🐑', grain: '🌾', ore: '⛏️' };
-      
-      allGains.forEach(({ playerName, playerId: gainPlayerId, gains }) => {
-        const gainsList = Object.entries(gains)
-          .filter(([_, amount]) => amount > 0)
-          .map(([resource, amount]) => `${resourceNames[resource]}${amount}`)
-          .join(' ');
-        
-        if (gainPlayerId === playerId) {
-          // Your own gains
-          addNotification(`🎲 You received: ${gainsList}`);
-        } else {
-          // Other player's gains
-          addNotification(`🎲 ${playerName} received: ${gainsList}`);
-        }
-      });
-    };
-    
-    socket.on('resourcesDistributed', handleResourcesDistributed);
-    return () => socket.off('resourcesDistributed', handleResourcesDistributed);
-  }, [socket, playerId, addNotification]);
+    if (!rollEvent || rollSeen.current.id === rollEvent.id) return;
+    rollSeen.current.id = rollEvent.id;
+    setFreshRoll(rollEvent);
+  }, [gameCode, playerId, rollEvent?.id]);
 
   // Listen for steal notifications
   useEffect(() => {
-    const resourceIcons = { brick: '🧱', lumber: '🪵', wool: '🐑', grain: '🌾', ore: '⛏️' };
     
     const handleStealResult = ({ type, resource, otherPlayer }) => {
-      const icon = resourceIcons[resource] || resource;
       if (type === 'stole') {
-        addNotification(`🥷 You stole ${icon} ${resource} from ${otherPlayer}!`);
+        addNotification(` You stole ${resource} from ${otherPlayer}!`);
       } else {
-        addNotification(`😢 ${otherPlayer} stole ${icon} ${resource} from you!`);
+        addNotification(` ${otherPlayer} stole ${resource} from you!`);
       }
     };
     
@@ -153,13 +106,13 @@ function GameBoard({
   useEffect(() => {
     const handleSpecialBuildStarted = ({ currentBuilder }) => {
       if (currentBuilder === playerId) {
-        addNotification('🏗️ Special Building Phase - Your turn to build!');
+        addNotification(' Special Building Phase - Your turn to build!');
       }
     };
     
     const handleSpecialBuildNext = ({ currentBuilder }) => {
       if (currentBuilder === playerId) {
-        addNotification('🏗️ Your turn in Special Building Phase!');
+        addNotification(' Your turn in Special Building Phase!');
       }
     };
     
@@ -210,6 +163,7 @@ function GameBoard({
     
     if (tradeOffer && isTradeForMe && tradeId !== lastTradeOfferId) {
       // New trade from another player - auto open the modal
+      setTradeMode('player');
       setShowTradeModal(true);
       setLastTradeOfferId(tradeId);
       setDismissedTradeId(null); // Reset dismissed state for new trade
@@ -249,24 +203,24 @@ function GameBoard({
   useEffect(() => {
     if (gameState.diceRoll && gameState.turnPhase !== 'roll') {
       // Create unique key for this roll to prevent duplicate notifications
-      const rollKey = `${gameState.diceRoll.dice1}-${gameState.diceRoll.dice2}-${gameState.currentPlayerIndex}`;
+      const rollKey = rollEvent?.id || `${gameState.diceRoll.die1}-${gameState.diceRoll.die2}-${gameState.currentPlayerIndex}`;
       
       // Only notify for 7 (robber) - regular rolls are shown in the dice display
       if (rollKey !== lastNotifiedRoll && gameState.diceRoll.total === 7) {
         const roller = gameState.players[gameState.currentPlayerIndex];
-        addNotification(`⚠️ ${roller.name} rolled a 7! Move the robber.`);
+        addNotification(`${roller.name} rolled a 7. ${gameState.turnPhase === "discard" ? "Players must discard before the robber moves." : "Move the robber."}`);
         setLastNotifiedRoll(rollKey);
       } else if (rollKey !== lastNotifiedRoll) {
         setLastNotifiedRoll(rollKey);
       }
     }
-  }, [gameState.diceRoll, gameState.turnPhase, gameState.currentPlayerIndex, gameState.players, lastNotifiedRoll, addNotification]);
+  }, [gameState.diceRoll, gameState.turnPhase, gameState.currentPlayerIndex, gameState.players, lastNotifiedRoll, addNotification, rollEvent?.id]);
 
   // Handle winner
   useEffect(() => {
     if (gameState.winner) {
       const winner = gameState.players.find(p => p.id === gameState.winner);
-      if (winner) addNotification(`🎉 ${winner.name} wins the game!`);
+      if (winner) addNotification(` ${winner.name} wins the game!`);
     }
   }, [gameState.winner]);
 
@@ -436,10 +390,10 @@ function GameBoard({
     // Special Building Phase (5-6 player extension)
     if (isSpecialBuildPhase) {
       if (isMySpecialBuild) {
-        return '🏗️ Special Building Phase - Build or buy cards, then pass';
+        return ' Special Building Phase - Build or buy cards, then pass';
       }
       const specialBuilder = gameState.players[gameState.specialBuildIndex];
-      return `🏗️ Special Building Phase - ${specialBuilder?.name}'s turn to build`;
+      return ` Special Building Phase - ${specialBuilder?.name}'s turn to build`;
     }
     if (!isMyTurn) {
       return `${currentPlayer?.name}'s turn`;
@@ -467,8 +421,7 @@ function GameBoard({
       {/* Header */}
       <div className="game-header">
         <div className="game-code-display">
-          <span className="label">Game Code:</span>
-          <span className="code">{gameCode}</span>
+          <span className="table-wordmark">CATAN</span>
         </div>
         
         <div className="turn-indicator">
@@ -487,9 +440,6 @@ function GameBoard({
           <span className="status-message">{getStatusMessage()}</span>
         </div>
 
-        <button className="leave-btn" onClick={onLeaveGame}>
-          Leave Game
-        </button>
       </div>
 
       {/* Main game area */}
@@ -526,14 +476,14 @@ function GameBoard({
                     className="shuffle-btn"
                     onClick={handleShuffleBoard}
                   >
-                    🔀 Shuffle Board
+                     Shuffle Board
                   </button>
                   <button 
                     className="start-game-btn"
                     onClick={handleStartGame}
                     disabled={gameState.players.length < 2}
                   >
-                    ▶️ Start Game ({gameState.players.length}/4)
+                    ▶ Start Game ({gameState.players.length}/4)
                   </button>
                 </>
               )}
@@ -570,9 +520,11 @@ function GameBoard({
           />
           
           {/* Dice display - auto-hides after 5 seconds */}
-          {showDice && gameState.diceRoll && (
+          {gameState.diceRoll && (
             <DiceDisplay 
               roll={gameState.diceRoll} 
+              rollId={rollEvent?.id}
+              animate={Boolean(freshRoll && freshRoll.id === rollEvent?.id)}
               onRightClick={(e, key, extra) => showInfo(e, key, extra)}
             />
           )}
@@ -595,7 +547,7 @@ function GameBoard({
                 onRollDice={handleRollDice}
                 onEndTurn={handleEndTurn}
                 onBuyDevCard={handleBuyDevCard}
-                onOpenTrade={() => setShowTradeModal(true)}
+                onOpenTrade={mode => {setTradeMode(mode); setShowTradeModal(true);}}
                 onOpenDevCards={() => setShowDevCardModal(true)}
                 player={myPlayer}
                 freeRoads={gameState.freeRoads}
@@ -638,7 +590,7 @@ function GameBoard({
             className="chat-toggle"
             onClick={() => setShowChat(!showChat)}
           >
-            💬 Chat
+             <GameIcon name="chat" size={18}/> Chat
             {unreadMessages > 0 && (
               <span className="chat-notification-dot">{unreadMessages}</span>
             )}
@@ -651,6 +603,8 @@ function GameBoard({
         <div className="my-resources-bar">
           <ResourceCards
             resources={myPlayer.resources}
+            gain={freshRoll ? {id:freshRoll.id,gains:freshRoll.gains,fromRoll:freshRoll.roll.total} : null}
+            gainDelay={900}
             onRightClick={(e, resourceKey) => showInfo(e, resourceKey)}
           />
 
@@ -669,7 +623,7 @@ function GameBoard({
       {/* Robber Phase Banner - shows when player needs to move the robber */}
       {gameState.turnPhase === 'robber' && isMyTurn && (
         <div className="robber-notification-banner">
-          <span className="robber-icon">🥷</span>
+          <GameIcon name="robber" size={24}/>
           <span className="robber-text">
             <strong>Move the Robber!</strong> Click on a hex to place the robber there.
           </span>
@@ -679,7 +633,7 @@ function GameBoard({
       {/* Discard Phase Banner - shows when waiting for others to discard */}
       {gameState.turnPhase === 'discard' && isMyTurn && (
         <div className="discard-notification-banner">
-          <span className="discard-icon">⏳</span>
+          <GameIcon name="cards" size={24}/>
           <span className="discard-text">
             Waiting for players to discard cards...
           </span>
@@ -689,7 +643,7 @@ function GameBoard({
       {/* Special Building Phase Banner (5-6 player extension) */}
       {isMySpecialBuild && (
         <div className="special-build-banner">
-          <span className="special-build-icon">🏗️</span>
+          <GameIcon name="settlement" size={24}/>
           <span className="special-build-text">
             <strong>Special Building Phase!</strong> You may build roads, settlements, cities, or buy development cards. No trading allowed.
           </span>
@@ -705,11 +659,11 @@ function GameBoard({
        !showTradeModal && 
        dismissedTradeId !== gameState.tradeOffer.id && (
         <div className="trade-notification-banner">
-          <span className="trade-icon">🤝</span>
-          <span className="trade-text" onClick={() => setShowTradeModal(true)}>
+          <GameIcon name="trade" size={24}/>
+          <span className="trade-text" onClick={() => {setTradeMode('player'); setShowTradeModal(true);}}>
             <strong>{gameState.players[gameState.tradeOffer.from]?.name}</strong> offered a trade to {gameState.players[gameState.tradeOffer.to]?.name}.
           </span>
-          <button className="view-trade-btn" onClick={() => setShowTradeModal(true)}>View Trade</button>
+          <button className="view-trade-btn" onClick={() => {setTradeMode('player'); setShowTradeModal(true);}}>View Trade</button>
           <button 
             className="dismiss-trade-btn" 
             onClick={(e) => {
@@ -717,14 +671,15 @@ function GameBoard({
               setDismissedTradeId(gameState.tradeOffer.id);
             }}
             title="Dismiss notification"
+            aria-label="Dismiss trade notification"
           >
-            ✕
+            <GameIcon name="close" size={16}/>
           </button>
         </div>
       )}
 
       {/* Modals */}
-      {showTradeModal && tradePanel && tradePanel(() => setShowTradeModal(false))}
+      {showTradeModal && tradePanel && tradePanel(() => setShowTradeModal(false), tradeMode)}
 
       {showDevCardModal && myPlayer && (
         <DevCardModal 
@@ -783,16 +738,6 @@ function GameBoard({
                 OK
               </button>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Resource gain notification */}
-      {resourceGainNotification && (
-        <div className="resource-gain-popup">
-          <div className="resource-gain-title">🎲 Rolled {resourceGainNotification.fromRoll}</div>
-          <div className="resource-gain-content">
-            You received: {resourceGainNotification.gainsList}
           </div>
         </div>
       )}

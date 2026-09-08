@@ -1,14 +1,8 @@
 import { useState } from 'react';
 import './DiscardModal.css';
+import GameIcon from './GameIcon';
 
 const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
-const RESOURCE_ICONS = {
-  brick: '🧱',
-  lumber: '🪵',
-  wool: '🐑',
-  grain: '🌾',
-  ore: '⛏️'
-};
 
 function DiscardModal({ socket, player, cardsToDiscard, addNotification }) {
   const [selected, setSelected] = useState({ brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
@@ -38,7 +32,7 @@ function DiscardModal({ socket, player, cardsToDiscard, addNotification }) {
   return (
     <div className="modal-overlay">
       <div className="discard-modal">
-        <h2>🎲 Seven Rolled!</h2>
+        <h2><GameIcon name="dice" size={24} /> Seven Rolled!</h2>
         <p className="discard-info">
           You have more than 7 cards. Discard <strong>{cardsToDiscard}</strong> cards.
         </p>
@@ -60,7 +54,7 @@ function DiscardModal({ socket, player, cardsToDiscard, addNotification }) {
             
             return (
               <div key={r} className="resource-discard-row">
-                <span className="resource-icon">{RESOURCE_ICONS[r]}</span>
+                <GameIcon className="resource-icon" name={r} size={22} />
                 <span className="resource-name">{r}</span>
                 <span className="resource-available">({available})</span>
                 <div className="discard-controls">
@@ -96,4 +90,3 @@ function DiscardModal({ socket, player, cardsToDiscard, addNotification }) {
 }
 
 export default DiscardModal;
-

@@ -102,7 +102,7 @@
 }
 
 .card-back-icon {
-  font-size: 3rem;
+  display: inline-flex;
 }
 
 .card-back-text {
@@ -140,8 +140,7 @@
 }
 
 .card-icon-large {
-  font-size: 2rem;
-  display: block;
+  display: inline-flex;
   margin-bottom: 0.25rem;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
 }
@@ -174,7 +173,7 @@
 }
 
 .card-art-icon {
-  font-size: 4rem;
+  display: inline-flex;
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
   animation: iconPulse 2s ease-in-out infinite;
 }
@@ -241,4 +240,3 @@
   0% { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
 }
-

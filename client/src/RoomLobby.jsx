@@ -158,7 +158,7 @@ function RoomLobby({
               <p className="room-kicker">Room lobby</p>
               <h1>{snapshot.name || 'Catan room'}</h1>
               <p className="room-subtitle">
-                Share the code with friends. AI controllers join through the configured provider.
+                Invite players, choose your seats, and get ready to play.
               </p>
             </div>
             <div className="room-code-block">
@@ -369,7 +369,7 @@ function RoomLobby({
         <header className="room-header room-home-header">
           <div>
             <h1>CATAN</h1>
-            <p className="room-subtitle">Create a room for human players and remote AI controllers.</p>
+            <p className="room-subtitle">Play Catan with friends and AI players.</p>
           </div>
         </header>
 

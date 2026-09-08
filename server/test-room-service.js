@@ -283,3 +283,34 @@ test('restart pauses active rooms and preserves credentials and receipts',()=>{
   assert.deepEqual(restarted.rooms.get(lobby.code),before);
   assert.equal(issue(restarted,lobby.code,lobby.host,'resume').success,true);
 });
+
+test('roll receipts preserve exact production, isolate seats, and survive replay and restart',()=>{
+  const store=new MemoryStore(),service=new RoomService({store});
+  const lobby=makeLobby(service),players=fillHumanLobby(service,lobby);startRoom(service,lobby);
+  const room=setMainTurn(service,lobby.code),game=room.game;
+  game.turnPhase='roll';
+  const target=Object.values(game.hexes).find(h=>h.resource);
+  for(const hex of Object.values(game.hexes))hex.number=5;
+  target.number=6;target.resource='grain';game.bank.grain=1;
+  game.vertices[`v_${target.q}_${target.r}_0`]={building:'city',owner:0};
+  const actor=players.find(p=>p.seatId===game.players[0].id);
+  const spectator=service.join(lobby.code,{name:'Watcher',role:'spectator'});
+  const revision=service.rooms.get(lobby.code).revision;
+  const originalRandom=Math.random;Math.random=()=>0.4;
+  try {
+    const result=issue(service,lobby.code,actor,'rollDice',{}, {requestId:'receipt-roll',revision});assert.equal(result.success,true);
+    const receipt=service.observe(lobby.code,actor.token).rollEvent;
+    assert.equal(receipt.roll.total,6);assert.equal(receipt.gains.grain,1,'finite bank gives only one card');
+    assert.deepEqual(service.observe(lobby.code,spectator.token).rollEvent.gains,{});
+    const other=players.find(p=>p.seatId!==actor.seatId);assert.equal(service.observe(lobby.code,other.token).rollEvent.gains.grain,0);
+    assert.equal(JSON.stringify(service.observe(lobby.code,other.token)).includes('gainsBySeat'),false);
+    assert.deepEqual(issue(service,lobby.code,actor,'rollDice',{}, {requestId:'receipt-roll',revision}),result);
+    assert.equal(service.observe(lobby.code,actor.token).rollEvent.id,receipt.id);
+    const restarted=new RoomService({store});assert.deepEqual(restarted.observe(lobby.code,actor.token).rollEvent,receipt);
+    assert.equal(issue(service,lobby.code,actor,'endTurn').success,true);
+    const nextGame=service.rooms.get(lobby.code).game,next=players.find(p=>p.seatId===nextGame.players[nextGame.currentPlayerIndex].id);
+    assert.equal(issue(service,lobby.code,next,'rollDice').success,true);
+    const second=service.observe(lobby.code,actor.token).rollEvent;assert.equal(second.roll.total,6);assert.notEqual(second.id,receipt.id);
+    assert.equal(second.gains.grain,0,'the empty bank does not invent a resource animation');
+  } finally {Math.random=originalRandom;}
+});

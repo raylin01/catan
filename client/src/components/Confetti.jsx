@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import './Confetti.css';
+import GameIcon from './GameIcon';
 
 const CONFETTI_COLORS = [
   '#e63946', // red
@@ -54,19 +55,16 @@ function Confetti({ winner, onBackToLobby }) {
       
       {/* Winner banner */}
       <div className="winner-banner">
-        <div className="winner-trophy">🏆</div>
+        <div className="winner-trophy"><GameIcon name="trophy" size={72}/></div>
         <h1 className="winner-text">
           {winner?.name || 'Someone'} Wins!
         </h1>
         <div className="winner-subtitle">
           Victory achieved with {(winner?.victoryPoints || 10) + (winner?.hiddenVictoryPoints || 0)} points!
         </div>
-        <div className="celebration-emojis">
-          🎉 🎊 🥳 🎉 🎊
-        </div>
         {onBackToLobby && (
           <button className="back-to-lobby-btn" onClick={onBackToLobby}>
-            🏠 Back to Lobby
+            Back to lobby
           </button>
         )}
       </div>

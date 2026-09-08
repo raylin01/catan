@@ -157,3 +157,5 @@
   transform: translateY(0) scale(1);
 }
 
+
+@media(prefers-reduced-motion:reduce){.confetti-piece{display:none}.winner-banner,.winner-trophy,.winner-text{animation:none}}

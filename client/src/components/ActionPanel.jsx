@@ -1,3 +1,4 @@
+import GameIcon from './GameIcon';
 import './ActionPanel.css';
 
 const BUILDING_COSTS = {
@@ -57,7 +58,7 @@ function ActionPanel({
       {/* Special Build Phase indicator */}
       {isMySpecialBuild && (
         <div className="special-build-indicator">
-          🏗️ Special Building Phase
+          Special Building Phase
           <span className="no-trade-hint">(No trading allowed)</span>
         </div>
       )}
@@ -68,7 +69,7 @@ function ActionPanel({
         onClick={onRollDice}
         disabled={!canRoll}
       >
-        🎲 Roll Dice
+        <GameIcon name="dice" size={22}/> Roll dice
       </button>
 
       {/* Year of Plenty indicator */}
@@ -101,9 +102,9 @@ function ActionPanel({
           onClick={() => setSelectedAction(selectedAction === 'road' ? null : 'road')}
           disabled={!canBuild || (!canAffordRoad && freeRoads === 0)}
         >
-          <span className="btn-icon">━</span>
+          <GameIcon name="road" size={22}/>
           <span className="btn-label">Road</span>
-          <span className="cost">🧱1 🪵1</span>
+          <span className="cost"><span title="1 brick"><GameIcon name="brick" size={16}/>1</span><span title="1 lumber"><GameIcon name="lumber" size={16}/>1</span></span>
         </button>
 
         <button
@@ -111,9 +112,9 @@ function ActionPanel({
           onClick={() => setSelectedAction(selectedAction === 'settlement' ? null : 'settlement')}
           disabled={!canBuild || !canAffordSettlement || player.settlements <= 0}
         >
-          <span className="btn-icon">🏠</span>
+          <GameIcon name="settlement" size={22}/>
           <span className="btn-label">Settlement</span>
-          <span className="cost">🧱1 🪵1 🐑1 🌾1</span>
+          <span className="cost"><span title="1 brick"><GameIcon name="brick" size={16}/>1</span><span title="1 lumber"><GameIcon name="lumber" size={16}/>1</span><span title="1 wool"><GameIcon name="wool" size={16}/>1</span><span title="1 grain"><GameIcon name="grain" size={16}/>1</span></span>
         </button>
 
         <button
@@ -121,9 +122,9 @@ function ActionPanel({
           onClick={() => setSelectedAction(selectedAction === 'city' ? null : 'city')}
           disabled={!canBuild || !canAffordCity || player.cities <= 0}
         >
-          <span className="btn-icon">🏰</span>
+          <GameIcon name="city" size={22}/>
           <span className="btn-label">City</span>
-          <span className="cost">⛏️3 🌾2</span>
+          <span className="cost"><span title="3 ore"><GameIcon name="ore" size={16}/>3</span><span title="2 grain"><GameIcon name="grain" size={16}/>2</span></span>
         </button>
 
         <button
@@ -131,9 +132,9 @@ function ActionPanel({
           onClick={onBuyDevCard}
           disabled={!canBuild || !canAffordDevCard || devCardsLeft === 0}
         >
-          <span className="btn-icon">📜</span>
+          <GameIcon name="devCard" size={22}/>
           <span className="btn-label">Dev Card</span>
-          <span className="cost">⛏️1 🌾1 🐑1</span>
+          <span className="cost"><span title="1 ore"><GameIcon name="ore" size={16}/>1</span><span title="1 grain"><GameIcon name="grain" size={16}/>1</span><span title="1 wool"><GameIcon name="wool" size={16}/>1</span></span>
           {devCardsLeft <= 5 && <span className="remaining">({devCardsLeft} left)</span>}
         </button>
       </div>
@@ -144,11 +145,15 @@ function ActionPanel({
         
         <button
           className="action-btn trade-btn"
-          onClick={onOpenTrade}
-          disabled={!canTrade}
+          onClick={() => onOpenTrade('bank')}
+          disabled={!canTrade || freeRoads > 0 || yearOfPlentyPicks > 0}
         >
-          🤝 Trade
+          <GameIcon name="bank" size={22}/> Trade with bank
         </button>
+      <button className="action-btn trade-btn" onClick={() => onOpenTrade('player')} disabled={turnPhase !== 'main' || isSpecialBuildPhase || freeRoads > 0 || yearOfPlentyPicks > 0}>
+        <GameIcon name="trade" size={22}/> Trade with player
+      </button>
+
       </div>
 
       {/* Development Cards */}
@@ -160,7 +165,7 @@ function ActionPanel({
             onClick={onOpenDevCards}
             disabled={!canPlayDevCards}
           >
-            📜 View & Play Cards ({player.developmentCards.length})
+            <GameIcon name="devCard" size={20}/> View & play cards ({player.developmentCards.length})
           </button>
         </div>
       )}
@@ -171,7 +176,7 @@ function ActionPanel({
         onClick={onEndTurn}
         disabled={!canEnd}
       >
-        ⏭️ End Turn
+        <GameIcon name="endTurn" size={20}/> End turn
       </button>
     </div>
   );

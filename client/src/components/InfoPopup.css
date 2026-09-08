@@ -35,7 +35,9 @@
 }
 
 .info-popup-icon {
-  font-size: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .info-popup-title {
@@ -81,6 +83,19 @@
   color: var(--accent-copper);
 }
 
+.info-popup-cost-items {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.info-popup-cost-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
 .info-popup-number .probability {
   color: var(--accent-gold);
   font-size: 0.8rem;
@@ -100,13 +115,3 @@
 .has-info-popup {
   cursor: context-menu;
 }
-
-.has-info-popup:hover::after {
-  content: 'ℹ️';
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  font-size: 0.6rem;
-  opacity: 0.7;
-}
-
