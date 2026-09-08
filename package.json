@@ -1,0 +1,13 @@
+{
+  "name": "catan-remote-players",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=22.13.0"},
+  "bin": {"catan-ai": "bridge/cli.js"},
+  "scripts": {
+    "start": "node server/index.js",
+    "build": "npm run build --prefix client",
+    "test": "node --test server/test-actions.js server/test-engine-contract.js server/test-store.js server/test-room-service.js server/test-http.js server/test-complete-match.js bridge/test-bridge.js bridge/test-mcp.js"
+  }
+}

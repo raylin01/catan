@@ -273,7 +273,12 @@ async function runTests() {
   logInfo(`Current player: ${firstPlayer.name}`);
   
   // Roll dice
-  result = GameLogic.rollDice(game, firstPlayer.id);
+  // This section tests ordinary building/trading, not the robber flow below.
+  const originalRandom = Math.random;
+  try {
+    Math.random = () => 0.25;
+    result = GameLogic.rollDice(game, firstPlayer.id);
+  } finally { Math.random = originalRandom; }
   assert(result.success, `${firstPlayer.name} rolled dice`);
   const diceTotal = result.roll?.total;
   assert(diceTotal >= 2 && diceTotal <= 12, `Dice result is valid: ${diceTotal}`);
@@ -335,11 +340,13 @@ async function runTests() {
   // Test trading with bank
   logSection('7. BANK TRADING');
   
-  firstPlayer.resources.brick = 4;
-  result = GameLogic.bankTrade(game, firstPlayer.id, 'brick', 4, 'ore');
-  assert(result.success, 'Bank trade (4:1) successful');
+  const brickRatio = GameLogic.getTradeRatio(game, game.players.indexOf(firstPlayer), 'brick');
+  const oreBeforeTrade = firstPlayer.resources.ore;
+  firstPlayer.resources.brick = brickRatio;
+  result = GameLogic.bankTrade(game, firstPlayer.id, 'brick', brickRatio, 'ore');
+  assert(result.success, `Bank trade (${brickRatio}:1) successful`);
   assert(firstPlayer.resources.brick === 0, 'Brick deducted correctly');
-  assert(firstPlayer.resources.ore > 0, 'Ore received correctly');
+  assert(firstPlayer.resources.ore === oreBeforeTrade + 1, 'Ore received correctly');
   
   // Test development cards
   logSection('8. DEVELOPMENT CARDS');
@@ -375,7 +382,12 @@ async function runTests() {
   game.players[0].resources = { brick: 5, lumber: 5, wool: 0, grain: 0, ore: 0 };
   
   // Simulate 7 roll
-  const robberResult = GameLogic.rollDice(game, currentPlayerId);
+  let robberResult;
+  let die = 0;
+  try {
+    Math.random = () => die++ === 0 ? 0 : 0.999;
+    robberResult = GameLogic.rollDice(game, currentPlayerId);
+  } finally { Math.random = originalRandom; }
   const robberDiceTotal = robberResult.roll?.total;
   logInfo(`Rolled: ${robberDiceTotal}`);
   
@@ -409,4 +421,3 @@ runTests().then(success => {
   console.error('Test error:', err);
   process.exit(1);
 });
-

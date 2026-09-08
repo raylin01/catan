@@ -36,4 +36,6 @@ coverage/
 # Misc
 *.pem
 .cache/
-
+data/
+.catan-session*.json
+.catan-session*.tmp

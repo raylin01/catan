@@ -78,7 +78,8 @@ function HexBoard({
   onHexClick,
   onHexRightClick,
   lastPlacedSettlement,
-  freeRoads
+  freeRoads,
+  legalActions = []
 }) {
   // Calculate board bounds
   const bounds = useMemo(() => {
@@ -505,7 +506,7 @@ function HexBoard({
         })}
 
         {/* Clickable edge areas (only shown when placing roads and no road exists) */}
-        {showEdgePlaceholders && clickableEdges.map(({ key, v1, v2 }) => (
+        {showEdgePlaceholders && clickableEdges.filter(({key}) => legalActions.some(action => action.type === 'placeRoad' && action.payload.edgeKey === key)).map(({ key, v1, v2 }) => (
           <line
             key={`click-${key}`}
             x1={v1.x}
@@ -595,7 +596,7 @@ function HexBoard({
               )}
               
               {/* Clickable placeholder for placing settlements */}
-              {canPlace && (
+              {canPlace && legalActions.some(action => action.type === 'placeSettlement' && action.payload.vertexKey === key) && (
                 <circle
                   cx={pos.x}
                   cy={pos.y}
