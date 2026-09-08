@@ -1,0 +1,21 @@
+name: Test
+on:
+  pull_request:
+  push:
+    branches: [main, 'feat/**']
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts --prefix server
+      - run: npm ci --ignore-scripts --prefix client
+      - run: npm test
+      - run: node server/test-game.js
+      - run: node server/test-full-game.js
+      - run: node server/test-edge-cases.js
+      - run: node server/test-longest-road-rigorous.js
+      - run: npm run build

@@ -1,291 +1,1136 @@
-/**
- * ============================================================================
- * CATAN CLIENT APPLICATION
- * ============================================================================
- * 
- * Main React application for the Catan game client.
- * Handles:
- * - Socket.io connection management
- * - Game state management
- * - Session persistence (localStorage)
- * - Global notifications
- * - Keep-alive pings (for Render free tier)
- */
-
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { io } from 'socket.io-client';
-import Lobby from './components/Lobby';
+import RoomLobby from './RoomLobby';
 import GameBoard from './components/GameBoard';
 import './App.css';
+import './room.css';
 
-// Server URL from environment variable, falls back to localhost for development
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+const SESSION_STORAGE_KEY = 'catanRoomSession';
+const POLL_INTERVAL = 1000;
+const RESOURCE_TYPES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
 
-// Keep server alive by pinging every 4 minutes (Render free tier spins down after 15 min)
-const KEEP_ALIVE_INTERVAL = 4 * 60 * 1000;
+function readStoredSession() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const value = JSON.parse(window.localStorage.getItem(SESSION_STORAGE_KEY) || 'null');
+    if (value?.rooms && typeof value.rooms === 'object') {
+      const activeCode = value.activeCode ? String(value.activeCode).toUpperCase() : null;
+      const active = activeCode ? value.rooms[activeCode] : null;
+      if (active?.hostToken || active?.playerToken) return { ...active, code: activeCode, rooms: value.rooms };
+      return { code: null, hostToken: null, playerToken: null, rooms: value.rooms };
+    }
+    if (!value?.code || (!value.hostToken && !value.playerToken)) return null;
+    const code = String(value.code).toUpperCase();
+    const active = {
+      code,
+      hostToken: value.hostToken || null,
+      playerToken: value.playerToken || null,
+      playerRole: value.playerRole || null,
+      seatId: value.seatId || null,
+      generation: Number.isInteger(value.generation) ? value.generation : 0,
+      displayName: value.displayName || ''
+    };
+    return { ...active, rooms: { [code]: active } };
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(session) {
+  if (typeof window === 'undefined') return;
+  const rooms = { ...(session?.rooms || {}) };
+  if (session?.code && (session.hostToken || session.playerToken)) {
+    const { rooms: _rooms, ...active } = session;
+    rooms[session.code] = active;
+  }
+  if (!Object.keys(rooms).length) {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+    activeCode: session?.code || null,
+    rooms
+  }));
+}
+
+function makeRequestId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function requestJson(path, { method = 'GET', token, body, headers: extraHeaders } = {}) {
+  const headers = { Accept: 'application/json', ...(extraHeaders || {}) };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+
+  let response;
+  try {
+    response = await fetch(path, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+  } catch {
+    const error = new Error('The room service could not be reached.');
+    error.status = 0;
+    throw error;
+  }
+
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok || data?.success === false) {
+    const error = new Error(data?.error || `Request failed (${response.status})`);
+    error.status = data?.statusCode || response.status;
+    throw error;
+  }
+
+  return data;
+}
+
+function getToken(response) {
+  return response?.token || null;
+}
+
+function getCode(response, fallback = '') {
+  return String(response?.code || fallback).toUpperCase();
+}
+
+function normalizeGameState(snapshot) {
+  if (!snapshot?.gameState) return null;
+  const state = { ...snapshot.gameState };
+  const trade = snapshot.trade;
+
+  if (!trade) {
+    state.tradeOffer = null;
+    return state;
+  }
+
+  const from = state.players?.findIndex(player => player.id === trade.from) ?? -1;
+  const to = state.players?.findIndex(player => player.id === trade.to) ?? -1;
+  state.tradeOffer = {
+    id: trade.id,
+    status: trade.status,
+    from,
+    to,
+    offer: trade.give || {},
+    request: trade.get || {}
+  };
+  return state;
+}
+
+function bundleText(bundle) {
+  const entries = Object.entries(bundle || {}).filter(([, amount]) => Number(amount) > 0);
+  if (!entries.length) return 'nothing';
+  return entries.map(([resource, amount]) => `${amount} ${resource}`).join(', ');
+}
+
+function emptyBundle() {
+  return Object.fromEntries(RESOURCE_TYPES.map(resource => [resource, 0]));
+}
+
+function readRequestedRoom() {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.search).get('room')?.trim().toUpperCase() || '';
+}
+
+function createRoomAdapter() {
+  let context = {
+    snapshot: null,
+    gameState: null,
+    seatId: null,
+    sendCommand: async () => ({ success: false, error: 'Room is not ready' })
+  };
+  const listeners = new Map();
+
+  const emitEvent = (event, payload) => {
+    listeners.get(event)?.forEach(listener => listener(payload));
+  };
+
+  const playersOnHex = hexKey => {
+    const actions = context.snapshot?.legalActions || [];
+    const ids = [...new Set(
+      actions
+        .filter(action => action.type === 'moveRobber' && action.payload?.hexKey === hexKey)
+        .map(action => action.payload?.stealFromPlayerId)
+        .filter(Boolean)
+    )];
+    return ids
+      .map(id => context.gameState?.players?.find(player => player.id === id))
+      .filter(Boolean)
+      .map(player => ({
+        id: player.id,
+        name: player.name,
+        hasResources: typeof player.resources === 'object'
+          ? Object.values(player.resources).some(amount => amount > 0)
+          : Number(player.resources) > 0
+      }));
+  };
+
+  const commandFor = (event, payload = {}) => {
+    switch (event) {
+      case 'rollDice': return { type: 'rollDice', payload: {} };
+      case 'discardCards': return { type: 'discardCards', payload: { resources: payload.resources } };
+      case 'moveRobber': return { type: 'moveRobber', payload: {
+        hexKey: payload.hexKey,
+        stealFromPlayerId: payload.stealFromPlayerId || null
+      } };
+      case 'placeSettlement': return { type: 'placeSettlement', payload: { vertexKey: payload.vertexKey } };
+      case 'placeRoad': return { type: 'placeRoad', payload: { edgeKey: payload.edgeKey } };
+      case 'advanceSetup': return { type: 'advanceSetup', payload: {} };
+      case 'upgradeToCity': return { type: 'upgradeToCity', payload: { vertexKey: payload.vertexKey } };
+      case 'buyDevCard': return { type: 'buyDevCard', payload: {} };
+      case 'playDevCard': return { type: 'playDevCard', payload: {
+        cardType: payload.cardType,
+        params: payload.params || {}
+      } };
+      case 'yearOfPlentyPick': return { type: 'yearOfPlentyPick', payload: { resource: payload.resource } };
+      case 'bankTrade': return { type: 'bankTrade', payload: {
+        giveResource: payload.giveResource,
+        giveAmount: payload.giveAmount,
+        getResource: payload.getResource
+      } };
+      case 'finishFreeRoads': return { type: 'finishFreeRoads', payload: {} };
+      case 'endTurn': return { type: 'endTurn', payload: {} };
+      case 'chatMessage': return { type: 'chat', payload: { message: payload.message } };
+      default: return null;
+    }
+  };
+
+  return {
+    configure(nextContext) {
+      context = { ...context, ...nextContext };
+    },
+    on(event, listener) {
+      const current = listeners.get(event) || new Set();
+      current.add(listener);
+      listeners.set(event, current);
+    },
+    off(event, listener) {
+      const current = listeners.get(event);
+      if (!current) return;
+      if (listener) current.delete(listener);
+      else current.clear();
+    },
+    emit(event, payload, callback) {
+      let commandPayload = payload;
+      let done = callback;
+      if (typeof payload === 'function') {
+        done = payload;
+        commandPayload = {};
+      }
+
+      if (event === 'getPlayersOnHex') {
+        done?.({ success: true, players: playersOnHex(commandPayload?.hexKey) });
+        return;
+      }
+
+      if (['proposeTrade', 'respondToTrade', 'cancelTrade'].includes(event)) {
+        done?.({ success: false, error: 'Use the room trade panel for player trades.' });
+        return;
+      }
+
+      if (event === 'startGame' || event === 'shuffleBoard' || event === 'endSpecialBuild') {
+        done?.({ success: false, error: 'This action is controlled from the room session.' });
+        return;
+      }
+
+      const command = commandFor(event, commandPayload || {});
+      if (!command) {
+        done?.({ success: false, error: `Unsupported room action: ${event}` });
+        return;
+      }
+
+      context.sendCommand(command.type, command.payload).then(result => {
+        done?.(result);
+        if (result?.success && event === 'rollDice' && result.roll) {
+          emitEvent('diceRolled', { roll: result.roll, playerId: context.seatId });
+        }
+      });
+    }
+  };
+}
+
+function HostToolbar({ paused, busy, onCommand, slots = [], providers = [], phase }) {
+  const [seatDrafts, setSeatDrafts] = useState({});
+  const gameEnded = phase === 'finished';
+
+  useEffect(() => {
+    setSeatDrafts(previous => {
+      const next = {};
+      slots.forEach(slot => {
+        next[slot.id] = previous[slot.id] || {
+          kind: slot.kind,
+          provider: slot.provider || providers[0]?.id || '',
+          model: slot.model || ''
+        };
+      });
+      return next;
+    });
+  }, [providers, slots]);
+
+  const updateSeatDraft = (seatId, field, value) => {
+    setSeatDrafts(previous => ({
+      ...previous,
+      [seatId]: { ...previous[seatId], [field]: value }
+    }));
+  };
+
+  const updateController = async slot => {
+    const draft = seatDrafts[slot.id] || {
+      kind: slot.kind,
+      provider: slot.provider || providers[0]?.id || '',
+      model: slot.model || ''
+    };
+    await onCommand('removeController', {
+      seatId: slot.id,
+      kind: draft.kind,
+      ...(draft.kind === 'ai'
+        ? { provider: draft.provider || providers[0]?.id, model: draft.model.trim() || undefined }
+        : {})
+    });
+    setSeatDrafts(previous => ({
+      ...previous,
+      [slot.id]: { ...draft, provider: draft.provider || providers[0]?.id || '' }
+    }));
+  };
+
+  return (
+    <div className="room-host-toolbar" aria-label="Host controls">
+      <div className="room-host-toolbar-header">
+        <div>
+          <strong>{gameEnded ? 'Game ended' : 'Host controls'}</strong>
+          <p>{gameEnded ? 'This game has ended.' : paused ? 'The room is paused.' : 'The room is live.'}</p>
+        </div>
+        {!gameEnded && (
+          <div className="room-host-toolbar-actions">
+            <button
+              type="button"
+              className="room-secondary-button"
+              onClick={() => onCommand(paused ? 'resume' : 'pause')}
+              disabled={busy}
+            >
+              {paused ? 'Resume room' : 'Pause room'}
+            </button>
+            <button
+              type="button"
+              className="room-danger-button"
+              onClick={() => onCommand('endGame')}
+              disabled={busy}
+            >
+              End game
+            </button>
+          </div>
+        )}
+      </div>
+      <details className="room-host-roster">
+        <summary>Manage seats</summary>
+        <div className="room-host-seat-list">
+          {slots.length === 0 && <p className="room-muted">Seat information is not available yet.</p>}
+          {slots.map((slot, index) => {
+            const draft = seatDrafts[slot.id] || {
+              kind: slot.kind,
+              provider: slot.provider || providers[0]?.id || '',
+              model: slot.model || ''
+            };
+            const providerName = providers.find(provider => provider.id === slot.provider)?.name || slot.provider;
+            return (
+              <div className="room-host-seat" key={slot.id}>
+                <div className="room-host-seat-main">
+                  <strong>{slot.name || `Seat ${index + 1}`}</strong>
+                  <p>
+                    {slot.occupied ? 'Occupied' : 'Vacant'} · {slot.connected ? 'Connected' : 'Waiting'}
+                    {slot.kind === 'ai' ? ` · ${providerName || 'AI'}${slot.model ? ` · ${slot.model}` : ''}` : ' · Human'}
+                  </p>
+                </div>
+                <div className="room-host-seat-controls">
+                  <label>
+                    Controller
+                    <select
+                      value={draft.kind}
+                      onChange={event => updateSeatDraft(slot.id, 'kind', event.target.value)}
+                    >
+                      <option value="human">Human</option>
+                      <option value="ai">AI</option>
+                    </select>
+                  </label>
+                  {draft.kind === 'ai' && (
+                    <>
+                      <label>
+                        Provider
+                        <select
+                          value={draft.provider}
+                          onChange={event => updateSeatDraft(slot.id, 'provider', event.target.value)}
+                          disabled={!providers.length}
+                        >
+                          {!providers.length && <option value="">Loading connectors</option>}
+                          {providers.map(provider => (
+                            <option key={provider.id} value={provider.id}>{provider.name || provider.id}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Model
+                        <input
+                          type="text"
+                          value={draft.model}
+                          onChange={event => updateSeatDraft(slot.id, 'model', event.target.value)}
+                          placeholder="Configured by controller"
+                          maxLength={40}
+                        />
+                      </label>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    className={slot.occupied ? 'room-danger-button' : 'room-secondary-button'}
+                    onClick={() => updateController(slot)}
+                    disabled={busy || (draft.kind === 'ai' && !providers.length)}
+                  >
+                    {slot.occupied ? 'Release and set' : 'Set controller'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function LiveClaimSeatForm({ code, defaultName = '', vacantHumanSlots = [], busy, onClaim }) {
+  const [name, setName] = useState(defaultName);
+  const [seatId, setSeatId] = useState('');
+  const selectedSeatId = vacantHumanSlots.some(slot => slot.id === seatId)
+    ? seatId
+    : vacantHumanSlots[0]?.id || '';
+
+  useEffect(() => {
+    if (!vacantHumanSlots.some(slot => slot.id === seatId)) {
+      setSeatId(vacantHumanSlots[0]?.id || '');
+    }
+  }, [seatId, vacantHumanSlots]);
+
+  const submit = async event => {
+    event.preventDefault();
+    if (!name.trim() || !selectedSeatId) return;
+    await onClaim({ code, name: name.trim(), role: 'human', seatId: selectedSeatId });
+  };
+
+  return (
+    <form className="room-claim-form" onSubmit={submit}>
+      <div>
+        <h3>Claim a human seat</h3>
+        <p>This room has a vacant human seat. Claim one to play.</p>
+      </div>
+      <label>
+        Name
+        <input
+          type="text"
+          value={name}
+          onChange={event => setName(event.target.value)}
+          maxLength={40}
+          required
+        />
+      </label>
+      <label>
+        Seat
+        <select value={selectedSeatId} onChange={event => setSeatId(event.target.value)} required>
+          {vacantHumanSlots.map((slot, index) => (
+            <option key={slot.id} value={slot.id}>{slot.name || `Seat ${index + 1}`}</option>
+          ))}
+        </select>
+      </label>
+      <button type="submit" className="room-primary-button" disabled={busy || !selectedSeatId}>
+        {busy ? 'Claiming…' : 'Claim seat'}
+      </button>
+    </form>
+  );
+}
+
+function RoomTradePanel({ snapshot, gameState, seatId, onCommand, onClose, addNotification }) {
+  const [partner, setPartner] = useState('');
+  const [give, setGive] = useState(emptyBundle());
+  const [get, setGet] = useState(emptyBundle());
+  const [countering, setCountering] = useState(false);
+  const [bankGive, setBankGive] = useState('');
+  const [bankGet, setBankGet] = useState('');
+  const [bankAmount, setBankAmount] = useState('');
+
+  const player = gameState?.players?.find(value => value.id === seatId) || null;
+  const occupied = new Set((snapshot?.slots || []).filter(slot => slot.occupied).map(slot => slot.id));
+  const partners = (gameState?.players || []).filter(value => value.id !== seatId && occupied.has(value.id));
+  const trade = snapshot?.trade || null;
+  const isOfferer = trade?.from === seatId;
+  const isRecipient = trade?.to === seatId;
+  const offererName = gameState?.players?.find(value => value.id === trade?.from)?.name || 'Offerer';
+  const recipientName = gameState?.players?.find(value => value.id === trade?.to)?.name || 'Partner';
+  const isMainPhase = gameState?.turnPhase === 'main';
+  const tradeRatio = gameState?.tradeRatios?.[bankGive] || 4;
+
+  useEffect(() => {
+    if (!partner && partners[0]) setPartner(partners[0].id);
+  }, [partner, partners]);
+
+  useEffect(() => {
+    if (bankGive) setBankAmount(String(tradeRatio));
+  }, [bankGive, tradeRatio]);
+
+  const updateBundle = (setter, resource, value) => {
+    const amount = Math.max(0, Number.isFinite(Number(value)) ? Math.floor(Number(value)) : 0);
+    setter(previous => ({ ...previous, [resource]: amount }));
+  };
+
+  const clearBuilder = () => {
+    setGive(emptyBundle());
+    setGet(emptyBundle());
+    setCountering(false);
+  };
+
+  const submitTrade = async event => {
+    event.preventDefault();
+    const giveBundle = Object.fromEntries(Object.entries(give).filter(([, amount]) => amount > 0));
+    const getBundle = Object.fromEntries(Object.entries(get).filter(([, amount]) => amount > 0));
+    if (!partner || !Object.keys(giveBundle).length || !Object.keys(getBundle).length) {
+      addNotification('Choose a partner and positive quantities on both sides.');
+      return;
+    }
+    const result = await onCommand(
+      countering ? 'tradeCounter' : 'tradeOffer',
+      { ...(countering ? { tradeId: trade?.id } : {}), to: partner, give: giveBundle, get: getBundle }
+    );
+    if (result?.success) {
+      addNotification(countering ? 'Counter offer sent.' : 'Trade offer sent.');
+      clearBuilder();
+    }
+  };
+
+  const submitBankTrade = async event => {
+    event.preventDefault();
+    const amount = Math.floor(Number(bankAmount));
+    if (!bankGive || !bankGet || bankGive === bankGet || !Number.isInteger(amount) || amount !== tradeRatio) {
+      addNotification(`Enter exactly ${tradeRatio} ${bankGive || 'resources'} and choose a different resource.`);
+      return;
+    }
+    const result = await onCommand('bankTrade', {
+      giveResource: bankGive,
+      giveAmount: amount,
+      getResource: bankGet
+    });
+    if (result?.success) {
+      addNotification(`Bank trade completed: ${amount} ${bankGive} for 1 ${bankGet}.`);
+      onClose();
+    }
+  };
+
+  const action = async type => {
+    const result = await onCommand(type, { tradeId: trade?.id });
+    if (result?.success) {
+      if (type === 'tradeAccept') addNotification('Trade accepted.');
+      if (type === 'tradeReject') addNotification('Trade rejected.');
+      if (type === 'tradeConfirm') addNotification('Trade completed.');
+      if (type === 'tradeCancel') addNotification('Trade cancelled.');
+      if (type !== 'tradeConfirm') onClose();
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <section className="room-trade-panel" onClick={event => event.stopPropagation()} aria-labelledby="room-trade-title">
+        <div className="room-trade-header">
+          <div>
+            <h2 id="room-trade-title">Trade</h2>
+            <p>{isMainPhase ? 'Player trades are negotiated with one named partner.' : 'Trading is available during the main phase.'}</p>
+          </div>
+          <button type="button" className="room-link-button" onClick={onClose}>Close</button>
+        </div>
+
+        {trade && (
+          <div className="room-trade-status">
+            <strong>
+              {trade.status === 'accepted' ? `${recipientName} accepted ${offererName}'s offer.` : `${offererName} offered a trade to ${recipientName}.`}
+            </strong>
+            <div className="room-trade-line">
+              <span>{offererName} gives {bundleText(trade.give)}</span>
+              <span>for</span>
+              <span>{recipientName} gives {bundleText(trade.get)}</span>
+            </div>
+            <div className="room-trade-actions">
+              {isRecipient && trade.status === 'offered' && (
+                <>
+                  <button type="button" className="room-primary-button" onClick={() => action('tradeAccept')}>Accept</button>
+                  <button type="button" className="room-secondary-button" onClick={() => action('tradeReject')}>Reject</button>
+                  <button
+                    type="button"
+                    className="room-secondary-button"
+                    onClick={() => {
+                      setCountering(true);
+                      setPartner(trade.from);
+                    }}
+                  >
+                    Counter
+                  </button>
+                </>
+              )}
+              {isOfferer && trade.status === 'offered' && (
+                <button type="button" className="room-danger-button" onClick={() => action('tradeCancel')}>Cancel offer</button>
+              )}
+              {isOfferer && trade.status === 'accepted' && (
+                <button type="button" className="room-primary-button" onClick={() => action('tradeConfirm')}>Confirm trade</button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {(!trade || countering) && player && (
+          <form className="room-trade-form" onSubmit={submitTrade}>
+            <label>
+              Partner
+              <select value={partner} onChange={event => setPartner(event.target.value)} disabled={Boolean(trade) && !countering}>
+                <option value="">Select a player</option>
+                {partners.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}
+              </select>
+            </label>
+            <div className="room-trade-column">
+              <h3>You give</h3>
+              {RESOURCE_TYPES.map(resource => (
+                <label className="room-resource-row" key={`give-${resource}`}>
+                  <span>{resource} (you have {player.resources?.[resource] || 0})</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max={player.resources?.[resource] || 0}
+                    value={give[resource]}
+                    onChange={event => updateBundle(setGive, resource, event.target.value)}
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="room-trade-column">
+              <h3>You receive</h3>
+              {RESOURCE_TYPES.map(resource => (
+                <label className="room-resource-row" key={`get-${resource}`}>
+                  <span>{resource}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="95"
+                    value={get[resource]}
+                    onChange={event => updateBundle(setGet, resource, event.target.value)}
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="room-trade-actions">
+              <button type="submit" className="room-primary-button" disabled={!isMainPhase || !partners.length}>
+                {countering ? 'Send counter offer' : 'Offer trade'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {!trade && player && (
+          <form className="room-trade-form" onSubmit={submitBankTrade}>
+            <label>
+              Bank exchange
+              <span className="room-field-help">Your port ratio is {bankGive ? `${tradeRatio}:1` : 'selected after choosing a resource'}.</span>
+            </label>
+            <label>
+              Give
+              <select value={bankGive} onChange={event => setBankGive(event.target.value)}>
+                <option value="">Select a resource</option>
+                {RESOURCE_TYPES.map(resource => <option key={`bank-give-${resource}`} value={resource}>{resource}</option>)}
+              </select>
+            </label>
+            <label>
+              Receive
+              <select value={bankGet} onChange={event => setBankGet(event.target.value)}>
+                <option value="">Select a resource</option>
+                {RESOURCE_TYPES.filter(resource => resource !== bankGive).map(resource => (
+                  <option key={`bank-get-${resource}`} value={resource}>{resource}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Quantity to give
+              <input
+                type="number"
+                min="1"
+                max={bankGive ? player.resources?.[bankGive] || 0 : 0}
+                value={bankAmount}
+                onChange={event => setBankAmount(event.target.value)}
+                placeholder={bankGive ? String(tradeRatio) : 'Select a resource'}
+              />
+            </label>
+            <div className="room-trade-actions">
+              <button type="submit" className="room-secondary-button" disabled={!isMainPhase || !bankGive || !bankGet}>
+                Trade with bank
+              </button>
+            </div>
+          </form>
+        )}
+
+        {!player && <p className="room-muted">Spectators can watch trades but cannot submit one.</p>}
+        {trade && !isOfferer && !isRecipient && (
+          <p className="room-muted">This offer is between two other players.</p>
+        )}
+      </section>
+    </div>
+  );
+}
 
 function App() {
-  // ============================================================================
-  // STATE MANAGEMENT
-  // ============================================================================
-  
-  const [socket, setSocket] = useState(null);           // Socket.io connection
-  const [connected, setConnected] = useState(false);     // Connection status
-  const [gameState, setGameState] = useState(null);      // Current game state from server
-  const [playerId, setPlayerId] = useState(null);        // This player's unique ID
-  const [gameCode, setGameCode] = useState(null);        // Current game room code
-  const [error, setError] = useState(null);              // Error messages for display
-  const [chatMessages, setChatMessages] = useState([]);  // Chat message history
-  const [notifications, setNotifications] = useState([]); // Toast notifications
-  const [serverFull, setServerFull] = useState(false);   // Server capacity flag
+  const [session, setSession] = useState(readStoredSession);
+  const [requestedRoomCode, setRequestedRoomCode] = useState(readRequestedRoom);
+  const [snapshot, setSnapshot] = useState(null);
+  const [hostSnapshot, setHostSnapshot] = useState(null);
+  const [providers, setProviders] = useState([]);
+  const activeSession = requestedRoomCode && session?.code !== requestedRoomCode ? null : session;
+  const [loading, setLoading] = useState(Boolean(activeSession?.code));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const adapter = useMemo(() => createRoomAdapter(), []);
+  const commandSequence = useRef(0);
+  const snapshotRef = useRef(null);
+  const hostSnapshotRef = useRef(null);
 
-  // ============================================================================
-  // SOCKET CONNECTION & EVENT HANDLERS
-  // ============================================================================
-  
-  useEffect(() => {
-    const newSocket = io(SERVER_URL);
-    
-    newSocket.on('connect', () => {
-      console.log('Connected to server');
-      setConnected(true);
-      setServerFull(false);
-      
-      // Try to reconnect to existing game
-      const savedGame = localStorage.getItem('catanGame');
-      if (savedGame) {
-        const { gameCode, playerId } = JSON.parse(savedGame);
-        newSocket.emit('reconnect', { gameCode, playerId }, (response) => {
-          if (response.success) {
-            setGameCode(gameCode);
-            setPlayerId(playerId);
-            setGameState(response.gameState);
-          } else {
-            localStorage.removeItem('catanGame');
-          }
-        });
+  const activeToken = activeSession?.playerToken || activeSession?.hostToken || null;
+  const activeRole = activeSession?.playerRole || (activeSession?.hostToken ? 'host' : null);
+  const boardState = useMemo(() => normalizeGameState(snapshot), [snapshot]);
+  const chatMessages = useMemo(() => {
+    const players = boardState?.players || [];
+    return (snapshot?.chat || []).map(message => ({
+      ...message,
+      playerColor: players.find(player => player.id === message.playerId)?.color
+    }));
+  }, [snapshot?.chat, boardState?.players]);
+
+  const updateStoredSession = useCallback(updater => {
+    setSession(previous => {
+      const requested = typeof updater === 'function' ? updater(previous) : updater;
+      const rooms = { ...(previous?.rooms || {}) };
+      if (!requested || (!requested.hostToken && !requested.playerToken)) {
+        if (previous?.code) delete rooms[previous.code];
+        const next = Object.keys(rooms).length
+          ? { code: null, hostToken: null, playerToken: null, rooms }
+          : null;
+        saveSession(next);
+        return next;
       }
+      const { rooms: _requestedRooms, ...active } = requested;
+      rooms[active.code] = active;
+      const next = { ...active, rooms };
+      saveSession(next);
+      return next;
     });
-    
-    newSocket.on('disconnect', () => {
-      console.log('Disconnected from server');
-      setConnected(false);
-    });
-    
-    newSocket.on('serverFull', ({ message }) => {
-      console.log('Server is full:', message);
-      setServerFull(true);
-      setConnected(false);
-    });
-    
-    newSocket.on('gameState', (state) => {
-      setGameState(state);
-    });
-    
-    newSocket.on('playerJoined', ({ playerName }) => {
-      addNotification(`${playerName} joined the game`);
-    });
-    
-    newSocket.on('playerDisconnected', ({ playerName }) => {
-      addNotification(`${playerName} disconnected`);
-    });
-    
-    newSocket.on('playerReconnected', ({ playerName }) => {
-      addNotification(`${playerName} reconnected`);
-    });
-    
-    newSocket.on('gameStarted', () => {
-      addNotification('Game started! Place your first settlement.');
-    });
-    
-    newSocket.on('diceRolled', ({ roll, playerId: rollerId }) => {
-      // Notification handled in GameBoard
-    });
-    
-    newSocket.on('chatMessage', (msg) => {
-      setChatMessages(prev => [...prev, msg]);
-    });
-    
-    newSocket.on('tradeProposed', ({ from, offer, request }) => {
-      // Handled in GameBoard
-    });
-    
-    newSocket.on('tradeAccepted', ({ by }) => {
-      addNotification('Trade completed!');
-    });
-    
-    newSocket.on('tradeCancelled', () => {
-      addNotification('Trade cancelled');
-    });
-    
-    setSocket(newSocket);
-    
-    return () => {
-      newSocket.close();
-    };
   }, []);
 
-  // ============================================================================
-  // KEEP-ALIVE PING (prevents Render free tier from sleeping)
-  // ============================================================================
-  
+  const clearRequestedRoom = useCallback(() => {
+    setRequestedRoomCode('');
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('room');
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  const handleAuthFailure = useCallback((token, activeTokenAtRequest) => {
+    updateStoredSession(previous => {
+      if (!previous) return null;
+      const next = { ...previous };
+      if (next.playerToken === token) {
+        next.playerToken = null;
+        next.playerRole = null;
+        next.seatId = null;
+        next.generation = 0;
+      }
+      if (next.hostToken === token) next.hostToken = null;
+      return next.hostToken || next.playerToken ? next : null;
+    });
+    if (token === activeTokenAtRequest) {
+      snapshotRef.current = null;
+      setSnapshot(null);
+    }
+    hostSnapshotRef.current = null;
+    setHostSnapshot(null);
+    setError('This room session has expired. Join the room again to continue.');
+  }, [updateStoredSession]);
+
+  const observe = useCallback(async (code, token) => {
+    return requestJson(`/api/rooms/${encodeURIComponent(code)}`, { token });
+  }, []);
+
   useEffect(() => {
-    const pingServer = async () => {
+    let cancelled = false;
+    requestJson('/api/providers')
+      .then(response => {
+        if (!cancelled) setProviders(Array.isArray(response.providers) ? response.providers : []);
+      })
+      .catch(() => {
+        if (!cancelled) setProviders([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    const code = activeSession?.code;
+    const token = activeToken;
+    if (!code || !token) {
+      setLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timer = null;
+    let inFlight = false;
+
+    const poll = async () => {
+      if (cancelled) return;
+      if (inFlight) {
+        timer = window.setTimeout(poll, POLL_INTERVAL);
+        return;
+      }
+      inFlight = true;
       try {
-        await fetch(`${SERVER_URL}/ping`);
-        console.log('Keep-alive ping sent');
-      } catch (err) {
-        console.log('Keep-alive ping failed:', err.message);
+        const next = await observe(code, token);
+        if (!cancelled) {
+          snapshotRef.current = next;
+          setSnapshot(next);
+          setLoading(false);
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setLoading(false);
+          if (requestError.status === 401) {
+            handleAuthFailure(token, token);
+          } else {
+            setError(requestError.message);
+          }
+        }
+      } finally {
+        inFlight = false;
+        if (!cancelled) timer = window.setTimeout(poll, POLL_INTERVAL);
       }
     };
 
-    // Initial ping
-    pingServer();
+    setLoading(true);
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [activeSession?.code, activeToken, handleAuthFailure, observe]);
 
-    // Set up interval
-    const interval = setInterval(pingServer, KEEP_ALIVE_INTERVAL);
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
 
-    return () => clearInterval(interval);
-  }, []);
-
-  // ============================================================================
-  // NOTIFICATION HELPERS
-  // ============================================================================
-  
-  /** Add a toast notification that auto-dismisses after 4 seconds */
-  const addNotification = useCallback((message) => {
-    const id = Date.now();
-    setNotifications(prev => [...prev, { id, message }]);
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
+  const addNotification = useCallback(message => {
+    const id = `${Date.now()}-${Math.random()}`;
+    setNotifications(previous => [...previous, { id, message }]);
+    window.setTimeout(() => {
+      setNotifications(previous => previous.filter(notification => notification.id !== id));
     }, 4000);
   }, []);
 
-  // ============================================================================
-  // GAME ACTIONS
-  // ============================================================================
-  
-  /** Create a new game room as the host */
-  const handleCreateGame = useCallback((playerName, isExtended = false, enableSpecialBuild = true) => {
-    if (!socket) return;
-    
-    socket.emit('createGame', { playerName, isExtended, enableSpecialBuild }, (response) => {
-      if (response.success) {
-        setGameCode(response.gameCode);
-        setPlayerId(response.playerId);
-        setGameState(response.gameState);
-        localStorage.setItem('catanGame', JSON.stringify({
-          gameCode: response.gameCode,
-          playerId: response.playerId
-        }));
-      } else {
-        setError(response.error);
+  const handleCreateRoom = useCallback(async ({ name, seatCount, seats, hostKey }) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await requestJson('/api/rooms', {
+        method: 'POST',
+        body: { name, seatCount, seats },
+        headers: hostKey ? { 'X-Host-Key': hostKey } : undefined
+      });
+      const token = getToken(response);
+      const code = getCode(response);
+      if (!token || !code) throw new Error('The room service returned an incomplete room session.');
+      updateStoredSession({
+        code,
+        hostToken: token,
+        playerToken: null,
+        playerRole: null,
+        seatId: null,
+        generation: 0,
+        displayName: name
+      });
+      snapshotRef.current = null;
+      hostSnapshotRef.current = null;
+      setSnapshot(null);
+      setHostSnapshot(null);
+      clearRequestedRoom();
+      addNotification(`Room ${code} created.`);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  }, [addNotification, updateStoredSession]);
+
+  const handleJoinRoom = useCallback(async ({ code, name, role, seatId }) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await requestJson(`/api/rooms/${encodeURIComponent(code)}/join`, {
+        method: 'POST',
+        body: { name, role, ...(seatId ? { seatId } : {}) }
+      });
+      const token = getToken(response);
+      const normalizedCode = getCode(response, code);
+      if (!token || !normalizedCode) throw new Error('The room service returned an incomplete join session.');
+      const sameRoom = session?.code === normalizedCode;
+      updateStoredSession({
+        code: normalizedCode,
+        hostToken: sameRoom ? session?.hostToken || null : null,
+        playerToken: token,
+        playerRole: role,
+        seatId: response.seatId || null,
+        generation: Number.isInteger(response.generation) ? response.generation : 0,
+        displayName: name
+      });
+      snapshotRef.current = null;
+      hostSnapshotRef.current = null;
+      setSnapshot(null);
+      setHostSnapshot(null);
+      clearRequestedRoom();
+      addNotification(role === 'spectator' ? 'Joined as spectator.' : 'Joined the room.');
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  }, [addNotification, clearRequestedRoom, session, updateStoredSession]);
+
+  const refreshActive = useCallback(async (code = activeSession?.code, token = activeToken) => {
+    if (!code || !token) return null;
+    try {
+      const next = await observe(code, token);
+      snapshotRef.current = next;
+      setSnapshot(next);
+      setLoading(false);
+      return next;
+    } catch (requestError) {
+      if (requestError.status === 401) handleAuthFailure(token, activeToken);
+      else setError(requestError.message);
+      return null;
+    }
+  }, [activeSession?.code, activeToken, handleAuthFailure, observe]);
+
+  const issueCommand = useCallback(async (type, payload = {}, { asHost = false } = {}) => {
+    const currentSession = activeSession;
+    const code = currentSession?.code;
+    const token = asHost ? currentSession?.hostToken : currentSession?.playerToken || currentSession?.hostToken;
+    if (!code || !token) return { success: false, error: 'Room session is unavailable.' };
+
+    setBusy(true);
+    setError(null);
+    try {
+      let source = asHost ? hostSnapshotRef.current : snapshotRef.current;
+      if (asHost || !source || type === 'leave') {
+        source = await observe(code, token);
+        if (asHost) {
+          hostSnapshotRef.current = source;
+          setHostSnapshot(source);
+        }
       }
-    });
-  }, [socket]);
+      if (!source) return { success: false, error: 'Room state is unavailable.' };
 
-  /** Join an existing game room using a code */
-  const handleJoinGame = useCallback((code, playerName) => {
-    if (!socket) return;
-    
-    socket.emit('joinGame', { gameCode: code, playerName }, (response) => {
-      if (response.success) {
-        setGameCode(response.gameCode);
-        setPlayerId(response.playerId);
-        setGameState(response.gameState);
-        localStorage.setItem('catanGame', JSON.stringify({
-          gameCode: response.gameCode,
-          playerId: response.playerId
-        }));
-      } else {
-        setError(response.error);
+      commandSequence.current += 1;
+      const response = await requestJson(`/api/rooms/${encodeURIComponent(code)}/commands`, {
+        method: 'POST',
+        token,
+        body: {
+          requestId: `${makeRequestId()}-${commandSequence.current}`,
+          revision: source.revision,
+          generation: source.generation || 0,
+          type,
+          payload
+        }
+      });
+
+      await refreshActive(code, activeToken);
+      if (asHost) {
+        hostSnapshotRef.current = hostSnapshotRef.current
+          ? { ...hostSnapshotRef.current, revision: response.revision }
+          : hostSnapshotRef.current;
+        setHostSnapshot(previous => previous ? { ...previous, revision: response.revision } : previous);
       }
+      return response;
+    } catch (requestError) {
+      if (requestError.status === 401) {
+        handleAuthFailure(token, activeToken);
+      } else if (requestError.status === 409) {
+        await refreshActive(code, activeToken);
+      }
+      setError(requestError.message);
+      return { success: false, error: requestError.message, statusCode: requestError.status };
+    } finally {
+      setBusy(false);
+    }
+  }, [activeSession, activeToken, handleAuthFailure, hostSnapshot, observe, refreshActive, session, snapshot]);
+
+  useEffect(() => {
+    adapter.configure({
+      snapshot,
+      gameState: boardState,
+      seatId: activeSession?.seatId || null,
+      sendCommand: issueCommand
     });
-  }, [socket]);
+  }, [activeSession?.seatId, adapter, boardState, issueCommand, snapshot]);
 
-  /** Leave the current game and return to lobby */
-  const handleLeaveGame = useCallback(() => {
-    setGameState(null);
-    setGameCode(null);
-    setPlayerId(null);
-    setChatMessages([]);
-    localStorage.removeItem('catanGame');
-  }, []);
+  const handleHostCommand = useCallback((type, payload = {}) => {
+    return issueCommand(type, payload, { asHost: true });
+  }, [issueCommand]);
 
-  // ============================================================================
-  // RENDER
-  // ============================================================================
-  
-  // Server at capacity - show retry screen
-  if (serverFull) {
+  const handleReady = useCallback(() => issueCommand('ready'), [issueCommand]);
+
+  const handleResumeRoom = useCallback(code => {
+    const saved = session?.rooms?.[code];
+    if (!saved) return;
+    updateStoredSession(saved);
+    setSnapshot(null);
+    setHostSnapshot(null);
+    clearRequestedRoom();
+    setError(null);
+  }, [clearRequestedRoom, session?.rooms, updateStoredSession]);
+
+  const handleLeaveRoom = useCallback(async () => {
+    const currentSession = activeSession;
+    if (currentSession?.playerToken) {
+      const result = await issueCommand('leave', {}, { asHost: false });
+      if (!result.success && result.statusCode !== 401) return;
+    }
+
+    setSession(previous => {
+      const rooms = { ...(previous?.rooms || {}) };
+      if (currentSession?.hostToken) {
+        rooms[currentSession.code] = {
+          code: currentSession.code, hostToken: currentSession.hostToken,
+          displayName: currentSession.displayName, playerToken: null,
+          playerRole: null, seatId: null, generation: 0
+        };
+      } else if (currentSession?.code) delete rooms[currentSession.code];
+      const next = Object.keys(rooms).length
+        ? { code: null, hostToken: null, playerToken: null, rooms }
+        : null;
+      saveSession(next);
+      return next;
+    });
+    clearRequestedRoom();
+    snapshotRef.current = null;
+    hostSnapshotRef.current = null;
+    setSnapshot(null);
+    setHostSnapshot(null);
+    setError(null);
+  }, [activeSession, clearRequestedRoom, issueCommand]);
+
+  const hostControls = activeSession?.hostToken && boardState ? (
+    <HostToolbar
+      paused={Boolean(snapshot?.paused)}
+      busy={busy}
+      onCommand={handleHostCommand}
+      slots={snapshot?.slots || []}
+      providers={providers}
+      phase={boardState.phase}
+    />
+  ) : null;
+
+  const vacantHumanSlots = useMemo(
+    () => (snapshot?.slots || []).filter(slot => slot.kind === 'human' && !slot.occupied),
+    [snapshot?.slots]
+  );
+  const canClaimSeat = Boolean(
+    boardState
+      && activeSession?.code
+      && !activeSession.seatId
+      && (activeRole === 'host' || activeRole === 'spectator')
+      && vacantHumanSlots.length
+  );
+  const liveClaimSeatForm = canClaimSeat ? (
+    <LiveClaimSeatForm
+      code={snapshot?.code || activeSession.code}
+      defaultName={activeSession.displayName || ''}
+      vacantHumanSlots={vacantHumanSlots}
+      busy={busy}
+      onClaim={handleJoinRoom}
+    />
+  ) : null;
+
+  const tradePanel = useCallback(onClose => (
+    <RoomTradePanel
+      snapshot={snapshot}
+      gameState={boardState}
+      seatId={activeSession?.seatId || null}
+      onCommand={issueCommand}
+      onClose={onClose}
+      addNotification={addNotification}
+    />
+  ), [activeSession?.seatId, addNotification, boardState, issueCommand, snapshot]);
+
+  if (!boardState) {
     return (
-      <div className="loading-screen server-full">
-        <div className="loading-content">
-          <h1>CATAN</h1>
-          <div className="server-full-icon">🏰</div>
-          <h2>Server at Capacity</h2>
-          <p>Too many players are currently online!</p>
-          <p className="server-full-hint">Please try again in a few minutes.</p>
-          <button 
-            className="retry-btn"
-            onClick={() => window.location.reload()}
-          >
-            🔄 Try Again
-          </button>
-        </div>
-      </div>
+      <>
+        <RoomLobby
+          snapshot={snapshot}
+          session={session}
+          loading={loading}
+          busy={busy}
+          error={error}
+          providers={providers}
+          savedRooms={Object.keys(session?.rooms || {}).filter(code => code !== activeSession?.code)}
+          onCreateRoom={handleCreateRoom}
+          onJoinRoom={handleJoinRoom}
+          onHostCommand={handleHostCommand}
+          onReady={handleReady}
+          onLeaveRoom={handleLeaveRoom}
+          onResumeRoom={handleResumeRoom}
+          onCopyInvite={() => addNotification('Invite link copied.')}
+        />
+        {createPortal(
+          <div className="notifications" aria-live="polite">
+            {notifications.map(notification => <div key={notification.id} className="notification fade-in">{notification.message}</div>)}
+          </div>,
+          document.body
+        )}
+      </>
     );
   }
 
-  // Connecting to server - show loading screen
-  if (!connected) {
-    return (
-      <div className="loading-screen">
-        <div className="loading-content">
-          <h1>CATAN</h1>
-          <p>Connecting to server...</p>
-          <div className="loading-spinner"></div>
-        </div>
-      </div>
-    );
-  }
-
-  // No active game - show lobby for creating/joining games
-  if (!gameState) {
-    return (
-      <Lobby 
-        onCreateGame={handleCreateGame}
-        onJoinGame={handleJoinGame}
-        error={error}
-        setError={setError}
-      />
-    );
-  }
-
-  // Active game - render the game board
   return (
     <>
-      <div className="app">
-        <GameBoard 
-          socket={socket}
-          gameState={gameState}
-          playerId={playerId}
-          gameCode={gameCode}
+      <div className="app room-app">
+        <div className="room-session-bar">
+          <div className="room-session-status">
+            <strong>{snapshot?.code}</strong>
+            <span>{activeRole === 'spectator' || activeRole === 'host' ? 'Spectator view' : 'Human player'}</span>
+            {snapshot?.paused && <span>Paused by host</span>}
+          </div>
+          <button type="button" className="room-link-button" onClick={handleLeaveRoom}>Leave room</button>
+        </div>
+        {error && <div className="room-error room-live-error" role="alert">{error}</div>}
+        {hostControls}
+        {liveClaimSeatForm}
+        <GameBoard
+          socket={adapter}
+          gameState={boardState}
+          playerId={session?.seatId || null}
+          gameCode={snapshot?.code}
           chatMessages={chatMessages}
-          onLeaveGame={handleLeaveGame}
+          onLeaveGame={handleLeaveRoom}
           addNotification={addNotification}
+          legalActions={snapshot?.legalActions || []}
+          events={snapshot?.events || []}
+          tradePanel={tradePanel}
         />
       </div>
-      
-      {/* Toast notifications - rendered via Portal to document.body for proper z-index */}
       {createPortal(
-        <div className="notifications">
-          {notifications.map(n => (
-            <div key={n.id} className="notification fade-in">
-              {n.message}
-            </div>
-          ))}
+        <div className="notifications" aria-live="polite">
+          {notifications.map(notification => <div key={notification.id} className="notification fade-in">{notification.message}</div>)}
         </div>,
         document.body
       )}

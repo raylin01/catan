@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import HexBoard from './HexBoard';
 import PlayerPanel from './PlayerPanel';
 import ResourceCards from './ResourceCards';
 import ActionPanel from './ActionPanel';
-import TradeModal from './TradeModal';
 import DiceDisplay from './DiceDisplay';
 import Chat from './Chat';
 import DevCardModal from './DevCardModal';
@@ -13,7 +12,18 @@ import InfoPopup, { useInfoPopup, INFO_DATA } from './InfoPopup';
 import Confetti from './Confetti';
 import './GameBoard.css';
 
-function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeaveGame, addNotification }) {
+function GameBoard({
+  socket,
+  gameState,
+  playerId,
+  gameCode,
+  chatMessages,
+  onLeaveGame,
+  addNotification,
+  legalActions = [],
+  events = [],
+  tradePanel = null
+}) {
   const [selectedAction, setSelectedAction] = useState(null); // 'settlement', 'road', 'city'
   const [lastPlacedSettlement, setLastPlacedSettlement] = useState(null);
   const [showTradeModal, setShowTradeModal] = useState(false);
@@ -33,7 +43,7 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
   // Info popup for right-click
   const { popup: infoPopup, showInfo, showHexInfo, closePopup: closeInfoPopup } = useInfoPopup();
   
-  const myPlayer = gameState.players[gameState.myIndex];
+  const myPlayer = gameState.myIndex >= 0 ? gameState.players[gameState.myIndex] : null;
   const currentPlayer = gameState.phase !== 'waiting' ? gameState.players[gameState.currentPlayerIndex] : null;
   const isMyTurn = gameState.phase !== 'waiting' && gameState.currentPlayerIndex === gameState.myIndex;
   const isSetup = gameState.phase === 'setup';
@@ -47,6 +57,17 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
   const isSpecialBuildPhase = gameState.specialBuildingPhase && gameState.turnPhase === 'specialBuild';
   const isMySpecialBuild = isSpecialBuildPhase && gameState.specialBuildIndex === gameState.myIndex;
   const canBuildNow = isMyTurn || isMySpecialBuild;
+  const setupSettlement = gameState.setupAction?.settlement || lastPlacedSettlement;
+
+  // Setup state is authoritative on the server. Keep the local value only as
+  // an optimistic fallback while the next room observation arrives.
+  useEffect(() => {
+    if (!isSetup) {
+      setLastPlacedSettlement(null);
+    } else if (gameState.setupAction?.settlement) {
+      setLastPlacedSettlement(gameState.setupAction.settlement);
+    }
+  }, [gameState.setupAction?.settlement, isSetup]);
 
   // Auto-hide dice display after 5 seconds
   useEffect(() => {
@@ -182,12 +203,12 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
   // Auto-open trade modal when there's a pending trade from another player
   useEffect(() => {
     const tradeOffer = gameState.tradeOffer;
-    const isTradeFromMe = tradeOffer?.from === gameState.myIndex;
+    const isTradeForMe = tradeOffer?.to === gameState.myIndex;
     
     // Create a unique ID for this trade to track if we've already shown it
-    const tradeId = tradeOffer ? `${tradeOffer.from}-${JSON.stringify(tradeOffer.offer)}` : null;
+    const tradeId = tradeOffer?.id || null;
     
-    if (tradeOffer && !isTradeFromMe && tradeId !== lastTradeOfferId) {
+    if (tradeOffer && isTradeForMe && tradeId !== lastTradeOfferId) {
       // New trade from another player - auto open the modal
       setShowTradeModal(true);
       setLastTradeOfferId(tradeId);
@@ -204,24 +225,18 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
   // Auto-select action during setup
   useEffect(() => {
     if (isSetup && isMyTurn) {
-      // Check if we need to place settlement or road
-      const mySettlements = Object.values(gameState.vertices)
-        .filter(v => v.owner === gameState.myIndex && v.building === 'settlement').length;
-      const myRoads = Object.values(gameState.edges)
-        .filter(e => e.owner === gameState.myIndex && e.road).length;
-      
-      const expectedSettlements = gameState.setupPhase === 0 ? 1 : 2;
-      const expectedRoads = gameState.setupPhase === 0 ? 1 : 2;
-      
-      if (mySettlements < expectedSettlements) {
+      const availableSetupActions = legalActions.filter(action => (
+        action.type === 'placeSettlement' || action.type === 'placeRoad'
+      ));
+      if (availableSetupActions.some(action => action.type === 'placeSettlement')) {
         setSelectedAction('settlement');
-      } else if (myRoads < expectedRoads) {
+      } else if (availableSetupActions.some(action => action.type === 'placeRoad')) {
         setSelectedAction('road');
       } else {
         setSelectedAction(null);
       }
     }
-  }, [isSetup, isMyTurn, gameState]);
+  }, [gameState, isSetup, isMyTurn, legalActions]);
 
   // Reset roll notification tracker when turn phase goes back to 'roll' (new turn)
   useEffect(() => {
@@ -251,7 +266,7 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
   useEffect(() => {
     if (gameState.winner) {
       const winner = gameState.players.find(p => p.id === gameState.winner);
-      addNotification(`🎉 ${winner.name} wins the game!`);
+      if (winner) addNotification(`🎉 ${winner.name} wins the game!`);
     }
   }, [gameState.winner]);
 
@@ -282,7 +297,7 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
     socket.emit('placeRoad', { 
       edgeKey, 
       isSetup, 
-      lastSettlement: lastPlacedSettlement 
+      lastSettlement: setupSettlement
     }, (response) => {
       if (response.success) {
         if (isSetup) {
@@ -299,7 +314,7 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
         addNotification(response.error);
       }
     });
-  }, [socket, isSetup, lastPlacedSettlement, gameState.freeRoads, addNotification]);
+  }, [socket, isSetup, setupSettlement, gameState.freeRoads, addNotification]);
 
   const handleUpgradeToCity = useCallback((vertexKey) => {
     socket.emit('upgradeToCity', { vertexKey }, (response) => {
@@ -357,6 +372,14 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
     });
   }, [socket, addNotification]);
 
+  const handleFinishFreeRoads = useCallback(() => {
+    socket.emit('finishFreeRoads', (response) => {
+      if (!response.success) {
+        addNotification(response.error);
+      }
+    });
+  }, [socket, addNotification]);
+
   const handleBuyDevCard = useCallback(() => {
     socket.emit('buyDevCard', (response) => {
       if (response.success) {
@@ -397,7 +420,7 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
     }
     if (gameState.phase === 'finished') {
       const winner = gameState.players.find(p => p.id === gameState.winner);
-      return `🎉 ${winner.name} wins!`;
+      return winner ? `${winner.name} wins!` : 'The host ended this game.';
     }
     if (needsToDiscard) {
       const discardInfo = gameState.discardingPlayers.find(
@@ -524,6 +547,7 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
         {/* Center - Board */}
         <div className="board-container">
           <HexBoard 
+            legalActions={legalActions}
             hexes={gameState.hexes}
             vertices={gameState.vertices}
             edges={gameState.edges}
@@ -556,7 +580,12 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
 
         {/* Right sidebar - Actions */}
         <div className="sidebar right-sidebar">
-          {gameState.phase === 'playing' && (
+          {legalActions.some(action => action.type === 'advanceSetup') && (
+            <button type="button" className="room-secondary-button" onClick={() => socket.emit('advanceSetup', response => { if (!response.success) addNotification(response.error); })}>
+              Continue setup
+            </button>
+          )}
+          {gameState.phase === 'playing' && myPlayer && (
             <>
               <ActionPanel 
                 isMyTurn={isMyTurn}
@@ -575,7 +604,34 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
                 isSpecialBuildPhase={isSpecialBuildPhase}
                 isMySpecialBuild={isMySpecialBuild}
               />
+              {gameState.freeRoads > 0 && legalActions.some(action => action.type === 'finishFreeRoads') && (
+                <button
+                  type="button"
+                  className="room-secondary-button room-finish-roads-button"
+                  onClick={handleFinishFreeRoads}
+                >
+                  Finish road building
+                </button>
+              )}
             </>
+          )}
+
+          {events.length > 0 && (
+            <details className="room-event-log">
+              <summary>Game log ({events.length})</summary>
+              <div className="room-event-list">
+                {events.slice().reverse().map(event => {
+                  const actor = gameState.players.find(player => player.id === event.actor)?.name || event.actor || 'Game';
+                  const timestamp = event.at ? new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                  return (
+                    <div className="room-event" key={event.id || `${event.at}-${event.type}`}>
+                      <span>{event.summary || `${actor} ${event.type}`}</span>
+                      {timestamp && <time dateTime={new Date(event.at).toISOString()}>{timestamp}</time>}
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
           )}
           
           <button 
@@ -591,20 +647,24 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
       </div>
 
       {/* Bottom - My Resources */}
-      <div className="my-resources-bar">
-        <ResourceCards 
-          resources={myPlayer.resources} 
-          onRightClick={(e, resourceKey) => showInfo(e, resourceKey)}
-        />
-        
-        <div className="dev-cards-summary" onClick={() => setShowDevCardModal(true)}>
-          <span className="label">Dev Cards:</span>
-          <span className="count">{myPlayer.developmentCards?.length || 0}</span>
-          {myPlayer.newDevCards?.length > 0 && (
-            <span className="new-badge">+{myPlayer.newDevCards.length} new</span>
-          )}
+      {myPlayer ? (
+        <div className="my-resources-bar">
+          <ResourceCards
+            resources={myPlayer.resources}
+            onRightClick={(e, resourceKey) => showInfo(e, resourceKey)}
+          />
+
+          <div className="dev-cards-summary" onClick={() => setShowDevCardModal(true)}>
+            <span className="label">Dev Cards:</span>
+            <span className="count">{myPlayer.developmentCards?.length || 0}</span>
+            {myPlayer.newDevCards?.length > 0 && (
+              <span className="new-badge">+{myPlayer.newDevCards.length} new</span>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="room-spectator-note">Spectator view: private cards and resources are hidden.</div>
+      )}
 
       {/* Robber Phase Banner - shows when player needs to move the robber */}
       {gameState.turnPhase === 'robber' && isMyTurn && (
@@ -643,18 +703,18 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
       {gameState.tradeOffer && 
        gameState.tradeOffer.from !== gameState.myIndex && 
        !showTradeModal && 
-       dismissedTradeId !== lastTradeOfferId && (
+       dismissedTradeId !== gameState.tradeOffer.id && (
         <div className="trade-notification-banner">
           <span className="trade-icon">🤝</span>
           <span className="trade-text" onClick={() => setShowTradeModal(true)}>
-            <strong>{gameState.players[gameState.tradeOffer.from]?.name}</strong> wants to trade with you!
+            <strong>{gameState.players[gameState.tradeOffer.from]?.name}</strong> offered a trade to {gameState.players[gameState.tradeOffer.to]?.name}.
           </span>
           <button className="view-trade-btn" onClick={() => setShowTradeModal(true)}>View Trade</button>
           <button 
             className="dismiss-trade-btn" 
             onClick={(e) => {
               e.stopPropagation();
-              setDismissedTradeId(lastTradeOfferId);
+              setDismissedTradeId(gameState.tradeOffer.id);
             }}
             title="Dismiss notification"
           >
@@ -664,18 +724,9 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
       )}
 
       {/* Modals */}
-      {showTradeModal && (
-        <TradeModal 
-          socket={socket}
-          gameState={gameState}
-          myPlayer={myPlayer}
-          isMyTurn={isMyTurn}
-          onClose={() => setShowTradeModal(false)}
-          addNotification={addNotification}
-        />
-      )}
+      {showTradeModal && tradePanel && tradePanel(() => setShowTradeModal(false))}
 
-      {showDevCardModal && (
+      {showDevCardModal && myPlayer && (
         <DevCardModal 
           socket={socket}
           myPlayer={myPlayer}
@@ -776,4 +827,3 @@ function GameBoard({ socket, gameState, playerId, gameCode, chatMessages, onLeav
 }
 
 export default GameBoard;
-

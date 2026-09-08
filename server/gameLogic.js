@@ -42,6 +42,50 @@ export const RESOURCES = {
   ORE: 'ore'
 };
 
+const RESOURCE_TYPES = Object.values(RESOURCES);
+const RESOURCE_SET = new Set(RESOURCE_TYPES);
+
+// The base game has 19 cards of each resource. The 5-6 player extension adds
+// five of each; keeping that mode finite too avoids a second accounting model.
+const RESOURCE_CARDS_PER_TYPE = 19;
+const EXTENDED_RESOURCE_CARDS_PER_TYPE = 24;
+
+function createResourcePool(amount) {
+  return Object.fromEntries(RESOURCE_TYPES.map(resource => [resource, amount]));
+}
+
+function isResource(resource) {
+  return typeof resource === 'string' && RESOURCE_SET.has(resource);
+}
+
+function validateResourceBundle(bundle) {
+  if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle)) {
+    return { valid: false, error: 'Resources must be an object' };
+  }
+
+  const entries = Object.entries(bundle);
+  if (entries.length === 0) {
+    return { valid: false, error: 'Resources cannot be empty' };
+  }
+
+  let hasPositiveAmount = false;
+  for (const [resource, amount] of entries) {
+    if (!isResource(resource)) {
+      return { valid: false, error: `Invalid resource: ${resource}` };
+    }
+    if (!Number.isInteger(amount) || amount < 0) {
+      return { valid: false, error: `Invalid amount for ${resource}` };
+    }
+    hasPositiveAmount ||= amount > 0;
+  }
+
+  if (!hasPositiveAmount) {
+    return { valid: false, error: 'At least one resource amount must be positive' };
+  }
+
+  return { valid: true };
+}
+
 /** 
  * Terrain types mapped to their produced resources and display colors
  * Desert produces no resources and is where the robber starts
@@ -807,6 +851,7 @@ export function createGame(gameId, hostPlayer, isExtended = false, enableSpecial
       hasLargestArmy: false,
       roadLength: 0
     }],
+    bank: createResourcePool(isExtended ? EXTENDED_RESOURCE_CARDS_PER_TYPE : RESOURCE_CARDS_PER_TYPE),
     hexes,
     vertices,
     edges,
@@ -943,6 +988,10 @@ export function shuffleBoard(game) {
  * - Other numbers distribute resources to players with adjacent buildings
  */
 export function rollDice(game, playerId) {
+  if (game.phase !== 'playing') {
+    return { success: false, error: 'Game is not active' };
+  }
+
   const player = game.players[game.currentPlayerIndex];
   
   if (player.id !== playerId) {
@@ -1012,6 +1061,8 @@ function distributeResources(game, roll) {
   // But we DO want to count the same vertex for DIFFERENT hexes (that's the Catan rule!)
   const processedHexVertices = new Set();
   
+  const pendingGains = [];
+
   Object.entries(game.hexes).forEach(([hKey, hex]) => {
     if (hex.number === roll && hKey !== game.robber) {
       // Find all settlements/cities adjacent to this hex
@@ -1026,12 +1077,23 @@ function distributeResources(game, roll) {
           if (processedHexVertices.has(hexVertexKey)) continue;
           processedHexVertices.add(hexVertexKey);
           
-          const player = game.players[buildingInfo.owner];
           const amount = buildingInfo.type === 'city' ? 2 : 1;
-          player.resources[hex.resource] += amount;
-          gains[buildingInfo.owner][hex.resource] += amount;
+          pendingGains.push({ playerIndex: buildingInfo.owner, resource: hex.resource, amount });
         }
       }
+    }
+  });
+
+  // A shortage cancels production for multiple recipients. A sole recipient
+  // receives the remaining supply (official base-game resource-shortage rule).
+  RESOURCE_TYPES.forEach(resource => {
+    const recipients=new Map();
+    for(const gain of pendingGains.filter(g=>g.resource===resource))recipients.set(gain.playerIndex,(recipients.get(gain.playerIndex)||0)+gain.amount);
+    const demand=[...recipients.values()].reduce((a,b)=>a+b,0);
+    if(demand>game.bank[resource]&&recipients.size>1)return;
+    for(const [index,amount] of recipients){
+      const received=Math.min(amount,game.bank[resource]);
+      game.players[index].resources[resource]+=received;gains[index][resource]+=received;game.bank[resource]-=received;
     }
   });
   
@@ -1043,6 +1105,10 @@ function distributeResources(game, roll) {
  * Players with more than 7 cards must discard half (rounded down)
  */
 export function discardCards(game, playerId, resources) {
+  if (game.phase !== 'playing' || game.turnPhase !== 'discard') {
+    return { success: false, error: 'Cannot discard now' };
+  }
+
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   if (playerIndex === -1) {
     return { success: false, error: 'Player not found' };
@@ -1053,6 +1119,11 @@ export function discardCards(game, playerId, resources) {
     return { success: false, error: 'You do not need to discard' };
   }
   
+  const resourceValidation = validateResourceBundle(resources);
+  if (!resourceValidation.valid) {
+    return { success: false, error: resourceValidation.error };
+  }
+
   const totalToDiscard = Object.values(resources).reduce((a, b) => a + b, 0);
   if (totalToDiscard !== discardInfo.cardsToDiscard) {
     return { success: false, error: `Must discard exactly ${discardInfo.cardsToDiscard} cards` };
@@ -1070,6 +1141,7 @@ export function discardCards(game, playerId, resources) {
   // Discard
   for (const [resource, amount] of Object.entries(resources)) {
     player.resources[resource] -= amount;
+    game.bank[resource] += amount;
   }
   
   // Remove from discarding list
@@ -1091,6 +1163,10 @@ export function discardCards(game, playerId, resources) {
  * - If 7 was rolled (hasRolledThisTurn=true) → proceed to 'main' phase
  */
 export function moveRobber(game, playerId, hexKey, stealFromPlayerId) {
+  if (game.phase !== 'playing') {
+    return { success: false, error: 'Game is not active' };
+  }
+
   const player = game.players[game.currentPlayerIndex];
   
   if (player.id !== playerId) {
@@ -1108,33 +1184,43 @@ export function moveRobber(game, playerId, hexKey, stealFromPlayerId) {
   if (hexKey === game.robber) {
     return { success: false, error: 'Must move robber to a different hex' };
   }
+
+  let victim = null;
+  if (stealFromPlayerId) {
+    const victimIndex = game.players.findIndex(p => p.id === stealFromPlayerId);
+    const adjacentPlayers = getPlayersOnHex(game, hexKey, game.currentPlayerIndex);
+    if (victimIndex === -1 || !adjacentPlayers.includes(victimIndex)) {
+      return { success: false, error: 'Selected player is not adjacent to the robber' };
+    }
+    victim = game.players[victimIndex];
+  }
   
   game.robber = hexKey;
   
   let stolenInfo = null;
   
   // Steal from player if specified
-  if (stealFromPlayerId) {
-    const victimIndex = game.players.findIndex(p => p.id === stealFromPlayerId);
-    if (victimIndex !== -1 && victimIndex !== game.currentPlayerIndex) {
-      const victim = game.players[victimIndex];
-      const availableResources = Object.entries(victim.resources)
-        .filter(([_, amount]) => amount > 0)
-        .map(([resource, _]) => resource);
-      
-      if (availableResources.length > 0) {
-        const stolenResource = availableResources[Math.floor(Math.random() * availableResources.length)];
-        victim.resources[stolenResource]--;
-        player.resources[stolenResource]++;
-        
-        stolenInfo = {
-          resource: stolenResource,
-          thief: player.id,
-          thiefName: player.name,
-          victim: victim.id,
-          victimName: victim.name
-        };
-      }
+  if (victim) {
+    const totalCards = Object.values(victim.resources).reduce((sum, amount) => sum + amount, 0);
+
+    if (totalCards > 0) {
+      // Draw uniformly from the victim's cards, so a resource held five times is
+      // five times as likely to be stolen as one held once.
+      let cardIndex = Math.floor(Math.random() * totalCards);
+      const stolenResource = RESOURCE_TYPES.find(resource => {
+        cardIndex -= victim.resources[resource];
+        return cardIndex < 0;
+      });
+      victim.resources[stolenResource]--;
+      player.resources[stolenResource]++;
+
+      stolenInfo = {
+        resource: stolenResource,
+        thief: player.id,
+        thiefName: player.name,
+        victim: victim.id,
+        victimName: victim.name
+      };
     }
   }
   
@@ -1158,6 +1244,8 @@ export function moveRobber(game, playerId, hexKey, stealFromPlayerId) {
  * - Must have required resources (except during setup)
  */
 export function canPlaceSettlement(game, playerId, vKey, isSetup = false) {
+  if (game.phase === 'finished') return { valid: false, error: 'Game is finished' };
+
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   if (playerIndex === -1) return { valid: false, error: 'Player not found' };
   
@@ -1207,13 +1295,16 @@ export function placeSettlement(game, playerId, vKey) {
   
   // Deduct resources if not setup
   if (!isSetup) {
-    deductResources(player, BUILDING_COSTS.settlement);
+    payResourceCost(game, player, BUILDING_COSTS.settlement);
   }
   
   // Place settlement - stored at the key provided, lookups check all equivalents
   game.vertices[vKey] = { building: 'settlement', owner: playerIndex };
   player.settlements--;
   player.victoryPoints++;
+
+  // An opponent settlement can split an existing road network.
+  updateLongestRoad(game);
   
   // During second setup phase, give initial resources
   if (isSetup && game.setupPhase === 1) {
@@ -1242,8 +1333,9 @@ function giveInitialResources(game, vKey, playerIndex) {
   
   adjacentHexes.forEach(({ hq, hr }) => {
     const hex = game.hexes[hexKey(hq, hr)];
-    if (hex && hex.resource) {
+    if (hex && hex.resource && game.bank[hex.resource] > 0) {
       player.resources[hex.resource]++;
+      game.bank[hex.resource]--;
     }
   });
 }
@@ -1288,11 +1380,21 @@ function getAdjacentHexesToVertex(q, r, dir) {
  * - Must have required resources (except during setup or free roads)
  */
 export function canPlaceRoad(game, playerId, eKey, isSetup = false, lastSettlement = null) {
+  if (game.phase === 'finished') return { valid: false, error: 'Game is finished' };
+
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   if (playerIndex === -1) return { valid: false, error: 'Player not found' };
   
   const player = game.players[playerIndex];
   const edge = game.edges[eKey];
+
+  if (!isSetup && game.freeRoads === 0 && !canPlayerBuildNow(game, playerId)) {
+    return { valid: false, error: 'Cannot build now' };
+  }
+  if (!isSetup && game.freeRoads > 0 &&
+      (game.currentPlayerIndex !== playerIndex || !['roll', 'main'].includes(game.turnPhase))) {
+    return { valid: false, error: 'Cannot place a free road now' };
+  }
   
   if (!edge) return { valid: false, error: 'Invalid edge' };
   
@@ -1322,6 +1424,7 @@ export function canPlaceRoad(game, playerId, eKey, isSetup = false, lastSettleme
   } else if (game.freeRoads > 0) {
     // Free road from road building card - must connect to own network
     connected = endVertices.some(vKey => {
+      if (hasOpponentBuildingAtVertex(game, vKey, playerIndex)) return false;
       // Check if player has a building at this vertex or any equivalent vertex
       if (hasPlayerBuildingAtVertex(game, vKey, playerIndex)) return true;
       
@@ -1332,6 +1435,7 @@ export function canPlaceRoad(game, playerId, eKey, isSetup = false, lastSettleme
   } else {
     // Normal placement - must connect to own building or road
     connected = endVertices.some(vKey => {
+      if (hasOpponentBuildingAtVertex(game, vKey, playerIndex)) return false;
       // Check if player has a building at this vertex or any equivalent vertex
       if (hasPlayerBuildingAtVertex(game, vKey, playerIndex)) return true;
       
@@ -1396,7 +1500,7 @@ export function placeRoad(game, playerId, eKey, isSetup = false, lastSettlement 
   
   // Deduct resources if not setup and not free road
   if (!isSetup && game.freeRoads === 0) {
-    deductResources(player, BUILDING_COSTS.road);
+    payResourceCost(game, player, BUILDING_COSTS.road);
   } else if (game.freeRoads > 0) {
     game.freeRoads--;
   }
@@ -1439,7 +1543,7 @@ export function upgradeToCity(game, playerId, vKey) {
     return { success: false, error: 'Not enough resources' };
   }
   
-  deductResources(player, BUILDING_COSTS.city);
+  payResourceCost(game, player, BUILDING_COSTS.city);
   vertex.building = 'city';
   player.settlements++; // Return settlement
   player.cities--;
@@ -1479,7 +1583,7 @@ export function buyDevCard(game, playerId) {
     return { success: false, error: 'No development cards left' };
   }
   
-  deductResources(player, BUILDING_COSTS.developmentCard);
+  payResourceCost(game, player, BUILDING_COSTS.developmentCard);
   const card = game.devCardDeck.pop();
   player.newDevCards.push(card);
   
@@ -1500,6 +1604,10 @@ export function buyDevCard(game, playerId) {
  * - VP cards are never "played" (just count toward victory)
  */
 export function playDevCard(game, playerId, cardType, params = {}) {
+  if (game.phase !== 'playing' || !['roll', 'main'].includes(game.turnPhase)) {
+    return { success: false, error: 'Cannot play a development card now' };
+  }
+
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   if (playerIndex === -1) {
     return { success: false, error: 'Player not found' };
@@ -1515,11 +1623,24 @@ export function playDevCard(game, playerId, cardType, params = {}) {
   }
   
   const player = game.players[playerIndex];
+
+  if (!Object.values(DEV_CARDS).includes(cardType)) {
+    return { success: false, error: 'Invalid development card' };
+  }
   
   // Can't play cards bought this turn (except VP which is auto-played)
   const cardIndex = player.developmentCards.indexOf(cardType);
   if (cardIndex === -1) {
     return { success: false, error: 'You do not have this card' };
+  }
+
+  // Validate the requested effect before consuming the card. This keeps every
+  // rejected dev-card action mutation-free and safe to retry.
+  if (cardType === DEV_CARDS.VICTORY_POINT) {
+    return { success: false, error: 'Victory point cards cannot be played' };
+  }
+  if (cardType === DEV_CARDS.MONOPOLY && !isResource(params?.resource)) {
+    return { success: false, error: 'Must specify a valid resource' };
   }
   
   // Remove card
@@ -1537,13 +1658,13 @@ export function playDevCard(game, playerId, cardType, params = {}) {
       break;
       
     case DEV_CARDS.YEAR_OF_PLENTY:
-      game.yearOfPlentyPicks = 2;
+      game.yearOfPlentyPicks = Math.min(
+        2,
+        Object.values(game.bank).reduce((sum, amount) => sum + amount, 0)
+      );
       break;
       
     case DEV_CARDS.MONOPOLY:
-      if (!params.resource) {
-        return { success: false, error: 'Must specify a resource' };
-      }
       // Take all of that resource from other players
       let totalStolen = 0;
       game.players.forEach((p, idx) => {
@@ -1555,8 +1676,6 @@ export function playDevCard(game, playerId, cardType, params = {}) {
       player.resources[params.resource] += totalStolen;
       break;
       
-    case DEV_CARDS.VICTORY_POINT:
-      return { success: false, error: 'Victory point cards cannot be played' };
   }
   
   // Mark that a dev card was played this turn
@@ -1567,6 +1686,10 @@ export function playDevCard(game, playerId, cardType, params = {}) {
 
 /** Year of Plenty card effect - pick 2 free resources from the bank */
 export function yearOfPlentyPick(game, playerId, resource) {
+  if (game.phase !== 'playing' || !['roll', 'main'].includes(game.turnPhase)) {
+    return { success: false, error: 'Cannot pick a resource now' };
+  }
+
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   if (playerIndex === -1) {
     return { success: false, error: 'Player not found' };
@@ -1579,9 +1702,18 @@ export function yearOfPlentyPick(game, playerId, resource) {
   if (game.yearOfPlentyPicks <= 0) {
     return { success: false, error: 'No year of plenty picks remaining' };
   }
+
+  if (!isResource(resource)) {
+    return { success: false, error: 'Invalid resource' };
+  }
+
+  if (game.bank[resource] <= 0) {
+    return { success: false, error: `No ${resource} left in the bank` };
+  }
   
   const player = game.players[playerIndex];
   player.resources[resource]++;
+  game.bank[resource]--;
   game.yearOfPlentyPicks--;
   
   return { success: true };
@@ -1641,6 +1773,10 @@ export function getTradeRatio(game, playerIndex, resource) {
 
 /** Execute a trade with the bank using port ratios */
 export function bankTrade(game, playerId, giveResource, giveAmount, getResource) {
+  if (game.phase !== 'playing') {
+    return { success: false, error: 'Game is not active' };
+  }
+
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   if (playerIndex === -1) {
     return { success: false, error: 'Player not found' };
@@ -1655,6 +1791,10 @@ export function bankTrade(game, playerId, giveResource, giveAmount, getResource)
   }
   
   const player = game.players[playerIndex];
+
+  if (!isResource(giveResource) || !isResource(getResource) || giveResource === getResource) {
+    return { success: false, error: 'Invalid bank trade resources' };
+  }
   
   // Get the best available trade ratio for this resource
   const requiredRatio = getTradeRatio(game, playerIndex, giveResource);
@@ -1666,15 +1806,25 @@ export function bankTrade(game, playerId, giveResource, giveAmount, getResource)
   if (player.resources[giveResource] < giveAmount) {
     return { success: false, error: 'Not enough resources' };
   }
+
+  if (game.bank[getResource] < 1) {
+    return { success: false, error: `No ${getResource} left in the bank` };
+  }
   
   player.resources[giveResource] -= giveAmount;
   player.resources[getResource] += 1;
+  game.bank[giveResource] += giveAmount;
+  game.bank[getResource] -= 1;
   
   return { success: true };
 }
 
 /** Propose a trade offer to other players */
 export function proposeTrade(game, playerId, offer, request) {
+  if (game.phase !== 'playing') {
+    return { success: false, error: 'Game is not active' };
+  }
+
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   if (playerIndex === -1) {
     return { success: false, error: 'Player not found' };
@@ -1689,6 +1839,15 @@ export function proposeTrade(game, playerId, offer, request) {
   }
   
   const player = game.players[playerIndex];
+
+  const offerValidation = validateResourceBundle(offer);
+  if (!offerValidation.valid) {
+    return { success: false, error: offerValidation.error };
+  }
+  const requestValidation = validateResourceBundle(request);
+  if (!requestValidation.valid) {
+    return { success: false, error: requestValidation.error };
+  }
   
   // Verify player has offered resources
   for (const [resource, amount] of Object.entries(offer)) {
@@ -1699,8 +1858,8 @@ export function proposeTrade(game, playerId, offer, request) {
   
   game.tradeOffer = {
     from: playerIndex,
-    offer,
-    request,
+    offer: { ...offer },
+    request: { ...request },
     responses: {} // playerId -> 'accept' | 'decline'
   };
   
@@ -1709,6 +1868,10 @@ export function proposeTrade(game, playerId, offer, request) {
 
 /** Respond to a trade offer (accept or decline) */
 export function respondToTrade(game, playerId, accept) {
+  if (game.phase !== 'playing' || game.turnPhase !== 'main') {
+    return { success: false, error: 'Cannot trade now' };
+  }
+
   if (!game.tradeOffer) {
     return { success: false, error: 'No trade offer' };
   }
@@ -1725,22 +1888,41 @@ export function respondToTrade(game, playerId, accept) {
   const player = game.players[playerIndex];
   
   if (accept) {
+    const offer = game.tradeOffer.offer;
+    const request = game.tradeOffer.request;
+    const offerValidation = validateResourceBundle(offer);
+    const requestValidation = validateResourceBundle(request);
+    if (!offerValidation.valid || !requestValidation.valid) {
+      return { success: false, error: 'Trade offer is invalid' };
+    }
+
+    const offerer = game.players[game.tradeOffer.from];
+    if (!offerer) {
+      return { success: false, error: 'Trade offerer no longer exists' };
+    }
+
+    // Recheck both sides immediately before settlement because balances can
+    // change while an offer is open. Mutate only after every check passes.
+    for (const [resource, amount] of Object.entries(offer)) {
+      if (offerer.resources[resource] < amount) {
+        return { success: false, error: `Offerer no longer has enough ${resource}` };
+      }
+    }
+
     // Verify player has requested resources
-    for (const [resource, amount] of Object.entries(game.tradeOffer.request)) {
+    for (const [resource, amount] of Object.entries(request)) {
       if (player.resources[resource] < amount) {
         return { success: false, error: `Not enough ${resource}` };
       }
     }
     
     // Execute trade
-    const offerer = game.players[game.tradeOffer.from];
-    
-    for (const [resource, amount] of Object.entries(game.tradeOffer.offer)) {
+    for (const [resource, amount] of Object.entries(offer)) {
       offerer.resources[resource] -= amount;
       player.resources[resource] += amount;
     }
     
-    for (const [resource, amount] of Object.entries(game.tradeOffer.request)) {
+    for (const [resource, amount] of Object.entries(request)) {
       player.resources[resource] -= amount;
       offerer.resources[resource] += amount;
     }
@@ -1764,6 +1946,10 @@ export function respondToTrade(game, playerId, accept) {
 
 /** Cancel an active trade offer */
 export function cancelTrade(game, playerId) {
+  if (game.phase === 'finished') {
+    return { success: false, error: 'Game is finished' };
+  }
+
   if (!game.tradeOffer) {
     return { success: false, error: 'No trade offer' };
   }
@@ -1789,6 +1975,10 @@ export function cancelTrade(game, playerId) {
  * - Advances to next player
  */
 export function endTurn(game, playerId) {
+  if (game.phase !== 'playing') {
+    return { success: false, error: 'Game is not active' };
+  }
+
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   
   if (game.currentPlayerIndex !== playerIndex) {
@@ -1832,6 +2022,7 @@ export function endTurn(game, playerId) {
   game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
   game.turnPhase = 'roll';
   game.diceRoll = null;
+  checkWinner(game);
   
   return { success: true };
 }
@@ -1841,6 +2032,10 @@ export function endTurn(game, playerId) {
  * Advances to next player or ends the phase if all players have gone
  */
 export function endSpecialBuild(game, playerId) {
+  if (game.phase !== 'playing') {
+    return { success: false, error: 'Game is not active' };
+  }
+
   if (!game.specialBuildingPhase) {
     return { success: false, error: 'Not in special building phase' };
   }
@@ -1880,6 +2075,8 @@ export function canSpecialBuild(game, playerId) {
 
 /** Check if a player can currently build (regular turn or special building phase) */
 function canPlayerBuildNow(game, playerId) {
+  if (game.phase !== 'playing') return false;
+
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   if (playerIndex === -1) return false;
   
@@ -1901,6 +2098,10 @@ function canPlayerBuildNow(game, playerId) {
  * Setup follows snake order: 1→2→3→4→4→3→2→1 for 4 players
  */
 export function advanceSetup(game, playerId) {
+  if (game.phase !== 'setup') {
+    return { success: false, error: 'Not in setup phase' };
+  }
+
   const player = game.players[game.currentPlayerIndex];
   
   if (player.id !== playerId) {
@@ -1949,10 +2150,11 @@ function hasResources(player, costs) {
   return true;
 }
 
-/** Deduct resources from a player */
-function deductResources(player, costs) {
+/** Pay a cost, returning the spent cards to the bank. */
+function payResourceCost(game, player, costs) {
   for (const [resource, amount] of Object.entries(costs)) {
     player.resources[resource] -= amount;
+    game.bank[resource] += amount;
   }
 }
 
@@ -2201,7 +2403,8 @@ function updateLargestArmy(game) {
  * When game ends, reveals all hidden VP cards and updates final scores
  */
 function checkWinner(game) {
-  for (const player of game.players) {
+  if(game.phase!=='playing')return;
+  for (const player of [game.players[game.currentPlayerIndex]]) {
     // Total VP = visible VP + hidden VP from dev cards
     const totalVP = player.victoryPoints + (player.hiddenVictoryPoints || 0);
     if (totalVP >= 10) {
@@ -2306,4 +2509,3 @@ export function getPlayersOnHex(game, hKey, excludePlayer = null) {
   
   return Array.from(players);
 }
-
