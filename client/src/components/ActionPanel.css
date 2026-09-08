@@ -184,3 +184,5 @@
 }
 
 
+
+.action-btn{gap:8px}.action-btn>.game-icon{flex-shrink:0}.action-btn .cost{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.action-btn .cost>span{display:inline-flex;align-items:center;gap:2px}

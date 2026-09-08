@@ -1,0 +1,120 @@
+.game-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  vertical-align: -0.16em;
+  overflow: visible;
+  color: var(--text-secondary, currentColor);
+}
+
+.game-icon-symbol {
+  pointer-events: none;
+}
+
+.game-icon--brick,
+.game-icon-symbol--brick {
+  color: #d87546;
+}
+
+.game-icon--lumber,
+.game-icon-symbol--lumber {
+  color: #75a85d;
+}
+
+.game-icon--wool,
+.game-icon-symbol--wool {
+  color: #cfe6a8;
+}
+
+.game-icon--grain,
+.game-icon-symbol--grain {
+  color: #e4bc4e;
+}
+
+.game-icon--ore,
+.game-icon-symbol--ore {
+  color: #a8adb4;
+}
+
+.game-icon--desert,
+.game-icon-symbol--desert {
+  color: #e5c982;
+}
+
+.game-icon--robber,
+.game-icon-symbol--robber {
+  color: #b3a38e;
+}
+
+.game-icon--road,
+.game-icon-symbol--road {
+  color: #c68c52;
+}
+
+.game-icon--settlement,
+.game-icon-symbol--settlement,
+.game-icon--city,
+.game-icon-symbol--city {
+  color: #d4a942;
+}
+
+.game-icon--knight,
+.game-icon-symbol--knight {
+  color: #d8c1a0;
+}
+
+.game-icon--devCard,
+.game-icon-symbol--devCard,
+.game-icon--cards,
+.game-icon-symbol--cards {
+  color: #c59bdf;
+}
+
+.game-icon--dice,
+.game-icon-symbol--dice {
+  color: #e6d6b8;
+}
+
+.game-icon--bank,
+.game-icon-symbol--bank {
+  color: #caa45b;
+}
+
+.game-icon--trade,
+.game-icon-symbol--trade {
+  color: #8fc6a0;
+}
+
+.game-icon--chat,
+.game-icon-symbol--chat {
+  color: #89b8d4;
+}
+
+.game-icon--port,
+.game-icon-symbol--port {
+  color: #9cc5d7;
+}
+
+.game-icon--trophy,
+.game-icon-symbol--trophy {
+  color: #f0c85d;
+}
+
+.game-icon--endTurn,
+.game-icon-symbol--endTurn {
+  color: #d9a35f;
+}
+
+.game-icon--yearOfPlenty,
+.game-icon-symbol--yearOfPlenty {
+  color: #a8c77b;
+}
+
+.game-icon--monopoly,
+.game-icon-symbol--monopoly {
+  color: #e5bb4c;
+}
+
+.game-icon--close,
+.game-icon-symbol--close {
+  color: currentColor;
+}

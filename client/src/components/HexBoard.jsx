@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import './HexBoard.css';
+import { GameIconSymbol } from './GameIcon';
 
 // Hex geometry constants - POINTY-TOP orientation
 const HEX_SIZE = 50;
@@ -41,17 +42,128 @@ function getNumberColor(num) {
   return '#2c2c2c';
 }
 
-// Get terrain resource icon
+// Get the local SVG icon name for a terrain type.
 function getTerrainIcon(terrain) {
-  const icons = {
-    'forest': '🌲',
-    'hills': '🧱',
-    'pasture': '🐑',
-    'fields': '🌾',
-    'mountains': '⛰️',
-    'desert': '🏜️'
-  };
-  return icons[terrain] || '';
+  return terrain || 'unknown';
+}
+
+function getPortIcon(port) {
+  return port.resource || 'port';
+}
+
+const TERRAIN_GRADIENTS = {
+  forest: 'url(#forest-gradient)',
+  hills: 'url(#hills-gradient)',
+  pasture: 'url(#pasture-gradient)',
+  fields: 'url(#fields-gradient)',
+  mountains: 'url(#mountains-gradient)',
+  desert: 'url(#desert-gradient)'
+};
+
+function terrainFill(terrain, fallback) {
+  return TERRAIN_GRADIENTS[terrain] || fallback;
+}
+
+function probabilityDots(number) {
+  return Math.max(1, 6 - Math.abs(7 - number));
+}
+
+function TerrainArtwork({ terrain }) {
+  if (terrain === 'forest') {
+    return (
+      <g className="terrain-art terrain-art--forest">
+        <path d="M-48 21 Q-25 -2 -2 18 T48 13 V52 H-48Z" fill="#184f3d" opacity=".72" />
+        <path d="M-48 31 Q-19 8 8 31 T48 22 V52 H-48Z" fill="#123d33" opacity=".82" />
+        {[-35, -25, -13, 18, 30, 39].map((x, index) => {
+          const y = index % 2 ? 11 : 21;
+          const scale = index % 3 === 0 ? 1.08 : .82;
+          return (
+            <g key={x} transform={`translate(${x} ${y}) scale(${scale})`}>
+              <path d="M0 -22 L-9 -5 H-5 L-13 9 H13 L5 -5 H9Z" fill="#0d342b" />
+              <path d="M0 -19 L-6 -6 H-2 L-9 6 H1Z" fill="#2d7551" opacity=".72" />
+              <path d="M-1 8 H3 V18 H-1Z" fill="#60402a" />
+            </g>
+          );
+        })}
+      </g>
+    );
+  }
+
+  if (terrain === 'hills') {
+    return (
+      <g className="terrain-art terrain-art--hills">
+        <path d="M-52 16 Q-31 -14 -6 15 Q17 -20 51 15 V52 H-52Z" fill="#bb5031" opacity=".82" />
+        <path d="M-52 28 Q-26 3 3 25 Q29 5 52 24 V52 H-52Z" fill="#883826" opacity=".65" />
+        <path d="M-39 26 Q-25 15 -12 25 M12 19 Q28 8 43 21" fill="none" stroke="#f7b171" strokeWidth="2" opacity=".42" />
+        <g fill="#71301f" opacity=".8">
+          <rect x="-42" y="32" width="14" height="6" rx="1" />
+          <rect x="-25" y="32" width="14" height="6" rx="1" />
+          <rect x="-34" y="40" width="14" height="6" rx="1" />
+          <rect x="22" y="34" width="14" height="6" rx="1" />
+        </g>
+      </g>
+    );
+  }
+
+  if (terrain === 'pasture') {
+    return (
+      <g className="terrain-art terrain-art--pasture">
+        <path d="M-52 14 Q-25 -9 3 15 T52 10 V52 H-52Z" fill="#72a94e" opacity=".6" />
+        <path d="M-52 30 Q-19 11 9 31 T52 25 V52 H-52Z" fill="#4e8a45" opacity=".48" />
+        <path d="M-42 34 Q-38 27 -35 34 M-35 36 Q-31 27 -28 36 M27 32 Q31 23 34 32 M35 35 Q39 27 42 35" fill="none" stroke="#326f3c" strokeWidth="1.5" strokeLinecap="round" />
+        <g transform="translate(-28 17)" fill="#fff9e7" stroke="#665947" strokeWidth=".8">
+          <ellipse rx="7" ry="4.4" />
+          <circle cx="6.5" cy="-1" r="2.6" />
+          <path d="M-3 3 V8 M3 3 V8" fill="none" />
+        </g>
+        <g transform="translate(31 11) scale(.78)" fill="#fff9e7" stroke="#665947" strokeWidth=".9">
+          <ellipse rx="7" ry="4.4" />
+          <circle cx="6.5" cy="-1" r="2.6" />
+          <path d="M-3 3 V8 M3 3 V8" fill="none" />
+        </g>
+      </g>
+    );
+  }
+
+  if (terrain === 'fields') {
+    return (
+      <g className="terrain-art terrain-art--fields">
+        <path d="M-52 9 Q-18 -6 12 12 T52 8 V52 H-52Z" fill="#d79d27" opacity=".55" />
+        <path d="M-52 26 Q-17 6 18 27 T52 20 V52 H-52Z" fill="#b97c1e" opacity=".5" />
+        {[-39, -30, -21, 22, 31, 40].map((x, index) => (
+          <g key={x} transform={`translate(${x} ${index % 2 ? 18 : 12})`} stroke="#fff0a3" strokeWidth="1.25" strokeLinecap="round" opacity=".82">
+            <path d="M0 25 V-5 M0 3 L-5 -1 M0 8 L5 3 M0 13 L-5 8 M0 18 L5 13" fill="none" />
+          </g>
+        ))}
+        <path d="M-49 38 Q-17 19 9 39 T50 33" fill="none" stroke="#f4cd58" strokeWidth="2" opacity=".5" />
+      </g>
+    );
+  }
+
+  if (terrain === 'mountains') {
+    return (
+      <g className="terrain-art terrain-art--mountains">
+        <path d="M-53 33 L-31 -3 L-15 17 L5 -24 L28 12 L40 -6 L55 31 V52 H-53Z" fill="#596c72" />
+        <path d="M-15 17 L5 -24 L11 -2 L28 12 L9 3 Z" fill="#354b54" opacity=".88" />
+        <path d="M-4 -9 L5 -24 L14 -9 L8 -12 L4 -7 L1 -13Z" fill="#eef3ec" />
+        <path d="M-37 8 L-31 -3 L-23 9 L-29 6 L-32 11Z" fill="#e7eee9" opacity=".9" />
+        <path d="M31 8 L40 -6 L48 10 L41 6 L38 12Z" fill="#eef3ec" opacity=".85" />
+        <path d="M-50 37 L-22 20 L-10 36 L17 14 L52 38 V52 H-52Z" fill="#2e4148" opacity=".64" />
+      </g>
+    );
+  }
+
+  return (
+    <g className="terrain-art terrain-art--desert">
+      <path d="M-54 19 Q-29 -5 -4 20 Q19 40 54 10 V52 H-54Z" fill="#d6ad63" opacity=".62" />
+      <path d="M-54 34 Q-25 13 4 35 Q27 48 54 28 V52 H-54Z" fill="#bc8c49" opacity=".42" />
+      <path d="M-42 24 Q-18 7 2 24 M10 37 Q30 22 48 31" fill="none" stroke="#f5d58c" strokeWidth="2" opacity=".64" />
+      <g transform="translate(31 14)" fill="none" stroke="#3e7655" strokeWidth="3" strokeLinecap="round">
+        <path d="M0 21 V-5 M0 5 C8 5 8 0 8 -4 M0 11 C-7 11 -7 7 -7 3" />
+      </g>
+      <ellipse cx="-29" cy="34" rx="11" ry="3.5" fill="#5d9674" opacity=".72" />
+    </g>
+  );
 }
 
 // Create a position key for deduplication (rounded to avoid float issues)
@@ -284,121 +396,110 @@ function HexBoard({
       style={{ maxWidth: '100%', maxHeight: '100%' }}
     >
       <defs>
-        {/* Water pattern */}
-        <pattern id="water-pattern" patternUnits="userSpaceOnUse" width="30" height="30">
-          <rect width="30" height="30" fill="#1a5276"/>
-          <path d="M0 15 Q7.5 10, 15 15 T30 15" stroke="#2471a3" strokeWidth="1.5" fill="none"/>
-          <path d="M0 25 Q7.5 20, 15 25 T30 25" stroke="#2471a3" strokeWidth="1" fill="none" opacity="0.5"/>
+        <linearGradient id="ocean-gradient" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#123f56" />
+          <stop offset=".48" stopColor="#17637a" />
+          <stop offset="1" stopColor="#0d3449" />
+        </linearGradient>
+        <radialGradient id="ocean-glow" cx="50%" cy="42%" r="66%">
+          <stop offset="0" stopColor="#62b5bd" stopOpacity=".34" />
+          <stop offset=".7" stopColor="#1b6678" stopOpacity=".08" />
+          <stop offset="1" stopColor="#062838" stopOpacity=".54" />
+        </radialGradient>
+        <pattern id="water-lines" patternUnits="userSpaceOnUse" width="34" height="18">
+          <path d="M-9 9 Q0 2 9 9 T27 9 T45 9" fill="none" stroke="#a9e0dc" strokeWidth="1.1" opacity=".16" />
         </pattern>
-        
-        {/* Forest pattern - Pine trees */}
-        <pattern id="forest-pattern" patternUnits="userSpaceOnUse" width="24" height="28">
-          <rect width="24" height="28" fill="#2d5a27"/>
-          {/* Tree 1 */}
-          <polygon points="6,24 12,24 9,4" fill="#1a4a1a"/>
-          <polygon points="6.5,20 11.5,20 9,8" fill="#236b23"/>
-          <polygon points="7,16 11,16 9,10" fill="#2d8a2d"/>
-          <rect x="8" y="24" width="2" height="4" fill="#5d4037"/>
-          {/* Tree 2 */}
-          <polygon points="18,28 24,28 21,10" fill="#1a4a1a" opacity="0.7"/>
-          <polygon points="18.5,24 23.5,24 21,14" fill="#236b23" opacity="0.7"/>
-        </pattern>
-        
-        {/* Hills pattern - Clay/Brick texture */}
-        <pattern id="hills-pattern" patternUnits="userSpaceOnUse" width="20" height="16">
-          <rect width="20" height="16" fill="#c45a2c"/>
-          <rect x="0" y="0" width="9" height="7" fill="#b84a1c" rx="1"/>
-          <rect x="10" y="0" width="9" height="7" fill="#d46a3c" rx="1"/>
-          <rect x="5" y="8" width="9" height="7" fill="#b84a1c" rx="1"/>
-          <rect x="15" y="8" width="5" height="7" fill="#d46a3c" rx="1"/>
-          <rect x="0" y="8" width="4" height="7" fill="#d46a3c" rx="1"/>
-        </pattern>
-        
-        {/* Pasture pattern - Meadow with grass */}
-        <pattern id="pasture-pattern" patternUnits="userSpaceOnUse" width="30" height="30">
-          <rect width="30" height="30" fill="#90c26a"/>
-          {/* Grass tufts */}
-          <path d="M5,28 Q6,22 5,20 M7,28 Q8,24 7,22 M9,28 Q10,23 9,21" stroke="#6ba352" strokeWidth="1.5" fill="none"/>
-          <path d="M20,28 Q21,23 20,21 M22,28 Q23,25 22,23 M24,28 Q25,24 24,22" stroke="#6ba352" strokeWidth="1.5" fill="none"/>
-          {/* Sheep */}
-          <ellipse cx="15" cy="15" rx="5" ry="3" fill="#f5f5f5" opacity="0.6"/>
-          <circle cx="11" cy="14" r="2" fill="#f5f5f5" opacity="0.6"/>
-        </pattern>
-        
-        {/* Fields pattern - Wheat/Grain */}
-        <pattern id="fields-pattern" patternUnits="userSpaceOnUse" width="16" height="24">
-          <rect width="16" height="24" fill="#d4a942"/>
-          {/* Wheat stalks */}
-          <line x1="4" y1="24" x2="4" y2="6" stroke="#c49932" strokeWidth="1"/>
-          <ellipse cx="4" cy="6" rx="2" ry="4" fill="#e8c050"/>
-          <line x1="12" y1="24" x2="12" y2="8" stroke="#c49932" strokeWidth="1"/>
-          <ellipse cx="12" cy="8" rx="2" ry="4" fill="#e8c050"/>
-          <line x1="8" y1="24" x2="8" y2="10" stroke="#b08828" strokeWidth="1"/>
-          <ellipse cx="8" cy="10" rx="2" ry="3.5" fill="#d4b040"/>
-        </pattern>
-        
-        {/* Mountains pattern - Rocky peaks */}
-        <pattern id="mountains-pattern" patternUnits="userSpaceOnUse" width="40" height="30">
-          <rect width="40" height="30" fill="#6b6b6b"/>
-          {/* Mountain 1 */}
-          <polygon points="0,30 20,5 40,30" fill="#5a5a5a"/>
-          <polygon points="10,30 20,10 30,30" fill="#7a7a7a"/>
-          {/* Snow cap */}
-          <polygon points="17,10 20,5 23,10 20,12" fill="#e8e8e8"/>
-          {/* Rocky texture */}
-          <line x1="8" y1="25" x2="12" y2="20" stroke="#4a4a4a" strokeWidth="1"/>
-          <line x1="28" y1="25" x2="32" y2="18" stroke="#4a4a4a" strokeWidth="1"/>
-        </pattern>
-        
-        {/* Desert pattern - Sand dunes */}
-        <pattern id="desert-pattern" patternUnits="userSpaceOnUse" width="40" height="20">
-          <rect width="40" height="20" fill="#e8d5a3"/>
-          {/* Sand dunes */}
-          <path d="M0,18 Q10,12 20,18 Q30,12 40,18" fill="#dcc890" opacity="0.6"/>
-          <path d="M0,14 Q10,8 20,14 Q30,8 40,14" fill="#d4c080" opacity="0.4"/>
-          {/* Cactus */}
-          <rect x="30" y="8" width="2" height="10" fill="#5a8a3a" rx="1"/>
-          <rect x="26" y="11" width="6" height="2" fill="#5a8a3a" rx="1"/>
-        </pattern>
-        
-        {/* Drop shadow */}
-        <filter id="hex-shadow" x="-20%" y="-20%" width="140%" height="140%">
-          <feDropShadow dx="0" dy="2" stdDeviation="2" floodOpacity="0.4"/>
+        <linearGradient id="forest-gradient" x1="0" y1="0" x2="1" y2="1">
+          <stop stopColor="#477f50" /><stop offset=".52" stopColor="#2d6949" /><stop offset="1" stopColor="#19473b" />
+        </linearGradient>
+        <linearGradient id="hills-gradient" x1="0" y1="0" x2=".8" y2="1">
+          <stop stopColor="#e58b51" /><stop offset=".55" stopColor="#c45e38" /><stop offset="1" stopColor="#8d3c2b" />
+        </linearGradient>
+        <linearGradient id="pasture-gradient" x1="0" y1="0" x2="1" y2="1">
+          <stop stopColor="#b3ce72" /><stop offset=".58" stopColor="#79ad57" /><stop offset="1" stopColor="#508b49" />
+        </linearGradient>
+        <linearGradient id="fields-gradient" x1="0" y1="0" x2=".75" y2="1">
+          <stop stopColor="#f2d675" /><stop offset=".5" stopColor="#d4a63f" /><stop offset="1" stopColor="#a96e22" />
+        </linearGradient>
+        <linearGradient id="mountains-gradient" x1="0" y1="0" x2="1" y2="1">
+          <stop stopColor="#9da9a5" /><stop offset=".5" stopColor="#687a7d" /><stop offset="1" stopColor="#374e56" />
+        </linearGradient>
+        <linearGradient id="desert-gradient" x1="0" y1="0" x2="1" y2="1">
+          <stop stopColor="#f2d69d" /><stop offset=".58" stopColor="#dcba76" /><stop offset="1" stopColor="#bd8b4e" />
+        </linearGradient>
+        <radialGradient id="token-face" cx="34%" cy="25%" r="80%">
+          <stop stopColor="#fffdf2" /><stop offset=".65" stopColor="#f4e1b5" /><stop offset="1" stopColor="#d5b57e" />
+        </radialGradient>
+        <linearGradient id="token-rim" x1="0" y1="0" x2="1" y2="1">
+          <stop stopColor="#fff2c8" /><stop offset=".42" stopColor="#a56f35" /><stop offset="1" stopColor="#59391f" />
+        </linearGradient>
+        <linearGradient id="wood-gradient" x1="0" y1="0" x2="1" y2="1">
+          <stop stopColor="#b97b42" /><stop offset=".48" stopColor="#754526" /><stop offset="1" stopColor="#432718" />
+        </linearGradient>
+        <filter id="board-shadow" x="-20%" y="-20%" width="140%" height="150%">
+          <feDropShadow dx="0" dy="6" stdDeviation="7" floodColor="#031e29" floodOpacity=".55" />
         </filter>
-        
-        {/* Building shadow */}
-        <filter id="building-shadow" x="-50%" y="-50%" width="200%" height="200%">
-          <feDropShadow dx="1" dy="2" stdDeviation="1" floodOpacity="0.5"/>
+        <filter id="hex-shadow" x="-25%" y="-25%" width="150%" height="160%">
+          <feDropShadow dx="0" dy="3" stdDeviation="2.2" floodColor="#102a25" floodOpacity=".62" />
         </filter>
+        <filter id="token-shadow" x="-45%" y="-45%" width="190%" height="200%">
+          <feDropShadow dx="0" dy="2.5" stdDeviation="2" floodColor="#28170d" floodOpacity=".58" />
+        </filter>
+        <filter id="building-shadow" x="-70%" y="-70%" width="240%" height="250%">
+          <feDropShadow dx="1" dy="2.4" stdDeviation="1.4" floodColor="#07141a" floodOpacity=".72" />
+        </filter>
+        {Object.keys(hexes).map((key) => (
+          <clipPath id={`tile-clip-${key.replace(',', '-')}`} key={`clip-${key}`}>
+            <path d={hexPath(0, 0, HEX_SIZE - 2)} />
+          </clipPath>
+        ))}
       </defs>
       
       <g transform={`translate(${offsetX}, ${offsetY})`}>
-        {/* Water background */}
-        <rect 
-          x={bounds.minX - 80} 
-          y={bounds.minY - 80} 
-          width={width + 100} 
-          height={height + 100}
-          fill="url(#water-pattern)"
+        {/* Framed ocean and the shallow shelf beneath the island. */}
+        <rect
+          className="ocean-frame"
+          x={bounds.minX - 29}
+          y={bounds.minY - 29}
+          width={width - 2}
+          height={height - 2}
+          rx="44"
+          fill="url(#ocean-gradient)"
+          filter="url(#board-shadow)"
         />
+        <rect
+          className="ocean-light"
+          x={bounds.minX - 25}
+          y={bounds.minY - 25}
+          width={width - 10}
+          height={height - 10}
+          rx="40"
+          fill="url(#ocean-glow)"
+          stroke="#6db4b6"
+          strokeWidth="1.5"
+          strokeOpacity=".38"
+        />
+        <rect
+          x={bounds.minX - 24}
+          y={bounds.minY - 24}
+          width={width - 12}
+          height={height - 12}
+          rx="39"
+          fill="url(#water-lines)"
+        />
+        <g className="island-shelf">
+          {Object.values(hexes).map((hex) => {
+            const pos = axialToPixel(hex.q, hex.r);
+            return <path key={`shelf-${hex.q}-${hex.r}`} d={hexPath(pos.x, pos.y, HEX_SIZE + 4)} />;
+          })}
+        </g>
         
         {/* Hexes */}
         {Object.entries(hexes).map(([key, hex]) => {
           const pos = axialToPixel(hex.q, hex.r);
           const isRobberHere = robber === key;
-          
-          // Get pattern ID based on terrain type
-          const getTerrainPattern = (terrain) => {
-            const patterns = {
-              'forest': 'url(#forest-pattern)',
-              'hills': 'url(#hills-pattern)',
-              'pasture': 'url(#pasture-pattern)',
-              'fields': 'url(#fields-pattern)',
-              'mountains': 'url(#mountains-pattern)',
-              'desert': 'url(#desert-pattern)'
-            };
-            return patterns[terrain] || hex.color;
-          };
+          const clipId = `tile-clip-${key.replace(',', '-')}`;
+          const dots = probabilityDots(hex.number);
           
           return (
             <g 
@@ -408,97 +509,70 @@ function HexBoard({
               onContextMenu={(e) => onHexRightClick && onHexRightClick(e, hex)}
               style={{ cursor: 'context-menu' }}
             >
-              {/* Base color layer */}
               <path
+                className="terrain-tile"
                 d={hexPath(pos.x, pos.y, HEX_SIZE)}
-                fill={hex.color}
-                stroke="#4a3728"
-                strokeWidth="3"
+                fill={terrainFill(hex.terrain, hex.color)}
+                stroke="#553c27"
+                strokeWidth="3.2"
                 filter="url(#hex-shadow)"
               />
-              
-              {/* Pattern overlay */}
-              <path
-                d={hexPath(pos.x, pos.y, HEX_SIZE - 2)}
-                fill={getTerrainPattern(hex.terrain)}
-                opacity="0.85"
-              />
-              
-              {/* Inner hex highlight */}
+              <g clipPath={`url(#${clipId})`} transform={`translate(${pos.x} ${pos.y})`}>
+                <TerrainArtwork terrain={hex.terrain} />
+                <path className="tile-sunwash" d="M-48 -48 H48 V-7 Q2 -25 -48 5Z" />
+              </g>
               <path
                 d={hexPath(pos.x, pos.y, HEX_SIZE - 4)}
                 fill="none"
-                stroke="rgba(255,255,255,0.2)"
-                strokeWidth="1.5"
+                stroke="rgba(255,255,255,0.38)"
+                strokeWidth="1.25"
+                className="tile-bevel"
               />
               
               {/* Number token */}
               {hex.number && (
-                <g>
-                  <circle 
-                    cx={pos.x} 
-                    cy={pos.y} 
-                    r="16"
-                    fill="#f5e6c8"
-                    stroke="#8b7355"
-                    strokeWidth="2"
-                  />
+                <g className={`number-token ${hex.number === 6 || hex.number === 8 ? 'number-token--hot' : ''}`} filter="url(#token-shadow)">
+                  <circle cx={pos.x} cy={pos.y} r="18" fill="url(#token-rim)" />
+                  <circle cx={pos.x} cy={pos.y} r="15.5" fill="url(#token-face)" stroke="#6f4d2d" strokeWidth=".7" />
+                  <circle cx={pos.x - 5} cy={pos.y - 6} r="7" fill="#fff" opacity=".2" />
                   <text
                     x={pos.x}
-                    y={pos.y + 5}
+                    y={pos.y + 3.5}
                     textAnchor="middle"
-                    fontSize="14"
-                    fontWeight="bold"
-                    fontFamily="Cinzel, serif"
+                    fontSize="15"
+                    fontWeight="800"
+                    fontFamily="Georgia, serif"
                     fill={getNumberColor(hex.number)}
                   >
                     {hex.number}
                   </text>
-                  {/* Probability dots */}
-                  <text
-                    x={pos.x}
-                    y={pos.y + 14}
-                    textAnchor="middle"
-                    fontSize="5"
-                    fill={getNumberColor(hex.number)}
-                  >
-                    {'•'.repeat(6 - Math.abs(7 - hex.number))}
-                  </text>
+                  <g fill={getNumberColor(hex.number)}>
+                    {Array.from({ length: dots }, (_, index) => (
+                      <circle key={index} cx={pos.x + (index - (dots - 1) / 2) * 3.1} cy={pos.y + 10} r="1.05" />
+                    ))}
+                  </g>
                 </g>
               )}
               
               {/* Resource icon at bottom of hex */}
-              <text
-                x={pos.x}
-                y={pos.y + 32}
-                textAnchor="middle"
-                fontSize="16"
-                opacity="0.8"
-                style={{ pointerEvents: 'none' }}
-              >
-                {getTerrainIcon(hex.terrain)}
-              </text>
+              <g className="terrain-badge">
+                <circle cx={pos.x} cy={pos.y + 34} r="10" />
+                <GameIconSymbol
+                  name={getTerrainIcon(hex.terrain)}
+                  x={pos.x}
+                  y={pos.y + 34}
+                  size={14}
+                  opacity="0.96"
+                />
+              </g>
               
               {/* Robber */}
               {isRobberHere && (
-                <g className="robber">
-                  <ellipse 
-                    cx={pos.x} 
-                    cy={pos.y} 
-                    rx="10" 
-                    ry="14" 
-                    fill="#1a1a1a" 
-                    stroke="#333" 
-                    strokeWidth="2"
-                  />
-                  <circle 
-                    cx={pos.x} 
-                    cy={pos.y - 16} 
-                    r="8" 
-                    fill="#1a1a1a" 
-                    stroke="#333" 
-                    strokeWidth="2"
-                  />
+                <g className="robber" transform={`translate(${pos.x} ${pos.y - 2})`} filter="url(#building-shadow)">
+                  <title>Robber</title>
+                  <ellipse cx="0" cy="18" rx="12" ry="4" fill="#061217" opacity=".5" />
+                  <path d="M-10 15 Q-9 3 -5 -3 Q-9 -8 -7 -14 Q-5 -21 0 -21 Q5 -21 7 -14 Q9 -8 5 -3 Q9 3 10 15Z" fill="#152329" stroke="#080e11" strokeWidth="2" />
+                  <path d="M-3 -17 Q0 -20 3 -17 M-5 0 Q-1 -3 2 -1" fill="none" stroke="#516068" strokeWidth="1.3" strokeLinecap="round" opacity=".75" />
                 </g>
               )}
             </g>
@@ -523,25 +597,33 @@ function HexBoard({
 
         {/* Roads - rendered separately from clickable areas */}
         {roads.map(({ key, owner, v1, v2 }) => (
-          <g key={`road-${key}`}>
-            {/* Black outline behind the road for visibility */}
+          <g key={`road-${key}`} className="road" filter="url(#building-shadow)">
             <line
               x1={v1.x}
               y1={v1.y}
               x2={v2.x}
               y2={v2.y}
-              stroke="#000"
-              strokeWidth="10"
+              stroke="#241b18"
+              strokeWidth="10.5"
               strokeLinecap="round"
             />
-            {/* Colored road */}
             <line
               x1={v1.x}
               y1={v1.y}
               x2={v2.x}
               y2={v2.y}
               stroke={players[owner]?.color || '#ff0000'}
-              strokeWidth="7"
+              strokeWidth="7.2"
+              strokeLinecap="round"
+            />
+            <line
+              x1={v1.x}
+              y1={v1.y - .8}
+              x2={v2.x}
+              y2={v2.y - .8}
+              stroke="#fff"
+              strokeOpacity=".34"
+              strokeWidth="1.35"
               strokeLinecap="round"
             />
           </g>
@@ -561,37 +643,33 @@ function HexBoard({
                   onClick={() => canUpgrade && onUpgradeToCity(key)}
                 >
                   <path
-                    d={`M${pos.x} ${pos.y - 10} L${pos.x + 8} ${pos.y - 2} L${pos.x + 8} ${pos.y + 6} L${pos.x - 8} ${pos.y + 6} L${pos.x - 8} ${pos.y - 2} Z`}
+                    d={`M${pos.x - 10} ${pos.y - 2} L${pos.x} ${pos.y - 12} L${pos.x + 10} ${pos.y - 2} L${pos.x + 8} ${pos.y - 2} L${pos.x + 8} ${pos.y + 8} L${pos.x - 8} ${pos.y + 8} L${pos.x - 8} ${pos.y - 2} Z`}
                     fill={players[vertex.owner].color}
-                    stroke="#2a2a2a"
-                    strokeWidth="1.5"
+                    stroke="#2b211d"
+                    strokeWidth="1.8"
                     filter="url(#building-shadow)"
                   />
+                  <path d={`M${pos.x - 7} ${pos.y - 1} L${pos.x} ${pos.y - 8} L${pos.x + 7} ${pos.y - 1}`} fill="none" stroke="#fff" strokeOpacity=".38" strokeWidth="1.2" strokeLinecap="round" />
+                  <rect x={pos.x - 2} y={pos.y + 2} width="4" height="6" rx=".7" fill="#2b211d" opacity=".58" />
                 </g>
               )}
               
               {/* City */}
               {vertex.building === 'city' && (
                 <g className="city">
-                  <rect
-                    x={pos.x - 10}
-                    y={pos.y - 4}
-                    width="20"
-                    height="12"
+                  <path
+                    d={`M${pos.x - 13} ${pos.y + 9} V${pos.y - 3} L${pos.x - 7} ${pos.y - 9} L${pos.x - 1} ${pos.y - 3} V${pos.y - 14} H${pos.x + 7} V${pos.y - 7} H${pos.x + 12} V${pos.y + 9}Z`}
                     fill={players[vertex.owner].color}
-                    stroke="#2a2a2a"
-                    strokeWidth="1.5"
+                    stroke="#2b211d"
+                    strokeWidth="1.8"
                     filter="url(#building-shadow)"
                   />
-                  <rect
-                    x={pos.x - 5}
-                    y={pos.y - 12}
-                    width="10"
-                    height="10"
-                    fill={players[vertex.owner].color}
-                    stroke="#2a2a2a"
-                    strokeWidth="1.5"
-                  />
+                  <path d={`M${pos.x - 10} ${pos.y - 2} L${pos.x - 7} ${pos.y - 5} L${pos.x - 3} ${pos.y - 1} M${pos.x + 2} ${pos.y - 11} H${pos.x + 5}`} fill="none" stroke="#fff" strokeOpacity=".4" strokeWidth="1.2" strokeLinecap="round" />
+                  <g fill="#2b211d" opacity=".55">
+                    <rect x={pos.x - 9} y={pos.y + 3} width="3" height="6" rx=".5" />
+                    <rect x={pos.x + 3} y={pos.y - 4} width="3" height="4" rx=".5" />
+                    <rect x={pos.x + 7} y={pos.y + 3} width="3" height="4" rx=".5" />
+                  </g>
                 </g>
               )}
               
@@ -656,57 +734,44 @@ function HexBoard({
           const portX = midX + perpX * 28;
           const portY = midY + perpY * 28;
           
-          const portColor = port.resource ? '#8b4513' : '#4a4a4a';
-          
           return (
             <g key={port.id} className="port">
-              {/* Connection lines from port to vertices */}
+              <path
+                d={`M${v1Pos.x} ${v1Pos.y} L${portX} ${portY} L${v2Pos.x} ${v2Pos.y}`}
+                fill="none"
+                stroke="#3a2619"
+                strokeWidth="4.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity=".76"
+              />
               <line
                 x1={portX}
                 y1={portY}
                 x2={v1Pos.x}
                 y2={v1Pos.y}
-                stroke="#8b7355"
-                strokeWidth="2"
-                strokeDasharray="3,3"
-                opacity="0.5"
+                stroke="#e6bd74"
+                strokeWidth="1.25"
+                opacity=".82"
               />
               <line
                 x1={portX}
                 y1={portY}
                 x2={v2Pos.x}
                 y2={v2Pos.y}
-                stroke="#8b7355"
-                strokeWidth="2"
-                strokeDasharray="3,3"
-                opacity="0.5"
+                stroke="#e6bd74"
+                strokeWidth="1.25"
+                opacity=".82"
               />
               
-              {/* Port ship/dock icon - smaller and more compact */}
-              <g transform={`translate(${portX}, ${portY})`}>
-                <circle
-                  r="13"
-                  fill={portColor}
-                  stroke="#5a3d25"
-                  strokeWidth="1.5"
-                />
-                <text
-                  textAnchor="middle"
-                  y="4"
-                  fontSize="11"
-                >
-                  {port.icon}
-                </text>
-                <text
-                  textAnchor="middle"
-                  y="22"
-                  fontSize="8"
-                  fill="white"
-                  fontWeight="bold"
-                  style={{ textShadow: '1px 1px 2px black' }}
-                >
-                  {port.ratio}:1
-                </text>
+              <g transform={`translate(${portX}, ${portY})`} filter="url(#token-shadow)">
+                <circle r="15" fill="url(#wood-gradient)" stroke="#e0b46d" strokeWidth="1.3" />
+                <circle r="11.8" fill="#f3dfb1" stroke="#5a3720" strokeWidth=".8" />
+                <GameIconSymbol name={getPortIcon(port)} x={0} y={0} size={15} />
+                <g className="port-ratio">
+                  <rect x="-11" y="16" width="22" height="11" rx="5.5" />
+                  <text textAnchor="middle" y="24" fontSize="8" fontWeight="800">{port.ratio}:1</text>
+                </g>
               </g>
             </g>
           );

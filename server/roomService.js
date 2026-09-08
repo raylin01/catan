@@ -108,7 +108,8 @@ export class RoomService {
     }
     return {success:true,code,revision:room.revision,role:member.role,host:member.role==='host',seatId:member.seatId||null,generation:member.generation||0,
       paused:room.paused,slots:room.slots.map(({controller,...s})=>({...s,occupied:!!controller,connected:!!controller&&Date.now()-(this.presence.get(controller)||0)<15000})),
-      gameState,legalActions:choices,decision,trade:clone(room.trade),events:clone(room.events||[]),chat:member.role==='ai'?[]:clone(room.chat)};
+      gameState,legalActions:choices,decision,trade:clone(room.trade),events:clone(room.events||[]),chat:member.role==='ai'?[]:clone(room.chat),
+      rollEvent:room.lastRoll?{id:room.lastRoll.id,roll:clone(room.lastRoll.roll),gains:clone(room.lastRoll.gainsBySeat[member.seatId]||{})}:null};
   }
   command(code,token,command={}) {
     code=typeof code==='string'?code.toUpperCase():code;
@@ -195,6 +196,10 @@ export class RoomService {
         }
       }
       if(!result.success)return result;
+      // Keep exact production for presentation; observations expose only the
+      // authenticated seat's receipt, never another player's hand or gains.
+      if(type==='rollDice'&&result.roll)copy.lastRoll={id:randomUUID(),roll:clone(result.roll),
+        gainsBySeat:Object.fromEntries(copy.game.players.map((player,index)=>[player.id,clone(result.resourceGains?.[index]||{})]))};
       copy.revision++;
       const labels={start:'started the game',placeSettlement:'built a settlement',placeRoad:'built a road',upgradeToCity:'built a city',rollDice:'rolled the dice',discardCards:'discarded cards',moveRobber:'moved the robber',buyDevCard:'bought a development card',playDevCard:'played a development card',bankTrade:'traded with the bank',endTurn:'ended their turn',tradeOffer:'offered a trade',tradeCounter:'made a counteroffer',tradeAccept:'accepted a trade offer',tradeReject:'rejected a trade offer',tradeConfirm:'confirmed a trade',tradeCancel:'cancelled a trade',leave:'left their seat',removeController:'removed a seat controller',pause:'paused the game',resume:'resumed the game',endGame:'ended the game'};
       if(labels[type])copy.events=[...(copy.events||[]),{id:randomUUID(),at:Date.now(),actor:member.name,type,summary:`${member.name} ${labels[type]}`}].slice(-200);

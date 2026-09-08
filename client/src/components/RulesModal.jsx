@@ -1,12 +1,22 @@
 import { useState } from 'react';
 import './RulesModal.css';
+import GameIcon from './GameIcon';
+
+function renderInlineIcons(text, keyPrefix) {
+  return text.split(/(:[a-zA-Z0-9]+:)/g).map((part, index) => {
+    const match = part.match(/^:([a-zA-Z0-9]+):$/);
+    if (!match) return part;
+    return <GameIcon key={`${keyPrefix}-icon-${index}`} className="rules-inline-icon" name={match[1]} size={16} />;
+  });
+}
 
 function RulesModal({ onClose }) {
   const [activeSection, setActiveSection] = useState('overview');
 
   const sections = {
     overview: {
-      title: '🎯 Game Overview',
+      icon: 'overview',
+      title: 'Game Overview',
       content: `
 **Objective:** Be the first player to reach **10 Victory Points** by building settlements, cities, and earning special achievements.
 
@@ -21,7 +31,8 @@ function RulesModal({ onClose }) {
       `
     },
     setup: {
-      title: '🏗️ Setup Phase',
+      icon: 'setup',
+      title: 'Setup Phase',
       content: `
 **Initial Placement (in turn order):**
 
@@ -36,7 +47,8 @@ function RulesModal({ onClose }) {
       `
     },
     turn: {
-      title: '🎲 Turn Structure',
+      icon: 'turn',
+      title: 'Turn Structure',
       content: `
 **1. Roll Dice**
 • The sum of two dice determines which hexes produce resources
@@ -59,34 +71,36 @@ function RulesModal({ onClose }) {
       `
     },
     building: {
-      title: '🏠 Building Costs',
+      icon: 'building',
+      title: 'Building Costs',
       content: `
 **Road** (worth 0 VP)
-🧱 1 Brick + 🪵 1 Lumber
+:brick: 1 Brick + :lumber: 1 Lumber
 • Must connect to your roads, settlements, or cities
 • Max 15 roads per player
 
 **Settlement** (worth 1 VP)
-🧱 1 Brick + 🪵 1 Lumber + 🐑 1 Wool + 🌾 1 Grain
+:brick: 1 Brick + :lumber: 1 Lumber + :wool: 1 Wool + :grain: 1 Grain
 • Must be built on empty intersections
 • Must connect to one of your roads
 • Cannot be adjacent to another settlement/city
 • Max 5 settlements per player
 
 **City** (worth 2 VP)
-🪨 3 Ore + 🌾 2 Grain
+:ore: 3 Ore + :grain: 2 Grain
 • Upgrade an existing settlement
 • Produces double resources (2 instead of 1)
 • Max 4 cities per player
 
 **Development Card**
-🐑 1 Wool + 🌾 1 Grain + 🪨 1 Ore
+:wool: 1 Wool + :grain: 1 Grain + :ore: 1 Ore
 • Draw from the deck (cards are hidden)
 • Cannot play a card the same turn you buy it
       `
     },
     devCards: {
-      title: '🃏 Development Cards',
+      icon: 'devCards',
+      title: 'Development Cards',
       content: `
 **Knight (14 cards)**
 • Move the robber to any hex
@@ -110,7 +124,8 @@ function RulesModal({ onClose }) {
       `
     },
     robber: {
-      title: '🥷 The Robber',
+      icon: 'robber',
+      title: 'The Robber',
       content: `
 **When a 7 is rolled:**
 1. All players with more than 7 cards must discard half (rounded down)
@@ -125,7 +140,8 @@ function RulesModal({ onClose }) {
       `
     },
     ports: {
-      title: '⚓ Trading & Ports',
+      icon: 'ports',
+      title: 'Trading & Ports',
       content: `
 **Bank Trading:**
 • Default: 4 of same resource → 1 of any other resource
@@ -136,12 +152,12 @@ function RulesModal({ onClose }) {
 • **Specific Ports (2:1):** 2 of that resource → 1 of any other
 
 **Port Types:**
-• 🧱 Brick Port (2:1)
-• 🪵 Lumber Port (2:1)
-• 🐑 Wool Port (2:1)
-• 🌾 Grain Port (2:1)
-• 🪨 Ore Port (2:1)
-• ⚓ Generic Port (3:1)
+• :brick: Brick Port (2:1)
+• :lumber: Lumber Port (2:1)
+• :wool: Wool Port (2:1)
+• :grain: Grain Port (2:1)
+• :ore: Ore Port (2:1)
+• :port: Generic Port (3:1)
 
 **Player Trading:**
 • On your turn, propose trades to other players
@@ -150,7 +166,8 @@ function RulesModal({ onClose }) {
       `
     },
     special: {
-      title: '🏆 Special Achievements',
+      icon: 'trophy',
+      title: 'Special Achievements',
       content: `
 **Longest Road (2 VP)**
 • First player to build a continuous road of 5+ segments
@@ -165,7 +182,8 @@ function RulesModal({ onClose }) {
       `
     },
     extension: {
-      title: '👥 5-6 Player Extension',
+      icon: 'players',
+      title: '5-6 Player Extension',
       content: `
 **What's Different:**
 • Larger board with more hexes and ports
@@ -190,47 +208,53 @@ With more players, resources become more scarce. Focus on building efficiently a
   return (
     <div className="rules-modal-overlay" onClick={onClose}>
       <div className="rules-modal" onClick={e => e.stopPropagation()}>
-        <button className="rules-close-btn" onClick={onClose}>×</button>
+        <button className="rules-close-btn" onClick={onClose} aria-label="Close rules">
+          <GameIcon name="close" size={18} />
+        </button>
         
         <div className="rules-header">
-          <h2>📜 Catan Rules</h2>
+          <h2><GameIcon name="devCard" size={24} /> Catan Rules</h2>
         </div>
         
         <div className="rules-container">
           <nav className="rules-nav">
-            {Object.entries(sections).map(([key, { title }]) => (
+            {Object.entries(sections).map(([key, { title, icon }]) => (
               <button
                 key={key}
                 className={`rules-nav-btn ${activeSection === key ? 'active' : ''}`}
                 onClick={() => setActiveSection(key)}
               >
-                {title}
+                <GameIcon name={icon} size={17} />
+                <span>{title}</span>
               </button>
             ))}
           </nav>
           
           <div className="rules-content">
-            <h3>{sections[activeSection].title}</h3>
+            <h3>
+              <GameIcon name={sections[activeSection].icon} size={21} />
+              <span>{sections[activeSection].title}</span>
+            </h3>
             <div className="rules-text">
               {sections[activeSection].content.split('\n').map((line, i) => {
                 if (line.startsWith('**') && line.endsWith('**')) {
-                  return <h4 key={i}>{line.replace(/\*\*/g, '')}</h4>;
+                  return <h4 key={i}>{renderInlineIcons(line.replace(/\*\*/g, ''), `line-${i}`)}</h4>;
                 }
                 if (line.startsWith('**')) {
                   const parts = line.split('**');
                   return (
                     <p key={i}>
-                      <strong>{parts[1]}</strong>{parts[2]}
+                      <strong>{renderInlineIcons(parts[1], `line-${i}-strong`)}</strong>{renderInlineIcons(parts[2], `line-${i}`)}
                     </p>
                   );
                 }
                 if (line.startsWith('•')) {
-                  return <li key={i}>{line.substring(1).trim()}</li>;
+                  return <li key={i}>{renderInlineIcons(line.substring(1).trim(), `line-${i}`)}</li>;
                 }
                 if (line.trim() === '') {
                   return <br key={i} />;
                 }
-                return <p key={i}>{line}</p>;
+                return <p key={i}>{renderInlineIcons(line, `line-${i}`)}</p>;
               })}
             </div>
           </div>
@@ -241,4 +265,3 @@ With more players, resources become more scarce. Focus on building efficiently a
 }
 
 export default RulesModal;
-

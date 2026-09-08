@@ -1,47 +1,41 @@
 import { useState } from 'react';
 import './DevCardModal.css';
+import GameIcon from './GameIcon';
 
 const DEV_CARD_INFO = {
   knight: {
     name: 'Knight',
-    icon: '⚔️',
+    icon: 'knight',
     description: 'Move the robber and steal from an opponent. Counts toward Largest Army.',
     playable: true
   },
   victoryPoint: {
     name: 'Victory Point',
-    icon: '🏆',
+    icon: 'trophy',
     description: 'Worth 1 VP. Revealed at end of game or when you win.',
     playable: false
   },
   roadBuilding: {
     name: 'Road Building',
-    icon: '🛤️',
+    icon: 'road',
     description: 'Build 2 roads for free.',
     playable: true
   },
   yearOfPlenty: {
     name: 'Year of Plenty',
-    icon: '🌈',
+    icon: 'yearOfPlenty',
     description: 'Take any 2 resources from the bank.',
     playable: true
   },
   monopoly: {
     name: 'Monopoly',
-    icon: '💰',
+    icon: 'monopoly',
     description: 'Name a resource. All players give you all their cards of that type.',
     playable: true
   }
 };
 
 const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
-const RESOURCE_ICONS = {
-  brick: '🧱',
-  lumber: '🪵',
-  wool: '🐑',
-  grain: '🌾',
-  ore: '⛏️'
-};
 
 function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks, onClose, addNotification }) {
   const [selectedCard, setSelectedCard] = useState(null);
@@ -106,7 +100,9 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="dev-card-modal" onClick={e => e.stopPropagation()}>
-        <button className="close-btn" onClick={onClose}>×</button>
+        <button className="close-btn" onClick={onClose} aria-label="Close development cards">
+          <GameIcon name="close" size={18} />
+        </button>
         
         <h2>Development Cards</h2>
 
@@ -121,7 +117,7 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
                   className="resource-pick-btn"
                   onClick={() => handleYearOfPlentyPick(r)}
                 >
-                  <span className="icon">{RESOURCE_ICONS[r]}</span>
+                  <GameIcon className="icon" name={r} size={24} />
                   <span className="name">{r}</span>
                 </button>
               ))}
@@ -140,7 +136,7 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
                   className={`resource-pick-btn ${monopolyResource === r ? 'selected' : ''}`}
                   onClick={() => setMonopolyResource(r)}
                 >
-                  <span className="icon">{RESOURCE_ICONS[r]}</span>
+                  <GameIcon className="icon" name={r} size={24} />
                   <span className="name">{r}</span>
                 </button>
               ))}
@@ -168,7 +164,7 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
                     return (
                       <div key={cardType} className={`dev-card ${isPlayable ? 'playable' : ''}`}>
                         <div className="card-header">
-                          <span className="card-icon">{info.icon}</span>
+                          <GameIcon className="card-icon" name={info.icon} size={26} />
                           <span className="card-name">{info.name}</span>
                           <span className="card-count">×{count}</span>
                         </div>
@@ -196,7 +192,7 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
                         const info = DEV_CARD_INFO[cardType];
                         return (
                           <div key={idx} className="dev-card new">
-                            <span className="card-icon">{info.icon}</span>
+                            <GameIcon className="card-icon" name={info.icon} size={22} />
                             <span className="card-name">{info.name}</span>
                           </div>
                         );
@@ -214,4 +210,3 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
 }
 
 export default DevCardModal;
-

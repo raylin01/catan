@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import './Chat.css';
+import GameIcon from './GameIcon';
 
 function Chat({ messages, onSend, onClose }) {
   const [input, setInput] = useState('');
@@ -27,8 +28,10 @@ function Chat({ messages, onSend, onClose }) {
   return (
     <div className="chat-panel">
       <div className="chat-header">
-        <h3>💬 Chat</h3>
-        <button className="close-chat" onClick={onClose}>×</button>
+        <h3><GameIcon name="chat" size={18} /> Chat</h3>
+        <button className="close-chat" onClick={onClose} aria-label="Close chat">
+          <GameIcon name="close" size={16} />
+        </button>
       </div>
       
       <div className="chat-messages">
@@ -65,4 +68,3 @@ function Chat({ messages, onSend, onClose }) {
 }
 
 export default Chat;
-
