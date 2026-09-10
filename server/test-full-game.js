@@ -104,6 +104,15 @@ function giveResources(player, resources) {
 }
 
 // Main test suite
+// Scenario setup still resolves the complete mandatory robber flow.
+function finishRobber(game, playerId, hexKey) {
+  const victims = GameLogic.getPlayersOnHex(game, hexKey, game.currentPlayerIndex)
+    .filter(index => getTotalResources(game.players[index]) > 0);
+  const result = GameLogic.moveRobber(game, playerId, hexKey, victims.length ? game.players[victims[0]].id : null);
+  if (result.success && game.pendingRobberPick) return GameLogic.chooseRobberCard(game, playerId, game.pendingRobberPick.cards[0].id);
+  return result;
+}
+
 async function runTests() {
   log('\n' + '█'.repeat(70), 'cyan');
   log('█' + ' '.repeat(20) + 'CATAN FULL GAME TEST SUITE' + ' '.repeat(22) + '█', 'cyan');
@@ -314,7 +323,7 @@ async function runTests() {
   if (game.turnPhase === 'robber') {
     // Move robber somewhere
     const nonDesert = Object.keys(game.hexes).find(k => k !== game.robber);
-    GameLogic.moveRobber(game, currentPlayer.id, nonDesert, null);
+    finishRobber(game, currentPlayer.id, nonDesert);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -390,7 +399,7 @@ async function runTests() {
   }
   if (game.turnPhase === 'robber') {
     const nonDesert = Object.keys(game.hexes).find(k => k !== game.robber);
-    GameLogic.moveRobber(game, nextPlayer.id, nonDesert, null);
+    finishRobber(game, nextPlayer.id, nonDesert);
   }
   
   // Buy more cards to test different types
@@ -411,7 +420,7 @@ async function runTests() {
 
     // Move robber
     const nonDesertHex = Object.keys(game.hexes).find(k => k !== game.robber);
-    result = GameLogic.moveRobber(game, nextPlayer.id, nonDesertHex, null);
+    result = finishRobber(game, nextPlayer.id, nonDesertHex);
     assert(result.success, 'Moved robber');
     assert(game.robber === nonDesertHex, 'Robber position updated');
   }
@@ -562,7 +571,7 @@ async function runTests() {
   }
   if (game.turnPhase === 'robber') {
     const nonDesert = Object.keys(game.hexes).find(k => k !== game.robber);
-    GameLogic.moveRobber(game, trader.id, nonDesert, null);
+    finishRobber(game, trader.id, nonDesert);
   }
   
   giveResources(trader, { brick: 2 });
@@ -683,11 +692,14 @@ async function runTests() {
     const victimTotalBefore = getTotalResources(victim);
     
     result = GameLogic.moveRobber(game, rollingPlayer.id, targetHex, victim.id);
-    assert(result.success, 'Moved robber and stole');
+    assert(result.success, 'Moved robber and selected victim');
     assert(game.robber === targetHex, 'Robber moved to new hex');
     
     if (victimTotalBefore > 0) {
-      assert(getTotalResources(victim) < victimTotalBefore, 'Victim lost a card');
+      assert(getTotalResources(victim) === victimTotalBefore, 'Victim keeps cards until a blind choice');
+      result = GameLogic.chooseRobberCard(game, rollingPlayer.id, game.pendingRobberPick.cards[0].id);
+      assert(result.success, 'Selected one face-down card');
+      assert(getTotalResources(victim) === victimTotalBefore - 1, 'Victim lost exactly one card');
     }
   }
 
@@ -835,7 +847,7 @@ async function runTests() {
   }
   if (testGame.turnPhase === 'robber') {
     const hex = Object.keys(testGame.hexes).find(k => k !== testGame.robber);
-    GameLogic.moveRobber(testGame, currentTestPlayer.id, hex, null);
+    finishRobber(testGame, currentTestPlayer.id, hex);
   }
   
   currentTestPlayer.resources = { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };

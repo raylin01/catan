@@ -2,6 +2,7 @@ import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import * as G from './gameLogic.js';
 import {executeAction,playerView,legalActions} from './actions.js';
 import {PROVIDERS} from './providers.js';
+import {appendCardEvent,projectCardEvents} from './cardEvents.js';
 
 const secret=()=>randomBytes(32).toString('base64url');
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -64,7 +65,7 @@ export class RoomService {
       }
       slots.push({id:randomUUID(),kind,provider,model,generation:0,controller:null,ready:false,name:`Seat ${i+1}`});
     }
-    const room={code,revision:0,name:cleanName(name),slots,members:{[hash(token)]:{role:'host',name:cleanName(name)}},game:null,trade:null,chat:[],receipts:{},paused:false};
+    const room={code,revision:0,name:cleanName(name),slots,members:{[hash(token)]:{role:'host',name:cleanName(name)}},game:null,trade:null,chat:[],receipts:{},cardEventSequence:0,cardEvents:[],paused:false};
     this.persist(room);return {success:true,code,token,role:'host'};
   }
   join(code,options={}) {
@@ -106,10 +107,14 @@ export class RoomService {
       if(discard)decision={type:'discardCards',count:discard.cardsToDiscard,resources:clone(room.game.players[index].resources)};
       else if(choices.length)decision={type:'chooseAction'};
     }
+    const pending=room.game?.pendingRobberPick;
+    const robberPick=pending?{id:pending.id,thiefId:pending.thiefId,victimId:pending.victimId,count:pending.cards.length,
+      ...(member.seatId===pending.thiefId?{cardIds:pending.cards.map(card=>card.id)}:{})}:null;
     return {success:true,code,revision:room.revision,role:member.role,host:member.role==='host',seatId:member.seatId||null,generation:member.generation||0,
       paused:room.paused,slots:room.slots.map(({controller,...s})=>({...s,occupied:!!controller,connected:!!controller&&Date.now()-(this.presence.get(controller)||0)<15000})),
       gameState,legalActions:choices,decision,trade:clone(room.trade),events:clone(room.events||[]),chat:member.role==='ai'?[]:clone(room.chat),
-      rollEvent:room.lastRoll?{id:room.lastRoll.id,roll:clone(room.lastRoll.roll),gains:clone(room.lastRoll.gainsBySeat[member.seatId]||{})}:null};
+      rollEvent:room.lastRoll?{id:room.lastRoll.id,roll:clone(room.lastRoll.roll),gains:clone(room.lastRoll.audienceGenerations?.[member.seatId]===member.generation?room.lastRoll.gainsBySeat[member.seatId]||{}:{})}:null,
+      robberPick,cardEvents:projectCardEvents(room,member),cardEventSequence:room.cardEventSequence||0};
   }
   command(code,token,command={}) {
     code=typeof code==='string'?code.toUpperCase():code;
@@ -125,7 +130,7 @@ export class RoomService {
     if(room.receipts[receiptKey])return room.receipts[receiptKey].fingerprint===fingerprint?clone(room.receipts[receiptKey].result):fail('Request ID already used for another command',409);
     if(revision!==room.revision)return fail('Game changed; observe before acting',409);
     if(member.seatId && generation!==member.generation)return fail('Seat controller changed',409);
-    const copy=clone(room);let result={success:true};
+    const copy=clone(room),beforeGame=room.game?clone(room.game):null;let result={success:true};
     try {
       const hostTypes=['configureSeat','start','removeController','pause','resume','endGame'];
       if(hostTypes.includes(type)&&member.role!=='host')return fail('Only the host can do that',403);
@@ -178,7 +183,7 @@ export class RoomService {
         if(copy.paused===(type==='pause'))return fail(type==='pause'?'Game is already paused':'Game is not paused');
         copy.paused=type==='pause';
       }
-      else if(type==='endGame') {if(!copy.game||!['setup','playing'].includes(copy.game.phase))return fail('Game is not active');copy.game.phase='finished';copy.trade=null;copy.paused=false;}
+      else if(type==='endGame') {if(!copy.game||!['setup','playing'].includes(copy.game.phase))return fail('Game is not active');copy.game.phase='finished';copy.game.pendingRobberPick=null;copy.game.discardingPlayers=[];copy.trade=null;copy.paused=false;}
       else if(type==='chat') {
         if(member.role==='ai')return fail('AI connectors use structured trades');
         if(typeof payload.message!=='string'||!payload.message.trim()||payload.message.length>500)return fail('Message must contain 1–500 characters');
@@ -199,9 +204,11 @@ export class RoomService {
       // Keep exact production for presentation; observations expose only the
       // authenticated seat's receipt, never another player's hand or gains.
       if(type==='rollDice'&&result.roll)copy.lastRoll={id:randomUUID(),roll:clone(result.roll),
+        audienceGenerations:Object.fromEntries(copy.slots.map(slot=>[slot.id,slot.generation])),
         gainsBySeat:Object.fromEntries(copy.game.players.map((player,index)=>[player.id,clone(result.resourceGains?.[index]||{})]))};
       copy.revision++;
-      const labels={start:'started the game',placeSettlement:'built a settlement',placeRoad:'built a road',upgradeToCity:'built a city',rollDice:'rolled the dice',discardCards:'discarded cards',moveRobber:'moved the robber',buyDevCard:'bought a development card',playDevCard:'played a development card',bankTrade:'traded with the bank',endTurn:'ended their turn',tradeOffer:'offered a trade',tradeCounter:'made a counteroffer',tradeAccept:'accepted a trade offer',tradeReject:'rejected a trade offer',tradeConfirm:'confirmed a trade',tradeCancel:'cancelled a trade',leave:'left their seat',removeController:'removed a seat controller',pause:'paused the game',resume:'resumed the game',endGame:'ended the game'};
+      appendCardEvent(copy,beforeGame,type,type==='rollDice'?copy.lastRoll?.id:null);
+      const labels={start:'started the game',placeSettlement:'built a settlement',placeRoad:'built a road',upgradeToCity:'built a city',rollDice:'rolled the dice',discardCards:'discarded cards',moveRobber:'moved the robber',chooseRobberCard:'stole a resource card',buyDevCard:'bought a development card',playDevCard:'played a development card',bankTrade:'traded with the bank',endTurn:'ended their turn',tradeOffer:'offered a trade',tradeCounter:'made a counteroffer',tradeAccept:'accepted a trade offer',tradeReject:'rejected a trade offer',tradeConfirm:'confirmed a trade',tradeCancel:'cancelled a trade',leave:'left their seat',removeController:'removed a seat controller',pause:'paused the game',resume:'resumed the game',endGame:'ended the game'};
       if(labels[type])copy.events=[...(copy.events||[]),{id:randomUUID(),at:Date.now(),actor:member.name,type,summary:`${member.name} ${labels[type]}`}].slice(-200);
       const response={success:true,revision:copy.revision};
       // Return private effects only to the authenticated actor, never the event stream.

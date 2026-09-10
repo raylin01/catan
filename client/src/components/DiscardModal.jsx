@@ -1,12 +1,30 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import './DiscardModal.css';
 import GameIcon from './GameIcon';
 
 const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
 
-function DiscardModal({ socket, player, cardsToDiscard, addNotification }) {
+function DiscardModal({ socket, player, cardsToDiscard, addNotification, paused }) {
   const [selected, setSelected] = useState({ brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
 
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const panel = useRef(null);
+  useEffect(() => {
+    const previous = document.activeElement;
+    panel.current?.focus();
+    return () => { if (previous?.isConnected) previous.focus(); };
+  }, []);
+  const trapFocus = event => {
+    if (event.key !== 'Tab') return;
+    const buttons = [...panel.current.querySelectorAll('button:not(:disabled)')];
+    if (!buttons.length) { event.preventDefault(); return; }
+    if (event.shiftKey && (document.activeElement === buttons[0] || document.activeElement === panel.current)) {
+      event.preventDefault(); buttons.at(-1).focus();
+    } else if (!event.shiftKey && document.activeElement === buttons.at(-1)) {
+      event.preventDefault(); buttons[0].focus();
+    }
+  };
   const totalSelected = Object.values(selected).reduce((a, b) => a + b, 0);
   const remaining = cardsToDiscard - totalSelected;
 
@@ -22,21 +40,26 @@ function DiscardModal({ socket, player, cardsToDiscard, addNotification }) {
       return;
     }
 
+    if (busy || paused) return;
+    setBusy(true); setError('');
     socket.emit('discardCards', { resources: selected }, (response) => {
+      setBusy(false);
       if (!response.success) {
-        addNotification(response.error);
+        setError(response.error);
       }
     });
   };
 
   return (
     <div className="modal-overlay">
-      <div className="discard-modal">
-        <h2><GameIcon name="dice" size={24} /> Seven Rolled!</h2>
+      <div className="discard-modal" role="dialog" aria-modal="true" aria-labelledby="discard-title" ref={panel} tabIndex={-1} onKeyDown={trapFocus}>
+        <h2 id="discard-title"><GameIcon name="dice" size={24} /> Seven Rolled!</h2>
         <p className="discard-info">
           You have more than 7 cards. Discard <strong>{cardsToDiscard}</strong> cards.
         </p>
         
+        {paused && <p>The room is paused.</p>}
+        {error && <p role="alert">{error}</p>}
         <div className="discard-progress">
           <div 
             className="progress-bar"
@@ -60,14 +83,16 @@ function DiscardModal({ socket, player, cardsToDiscard, addNotification }) {
                 <div className="discard-controls">
                   <button 
                     onClick={() => updateSelected(r, -1)}
-                    disabled={selected[r] === 0}
+                    aria-label={`Keep one ${r}`}
+                    disabled={busy || paused || selected[r] === 0}
                   >
                     −
                   </button>
                   <span className="discard-amount">{selected[r]}</span>
                   <button 
                     onClick={() => updateSelected(r, 1)}
-                    disabled={selected[r] >= available || totalSelected >= cardsToDiscard}
+                    aria-label={`Discard one ${r}`}
+                    disabled={busy || paused || selected[r] >= available || totalSelected >= cardsToDiscard}
                   >
                     +
                   </button>
@@ -80,9 +105,9 @@ function DiscardModal({ socket, player, cardsToDiscard, addNotification }) {
         <button 
           className="confirm-discard"
           onClick={handleDiscard}
-          disabled={totalSelected !== cardsToDiscard}
+          disabled={busy || paused || totalSelected !== cardsToDiscard}
         >
-          Discard {totalSelected} Cards
+          {busy ? 'Discarding…' : `Discard ${totalSelected} cards`}
         </button>
       </div>
     </div>

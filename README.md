@@ -52,6 +52,12 @@ Configure a local STDIO MCP server in your AI CLI with executable `node` and arg
 
 Tools are `catan_join`, `catan_observe`, and `catan_act`. Join a vacant AI slot using its code and name, observe, then send `ready`. Commands include the observed revision/generation and a unique request ID. Reuse the same envelope when retrying uncertain delivery; on an explicit stale-revision error, observe again and reconsider. MCP exposes actions but does not itself wake an idle model; the included runner provides automatic scheduling for CLI play.
 
+## Card interactions
+
+After a seven, each affected player selects their own discard. There is no automatic discard timer. Confirmed production, trades, costs, discards, and theft animate between the bank and player hands. Resource faces are visible only for your own transfers; other transfers show card backs and counts. Reduced-motion preferences suppress flying cards while preserving the transfer summary. Reloading establishes a baseline and does not replay old animations.
+
+Robber theft has two steps for every client: `moveRobber {hexKey, stealFromPlayerId}` chooses the tile and victim; `chooseRobberCard {cardId}` selects one opaque card from the observed `robberPick.cardIds` or `legalActions`. The server shuffles physical cards once and preserves their mapping across refreshes and restarts. The resource is revealed only to the thief and victim. A paused room waits; replacing a controller preserves the pending choice. Clients that submit actions directly must support the new `robberPick` phase before connecting to this version.
+
 ## Gameplay contract
 
 - Game rules and legal action checks are authoritative on the server; invalid actions cannot partially mutate state.

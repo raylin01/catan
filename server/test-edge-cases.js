@@ -304,6 +304,8 @@ function testResourceDistribution() {
   {
     const game = createTestGame();
     game.phase = 'playing';
+    // Only the explicit fixture hexes should produce; random neighbors can match the roll.
+    game.hexes = {};
     
     // Setup: Two adjacent hexes with same resource and same number
     // Use correct hex key format: `${q},${r}`
@@ -334,6 +336,8 @@ function testResourceDistribution() {
   {
     const game = createTestGame();
     game.phase = 'playing';
+    // Only the explicit fixture hexes should produce; random neighbors can match the roll.
+    game.hexes = {};
     
     game.hexes['0,0'] = { q: 0, r: 0, terrain: 'forest', resource: 'lumber', number: 6 };
     game.robber = '2,0';
@@ -352,6 +356,8 @@ function testResourceDistribution() {
   {
     const game = createTestGame();
     game.phase = 'playing';
+    // Only the explicit fixture hexes should produce; random neighbors can match the roll.
+    game.hexes = {};
     
     // Two adjacent hexes with same resource and number
     game.hexes['0,0'] = { q: 0, r: 0, terrain: 'forest', resource: 'lumber', number: 9 };
@@ -373,6 +379,8 @@ function testResourceDistribution() {
   {
     const game = createTestGame();
     game.phase = 'playing';
+    // Only the explicit fixture hexes should produce; random neighbors can match the roll.
+    game.hexes = {};
     
     // Two adjacent hexes with DIFFERENT resources but same number
     game.hexes['0,0'] = { q: 0, r: 0, terrain: 'forest', resource: 'lumber', number: 5 };
@@ -398,6 +406,8 @@ function testResourceDistribution() {
   {
     const game = createTestGame();
     game.phase = 'playing';
+    // Only the explicit fixture hexes should produce; random neighbors can match the roll.
+    game.hexes = {};
     
     game.hexes['0,0'] = { q: 0, r: 0, terrain: 'forest', resource: 'lumber', number: 4 };
     game.robber = '0,0'; // Robber on this hex

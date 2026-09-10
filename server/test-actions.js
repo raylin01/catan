@@ -49,3 +49,20 @@ test('spectators cannot see private cards even after a game ends',()=>{
   assert.equal(typeof view.players[0].resources,'number');
   assert.equal(view.players[0].developmentCards,1);assert.equal(view.myIndex,-1);
 });
+test('robber card choice is the only legal pending action and its mapping is not projected',()=>{
+  const game=setup();game.phase='playing';game.turnPhase='robber';game.currentPlayerIndex=0;game.hasRolledThisTurn=true;
+  const thiefId=game.players[0].id,victimId=game.players[1].id;
+  const hexKey=Object.keys(game.hexes).find(key=>key!==game.robber),hex=game.hexes[hexKey];
+  game.vertices[G.vertexKey(hex.q,hex.r,0)]={building:'settlement',owner:1};
+  game.players[1].resources.brick=2;game.players[1].resources.ore=1;
+  assert.equal(executeAction(game,thiefId,'moveRobber',{hexKey,stealFromPlayerId:victimId}).success,true);
+  assert.equal(game.turnPhase,'robberPick');
+  const choices=legalActions(game,thiefId);
+  assert.equal(choices.length,3);assert.ok(choices.every(action=>action.type==='chooseRobberCard'));
+  assert.equal(Object.hasOwn(playerView(game,thiefId),'pendingRobberPick'),false);
+  assert.equal(Object.hasOwn(playerView(game,victimId),'pendingRobberPick'),false);
+  const before=structuredClone(game);
+  assert.equal(executeAction(game,thiefId,'endTurn').success,false);assert.deepEqual(game,before);
+  assert.equal(executeAction(game,thiefId,'chooseRobberCard',choices[0].payload).success,true);
+  assert.equal(game.turnPhase,'main');assert.equal(game.pendingRobberPick,null);
+});

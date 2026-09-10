@@ -164,6 +164,7 @@ function createRoomAdapter() {
   const commandFor = (event, payload = {}) => {
     switch (event) {
       case 'rollDice': return { type: 'rollDice', payload: {} };
+      case 'chooseRobberCard': return { type: 'chooseRobberCard', payload: { cardId: payload.cardId } };
       case 'discardCards': return { type: 'discardCards', payload: { resources: payload.resources } };
       case 'moveRobber': return { type: 'moveRobber', payload: {
         hexKey: payload.hexKey,
@@ -889,6 +890,9 @@ function App() {
           legalActions={snapshot?.legalActions || []}
           events={snapshot?.events || []}
           rollEvent={snapshot?.rollEvent || null}
+          cardEvents={snapshot?.cardEvents || []}
+          robberPick={snapshot?.robberPick || null}
+          paused={Boolean(snapshot?.paused)}
           tradePanel={tradePanel}
         />
       </div>

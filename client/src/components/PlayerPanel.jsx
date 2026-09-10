@@ -63,6 +63,7 @@ function PlayerPanel({ player, isCurrentTurn, isMe, longestRoad, largestArmy, on
       <div className="player-stats">
         <div 
           className="stat has-info"
+          data-player-hand={player.id}
           onContextMenu={(e) => {
             e.preventDefault();
             // Show total cards info

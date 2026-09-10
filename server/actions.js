@@ -2,7 +2,7 @@ import * as G from './gameLogic.js';
 
 const fail = error => ({ success: false, error });
 const resources = ['brick', 'lumber', 'wool', 'grain', 'ore'];
-export const actionNames = ['rollDice','discardCards','moveRobber','placeSettlement','placeRoad','upgradeToCity','buyDevCard','playDevCard','yearOfPlentyPick','bankTrade','proposeTrade','respondToTrade','cancelTrade','advanceSetup','endTurn','finishFreeRoads'];
+export const actionNames = ['rollDice','discardCards','moveRobber','chooseRobberCard','placeSettlement','placeRoad','upgradeToCity','buyDevCard','playDevCard','yearOfPlentyPick','bankTrade','proposeTrade','respondToTrade','cancelTrade','advanceSetup','endTurn','finishFreeRoads'];
 
 /** One transactional authority for every transport. Never trust client setup flags. */
 export function executeAction(game, playerId, type, payload = {}, dryRun = false) {
@@ -37,6 +37,7 @@ export function executeAction(game, playerId, type, payload = {}, dryRun = false
         roll: ['rollDice','playDevCard'],
         discard: ['discardCards'],
         robber: ['moveRobber'],
+        robberPick: ['chooseRobberCard'],
         yearOfPlenty: ['yearOfPlentyPick'],
         main: ['placeSettlement','placeRoad','upgradeToCity','buyDevCard','playDevCard','bankTrade','proposeTrade','respondToTrade','cancelTrade','endTurn'],
       };
@@ -54,6 +55,7 @@ export function executeAction(game, playerId, type, payload = {}, dryRun = false
         case 'rollDice': result = G.rollDice(copy,playerId); break;
         case 'discardCards': result = G.discardCards(copy,playerId,payload.resources); break;
         case 'moveRobber': result = G.moveRobber(copy,playerId,payload.hexKey,payload.stealFromPlayerId); break;
+        case 'chooseRobberCard': result = G.chooseRobberCard(copy,playerId,payload.cardId); break;
         case 'placeSettlement': result = G.placeSettlement(copy,playerId,payload.vertexKey); break;
         case 'placeRoad': result = G.placeRoad(copy,playerId,payload.edgeKey,false,null); break;
         case 'upgradeToCity': result = G.upgradeToCity(copy,playerId,payload.vertexKey); break;
@@ -81,6 +83,7 @@ export function executeAction(game, playerId, type, payload = {}, dryRun = false
 /** Only public observations and the authenticated seat's private cards. */
 export function playerView(game, playerId) {
   const view = G.getPlayerView(game,playerId);
+  delete view.pendingRobberPick;
   // Spectators and other seats never receive hidden cards, including at game end.
   view.players = view.players.map((p,index) => {
     const raw = game.players[index];
@@ -123,6 +126,9 @@ export function legalActions(game,playerId) {
       if (!victims.length) choices.push({type:'moveRobber',payload:{hexKey}});
       else for(const index of victims) choices.push({type:'moveRobber',payload:{hexKey,stealFromPlayerId:game.players[index].id}});
     }
+  }
+  if (game.phase === 'playing' && game.turnPhase === 'robberPick' && game.pendingRobberPick?.thiefId===playerId) {
+    for (const card of game.pendingRobberPick.cards) add('chooseRobberCard',{cardId:card.id});
   }
   return choices;
 }
