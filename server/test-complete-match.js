@@ -94,7 +94,8 @@ test('three scripted remote seats complete a deterministic match through RoomSer
     const command=(actor,view,type,payload={})=>{
       assert.ok(actions<1000,`action cap reached at ${view.gameState?.phase}/${view.gameState?.turnPhase}`);
       actions++;
-      const result=service.command(code,actor.token,{requestId:`match-${++request}`,revision:view.revision,generation:actor.generation,type,payload});
+      const result=service.command(code,actor.token,{requestId:`match-${++request}`,revision:view.revision,generation:actor.generation,
+        ...(actor.role==='ai'?{controlEpoch:view.controlEpoch}:{}),type,payload});
       if(result.success){
         successful[type]=(successful[type]||0)+1;
         if(type==='playDevCard')playedCards.add(payload.cardType);

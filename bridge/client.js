@@ -16,8 +16,12 @@ export class GameClient {
     return result;
   }
   async join(options){const session=await this.request('/join',options);this.token=session.token;return session;}
+  lease(body){return this.request('/ai/lease',body);}
+  heartbeat(body){return this.request('/ai/heartbeat',body);}
+  readChat(body){return this.request('/ai/chat/read',body);}
+  replyChat(body){return this.request('/ai/chat/reply',body);}
   observe(){return this.request('');}
   act(view,type,payload={},requestId=randomUUID()) {
-    return this.request('/commands',{requestId,revision:view.revision,generation:view.generation,type,payload});
+    return this.request('/commands',{requestId,revision:view.revision,generation:view.generation,controlEpoch:view.controlEpoch,runId:view.runId,type,payload});
   }
 }

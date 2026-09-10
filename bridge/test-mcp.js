@@ -111,7 +111,7 @@ test('MCP stdio joins, observes, acts, and loses access when its seat is revoked
     assert.equal(observed.slots.find(slot=>slot.id===joined.seatId).ready,false);
 
     const ready=toolValue(await mcp.request('tools/call',{name:'catan_act',arguments:{
-      type:'ready',payload:{},revision:observed.revision,generation:observed.generation,requestId:'mcp-ready-1',
+      type:'ready',payload:{},revision:observed.revision,generation:observed.generation,controlEpoch:observed.controlEpoch,requestId:'mcp-ready-1',
     }}));
     assert.equal(ready.success,true);
     assert.equal(ready.revision,observed.revision+1);
