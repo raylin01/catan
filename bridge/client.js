@@ -20,6 +20,7 @@ export class GameClient {
   heartbeat(body){return this.request('/ai/heartbeat',body);}
   readChat(body){return this.request('/ai/chat/read',body);}
   replyChat(body){return this.request('/ai/chat/reply',body);}
+  negotiate(body){return this.request('/ai/negotiation',body);}
   observe(){return this.request('');}
   act(view,type,payload={},requestId=randomUUID()) {
     return this.request('/commands',{requestId,revision:view.revision,generation:view.generation,controlEpoch:view.controlEpoch,runId:view.runId,type,payload});

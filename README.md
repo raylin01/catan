@@ -38,7 +38,7 @@ node bridge/cli.js run --session .catan-session-one.json
 
 `--reasoning` is optional and accepts `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; use a value supported by the selected model. When omitted, the connector keeps the model's default reasoning effort.
 
-The runner marks its seat ready and waits for required game decisions, structured trade responses, or new human chat proposals. It keeps separate persistent gameplay, chat-reader, and public-speaker contexts in its private session file. Idle network polling makes no model calls; processing new chat does use the chosen chat model. It stops on provider errors, leaving the seat reserved. Ctrl-C also leaves the seat intact. The host can remove and replace any controller without resetting the hand or pieces. Restart the runner to retry the same seat; do not repeatedly join new seats.
+The runner marks its seat ready and waits for required game decisions, structured trade responses, validated human chat proposals, or relevant bounded AI negotiation intents. It keeps separate persistent gameplay, chat-reader, and public-speaker contexts in its private session file. Idle network polling makes no model calls; processing new chat does use the chosen chat model. It stops on provider errors, leaving the seat reserved. Ctrl-C also leaves the seat intact. The host can remove and replace any controller without resetting the hand or pieces. Restart the runner to retry the same seat; do not repeatedly join new seats.
 
 The hosting server cannot verify a remote client's claimed model identity. Availability is a connected client's declaration. Provider credentials remain on its computer, and usage consumes that operator's provider allowance.
 
@@ -60,9 +60,23 @@ The host can **Pause AI**, **Resume AI**, or **Cancel decision** in the lobby an
 
 Status comes from bridge execution and server timestamps, never an LLM status tool. The bridge reports choosing a move, considering chat, preparing a reply, or waiting. A 20-second runner lease prevents two live processes controlling one seat; 20 seconds without activity becomes stale and 45 seconds becomes offline. Every AI command is fenced by its current control epoch, so an old decision cannot commit after pause, cancel, or replacement. Provider errors stop the runner and leave the game waiting.
 
-Raw human chat goes only to a separate reader context with no game tools or private hand. Its output is validated into finite resource/trade/robber/build suggestions, bound to the original message and player. The private playing agent evaluates those suggestions and submits any real action. A chat proposal is never an accepted trade by itself. The public speaker receives only public board facts, validated public negotiation proposals, a narrow acknowledge/decline choice, and confirmed public actions; it never receives the playing agent’s hand, development cards, strategic memory, raw chat, or private command effects. Replies are optional, rate-limited, and do not wake other AI readers. Model instructions reduce manipulation risk; field validation and server authority enforce the actual information and action boundaries.
+Raw human chat goes only to a separate reader context with no game tools or private hand. Its output is validated into finite resource/trade/robber/build suggestions, bound to the original message and player. The private playing agent evaluates those suggestions and submits any real action. A chat proposal is never an accepted trade by itself. The public speaker receives only public board facts, validated public negotiation proposals, a narrow acknowledge/decline choice, and confirmed public actions; it never receives the playing agent’s hand, development cards, strategic memory, raw chat, or private command effects. Human-triggered replies remain optional and rate-limited; their free-form text does not wake other AI readers. Proactive AI negotiation uses a separate finite public intent protocol, described below. Model instructions reduce manipulation risk; field validation and server authority enforce the actual information and action boundaries.
 
 Context IDs and pending validated proposals are stored in the mode-600 seat session file. Codex histories are persisted by the local CLI; treat them as private game data. Each channel resumes only its own explicit ID. No tools, user configuration, plugins, or hooks are enabled for these model calls. A changed channel model starts a new context.
+
+## Proactive AI negotiation and local benchmarks
+
+The playing agent can announce a concrete resource interest, decline a proposal, or announce a real trade it already offered. The server renders these structured messages into public chat. It accepts no arbitrary model prose or private rationale on this path. Other AI players receive only the typed intent when relevant, and their playing agent chooses whether to submit a real trade or a bounded response. Silence remains the default.
+
+The server permits one new negotiation topic per game turn, initiated by the active player during the main phase. Topics expire on turn change or after ten minutes. Exchanges have at most six messages, depth two, two messages per seat, a five-second per-seat cooldown, duplicate suppression and terminal declines. Declines close new AI offers between that pair until the turn changes; each AI also has a two-offer/counter budget per turn. Pausing, cancellation and controller replacement fence negotiation requests exactly like game actions. During a response window the runner waits without model calls, giving other managed players time to finish before ending the turn.
+
+The decision timeout defaults to 60 seconds. For Luna Max, configure a five-minute bound when joining or starting a runner:
+
+```sh
+node bridge/cli.js run --session .catan-session-one.json --decision-timeout-ms 300000
+```
+
+See [AI negotiation testing](docs/ai-negotiation.md) for deterministic gate tests, bounded live-model scenario benchmarks and the four-player smoke harness. A live benchmark requires `--live`; the default makes no model calls. Detailed prompts, strategic memory and context IDs are excluded from benchmark reports and shared replays. Local Codex session histories remain private on the machine running the CLI.
 
 ## Card interactions
 
@@ -82,7 +96,7 @@ Robber theft has two steps for every client: `moveRobber {hexKey, stealFromPlaye
 
 ## Add a provider connector
 
-`bridge/runner.js` schedules providers without importing Codex-specific behavior. A connector implements `id`, `ready()`, and `decide(view, {model,reasoning,memory,contextId,lastOutcome,signal})`, returning `{action,memory,contextId,publicReply}`. Optional `readChat(input, options)` and `speak(input, options)` return `{value,contextId}` for their isolated channels. `publicReply` is `silent`, `acknowledge`, or `decline`; private prose never crosses to the speaker. The runner handles status reporting, leases, validation, and scheduling for every connector. Register it in `bridge/connectors/index.js` and advertise its capabilities in `server/providers.js`. Provider-specific invocation, output parsing, cancellation and authentication belong in the connector. Game rules, UI seats and the runner must not need changes.
+`bridge/runner.js` schedules providers without importing Codex-specific behavior. A connector implements `id`, `ready()`, and `decide(view, {model,reasoning,memory,contextId,lastOutcome,signal,timeoutMs})`, returning `{action,negotiation,memory,contextId,publicReply}` (choose either an action or a negotiation). Optional `readChat(input, options)` and `speak(input, options)` return `{value,contextId}` for their isolated channels. `publicReply` is `silent`, `acknowledge`, or `decline`; private prose never crosses to the speaker. The runner handles status reporting, leases, validation, and scheduling for every connector. Register it in `bridge/connectors/index.js` and advertise its capabilities in `server/providers.js`. Provider-specific invocation, output parsing, cancellation and authentication belong in the connector. Game rules, UI seats and the runner must not need changes.
 
 The Codex connector uses an isolated temporary directory for each call and resumes explicit, separate channel histories with external tools, hooks, plugins and user configuration disabled. It still uses Codex's own login store. Session files contain seat credentials and private memory: treat them as secrets and do not share or commit them.
 
