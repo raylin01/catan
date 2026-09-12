@@ -6,6 +6,7 @@ import {createInterface} from 'node:readline';
 import {GameClient} from './client.js';
 import {connectors} from './connectors/index.js';
 import {runPlayer} from './runner.js';
+import {decisionTimeout} from './options.js';
 
 const [command,...raw]=process.argv.slice(2),options={};
 for(let i=0;i<raw.length;i+=2){if(!raw[i].startsWith('--')||raw[i+1]===undefined)throw Error('Options require --name value');options[raw[i].slice(2)]=raw[i+1];}
@@ -18,6 +19,7 @@ const load=async()=>{session=JSON.parse(await readFile(sessionPath,'utf8'));retu
 async function join(args) {
   const provider=args.provider||'codex';if(!connectors.has(provider))throw Error('Connector is not implemented');
   const selectedReasoning=reasoning(args.reasoning);
+  const selectedTimeout=decisionTimeout(args['decision-timeout-ms']);
   if(!session){try{await load();}catch(error){if(error.code!=='ENOENT')throw error;}}
   if(session?.token){
     try{const prior=await new GameClient(session).observe();
@@ -27,7 +29,8 @@ async function join(args) {
   const server=options.server||session?.server;if(!server)throw Error('Specify --server https://your-game-host');
   const client=new GameClient({server,code:args.code});
   const joined=await client.join({name:args.name,role:'ai',provider,model:args.model,seatId:args.seatId});
-  session={server:client.server,code:joined.code,token:joined.token,provider,model:args.model,reasoning:selectedReasoning,memory:'',contexts:{},chatCursor:0};await save();
+  session={server:client.server,code:joined.code,token:joined.token,provider,model:args.model,reasoning:selectedReasoning,
+    decisionTimeoutMs:selectedTimeout,memory:'',contexts:{},chatCursor:0};await save();
   return {success:true,code:joined.code,seatId:joined.seatId};
 }
 
@@ -72,10 +75,16 @@ async function main(){
     console.log(JSON.stringify(await client.request('/commands',envelope)));
   } else if(command==='run') {
     const client=await load(),connector=connectors.get(session.provider);if(!connector)throw Error('Connector unavailable');
+    session.decisionTimeoutMs=decisionTimeout(options['decision-timeout-ms']??session.decisionTimeoutMs);
+    await save();
     const controller=new AbortController();process.once('SIGINT',()=>controller.abort());process.once('SIGTERM',()=>controller.abort());
     console.error(`Running ${session.provider} for room ${session.code}. Stop with Ctrl-C; the seat remains reserved.`);
-    await runPlayer(client,connector,{model:session.model,reasoning:reasoning(session.reasoning),memory:session.memory,contexts:session.contexts||{},chatCursor:session.chatCursor||0,pendingProposals:session.pendingProposals||[],pendingReplySequence:session.pendingReplySequence||0,signal:controller.signal,save:async (memory,state)=>{session.memory=memory;session.contexts=state.contexts;session.chatCursor=state.chatCursor;session.pendingProposals=state.pendingProposals;session.pendingReplySequence=state.pendingReplySequence;await save();}});
+    await runPlayer(client,connector,{model:session.model,reasoning:reasoning(session.reasoning),memory:session.memory,
+      decisionTimeoutMs:session.decisionTimeoutMs,contexts:session.contexts||{},chatCursor:session.chatCursor||0,
+      pendingProposals:session.pendingProposals||[],pendingReplySequence:session.pendingReplySequence||0,
+      negotiationCursor:session.negotiationCursor||0,pendingNegotiations:session.pendingNegotiations||[],negotiationWait:session.negotiationWait||null,
+      signal:controller.signal,save:async (memory,state)=>{Object.assign(session,state,{memory});await save();}});
   } else if(command==='mcp')await mcp();
-  else console.log('Catan bridge\n  join --server https://game.example --code ROOM --name Codex [--model MODEL] [--reasoning EFFORT] [--session FILE]\n  run [--session FILE]\n  observe [--session FILE]\n  act --command JSON_ENVELOPE [--session FILE]\n  mcp --server https://game.example [--session FILE]\nEach AI seat must use its own session file.');
+  else console.log('Catan bridge\n  join --server https://game.example --code ROOM --name Codex [--model MODEL] [--reasoning EFFORT] [--decision-timeout-ms 300000] [--session FILE]\n  run [--session FILE] [--decision-timeout-ms 300000]\n  observe [--session FILE]\n  act --command JSON_ENVELOPE [--session FILE]\n  mcp --server https://game.example [--session FILE]\nEach AI seat must use its own session file.');
 }
 main().catch(error=>{if(error.name!=='AbortError'){console.error(error.message);process.exitCode=1;}});

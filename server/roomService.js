@@ -5,6 +5,7 @@ import {PROVIDERS} from './providers.js';
 import {appendCardEvent,projectCardEvents} from './cardEvents.js';
 import {REASONING_VALUES,initializeAiSlot,leaseIsLive,fenceAiCommand,claimRunnerLease,heartbeatRunner,applyAiControl,projectAiStatus} from './aiControl.js';
 import {createRecording,advanceRecording,recordingStatus,publicMetadata,projectState,projectEvent,reconstruct,metrics,createPatch,applyPatch} from './recording.js';
+import {negotiationState,syncNegotiationTurn,negotiationOpportunity,prepareNegotiation,readNegotiations,recordAiTradeAction} from './negotiation.js';
 
 const secret=()=>randomBytes(32).toString('base64url');
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -28,6 +29,7 @@ export class RoomService {
         message.authorRole=message.authorRole||'human';chatSequence=message.sequence;
       }
       room.chatSequence=Math.max(room.chatSequence||0,chatSequence);
+      room.negotiationState=negotiationState(room);
       if(!room.recordingId)room.recordingId=secret();
       this.rooms.set(room.code,room);
       const existing=this.recordingFor(room.recordingId);
@@ -207,6 +209,7 @@ export class RoomService {
     const publicChat=(room.chat||[]).map((message,index)=>({...message,sequence:message.sequence??index+1,authorRole:message.authorRole||'human'}));
     return {success:true,code,replayId:room.recordingId,revision:room.revision,role:member.role,host:member.role==='host',seatId:member.seatId||null,generation:member.generation||0,
       paused:room.paused,slots,ai:ownAi,controlEpoch:ownAi?.controlEpoch,
+      negotiation:member.role==='ai'&&ownSlot?negotiationOpportunity(room,ownSlot,now):null,
       gameState,legalActions:choices,decision,trade:clone(room.trade),events:clone(room.events||[]),chat:member.role==='ai'?[]:clone(publicChat),
       rollEvent:room.lastRoll?{id:room.lastRoll.id,roll:clone(room.lastRoll.roll),gains:clone(room.lastRoll.audienceGenerations?.[member.seatId]===member.generation?room.lastRoll.gainsBySeat[member.seatId]||{}:{})}:null,
       robberPick,cardEvents:projectCardEvents(room,member),cardEventSequence:room.cardEventSequence||0};
@@ -325,7 +328,10 @@ export class RoomService {
         if(slot.controller!==key||slot.generation!==member.generation)return fail('Seat controller changed',409);
         if(copy.paused)return fail('Game is paused',409);
         if(['proposeTrade','respondToTrade','cancelTrade'].includes(type))return fail('Use the structured room trade actions');
-        if(type.startsWith('trade'))result=this.tradeAction(copy,slot.id,type,payload);
+        if(type.startsWith('trade')) {
+          result=this.tradeAction(copy,slot.id,type,payload);
+          if(result.success&&member.role==='ai'&&['tradeOffer','tradeCounter'].includes(type))result=recordAiTradeAction(copy,slot.id);
+        }
         else {
           result=executeAction(copy.game,slot.id,type,payload);
           if(result.success&&(['endTurn','moveRobber'].includes(type)||copy.game.phase!=='playing'||copy.game.turnPhase!=='main'||copy.game.freeRoads||copy.game.yearOfPlentyPicks))copy.trade=null;
@@ -333,6 +339,7 @@ export class RoomService {
         }
       }
       if(!result.success)return result;
+      syncNegotiationTurn(copy);
       // Keep exact production for presentation; observations expose only the
       // authenticated seat's receipt, never another player's hand or gains.
       if(type==='rollDice'&&result.roll)copy.lastRoll={id:randomUUID(),roll:clone(result.roll),
@@ -391,11 +398,53 @@ export class RoomService {
     const actor=this.aiActor(room,token);if(!actor)return fail('Seat controller changed',409);
     const afterSequence=payload.afterSequence??0;
     if(!Number.isSafeInteger(afterSequence)||afterSequence<0)return fail('Invalid chat sequence');
+    const afterNegotiationSequence=payload.afterNegotiationSequence??0;
+    if(!Number.isSafeInteger(afterNegotiationSequence)||afterNegotiationSequence<0)return fail('Invalid negotiation sequence');
     const fenced=fenceAiCommand(actor.slot,payload,this.now());if(!fenced.success)return fenced;
     const messages=(room.chat||[]).filter(message=>(message.authorRole||'human')==='human'&&(message.sequence||0)>afterSequence);
     const page=messages.slice(0,50);
+    const negotiationPage=actor.slot.chatEnabled
+      ?readNegotiations(room,actor.slot.id,afterNegotiationSequence,this.now())
+      :{negotiations:[],negotiationSequence:negotiationState(room).sequence,negotiationHasMore:false};
     return {success:true,messages:clone(page),chatSequence:room.chatSequence||0,hasMore:messages.length>page.length,
-      chatEnabled:actor.slot.chatEnabled,chatModel:actor.slot.chatModel||actor.slot.model,chatReasoning:actor.slot.chatReasoning};
+      ...negotiationPage,chatEnabled:actor.slot.chatEnabled,chatModel:actor.slot.chatModel||actor.slot.model,chatReasoning:actor.slot.chatReasoning};
+  }
+  aiNegotiate(code,token,payload={}) {
+    code=typeof code==='string'?code.toUpperCase():code;
+    const room=this.roomFor(code);if(!room)return fail('Room not found',404);
+    const member=this.authenticate(room,token);if(!member)return fail('Controller credential is invalid or revoked',401);
+    if(member.role!=='ai')return fail('An AI playing seat is required',403);
+    if(!payload||typeof payload!=='object'||Array.isArray(payload)||!Object.keys(payload).every(key=>['requestId','controlEpoch','runId','revision','generation','intent'].includes(key)))return fail('Invalid AI negotiation request');
+    const {requestId,controlEpoch,runId,revision,generation,intent}=payload;
+    if(typeof requestId!=='string'||requestId.length<1||requestId.length>100||typeof runId!=='string'||runId.length<8||runId.length>100||!Number.isSafeInteger(revision)||!Number.isSafeInteger(generation))return fail('Invalid AI negotiation request');
+    const key=hash(token),receiptKey=`${key}:${requestId}`;
+    let fingerprint;try{fingerprint=hash(JSON.stringify({kind:'aiNegotiation',controlEpoch,runId,revision,generation,intent}));}catch{return fail('Invalid AI negotiation request');}
+    if(room.receipts[receiptKey])return room.receipts[receiptKey].fingerprint===fingerprint?clone(room.receipts[receiptKey].result):fail('Request ID already used for another command',409);
+    if(revision!==room.revision)return fail('Game changed; observe before acting',409);
+    if(generation!==member.generation)return fail('Seat controller changed',409);
+    const copy=clone(room),actor=this.aiActor(copy,token);if(!actor)return fail('Seat controller changed',409);
+    const now=this.now(),fenced=fenceAiCommand(actor.slot,payload,now);if(!fenced.success)return fenced;
+    if(!leaseIsLive(actor.slot,now)||actor.slot.runnerLease?.runId!==runId)return fail('AI runner lease is not active',409);
+    if(copy.paused||copy.game?.phase==='finished')return fail('AI negotiation is paused',409);
+    if(!actor.slot.chatEnabled)return fail('AI chat is disabled',409);
+    const prepared=prepareNegotiation(copy,actor.slot.id,intent,{id:randomUUID(),now});if(!prepared.success)return prepared;
+    copy.negotiationState=prepared.state;
+    copy.chatSequence=(copy.chatSequence||0)+1;
+    copy.chat.push({id:prepared.metadata.id,sequence:copy.chatSequence,authorRole:'ai',playerName:member.name,playerId:actor.slot.id,
+      message:prepared.message,timestamp:now,negotiation:clone(prepared.metadata)});
+    copy.chat=copy.chat.slice(-100);copy.revision++;
+    const negotiation={...clone(prepared.metadata),sequence:prepared.sequence};
+    const response={success:true,revision:copy.revision,negotiation};
+    copy.receipts[receiptKey]={fingerprint,result:clone(response)};
+    const keys=Object.keys(copy.receipts);for(const receipt of keys.slice(0,Math.max(0,keys.length-2000)))delete copy.receipts[receipt];
+    try {
+      this.persist(copy,{type:'aiNegotiation',actorSeatId:actor.slot.id,actorGeneration:actor.slot.generation,actorName:member.name,
+        summary:prepared.message,payload:null});
+    } catch(error) {
+      const storage=error?.message==='Recording is unavailable'||error?.code?.startsWith?.('SQLITE_')||error?.code?.startsWith?.('ERR_SQLITE_');
+      return fail(storage?'Unable to save the accepted negotiation':'Invalid negotiation parameters',storage?500:400);
+    }
+    this.markAiTool(copy,member);return clone(response);
   }
   aiChatReply(code,token,payload={}) {
     code=typeof code==='string'?code.toUpperCase():code;

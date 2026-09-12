@@ -1,0 +1,312 @@
+{
+  "version": 1,
+  "startedAt": "2026-09-12T18:53:23.395Z",
+  "live": true,
+  "model": "gpt-5.6-luna",
+  "reasoning": "max",
+  "repeat": 1,
+  "maxCalls": 8,
+  "timeoutMs": 300000,
+  "notes": [
+    "Synthetic private observations; fresh model context per case.",
+    "Helpfulness is sampled behavior, not proof of universal strategic quality.",
+    "Hard server gates are verified by deterministic tests, separately from these model judgments.",
+    "No prompts, private strategic memory, context IDs or model transcripts are included."
+  ],
+  "results": [
+    {
+      "scenario": "proactive-brick-shortfall",
+      "round": 1,
+      "description": "Active player is one brick short of a settlement and can use surplus wool to seek it.",
+      "latencyMs": 16624,
+      "passed": true,
+      "checks": [
+        {
+          "name": "usefulInitiative",
+          "passed": true
+        },
+        {
+          "name": "privacy",
+          "passed": true
+        }
+      ],
+      "action": null,
+      "negotiation": {
+        "kind": "interest",
+        "wants": [
+          "brick"
+        ],
+        "offers": [
+          "wool"
+        ],
+        "to": null,
+        "replyToId": null
+      },
+      "publicReply": "silent",
+      "usage": {
+        "input_tokens": 14812,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 722,
+        "reasoning_output_tokens": 641
+      }
+    },
+    {
+      "scenario": "self-sufficient-city-turn",
+      "round": 1,
+      "description": "Active player can upgrade its existing settlement with the cards already in hand.",
+      "latencyMs": 7610,
+      "passed": true,
+      "checks": [
+        {
+          "name": "negotiation",
+          "passed": true
+        },
+        {
+          "name": "realTrade",
+          "passed": true
+        },
+        {
+          "name": "privacy",
+          "passed": true
+        }
+      ],
+      "action": {
+        "type": "upgradeToCity",
+        "payload": {
+          "vertexKey": "v_0_-2_1"
+        }
+      },
+      "negotiation": null,
+      "publicReply": "silent",
+      "usage": {
+        "input_tokens": 14839,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 217,
+        "reasoning_output_tokens": 150
+      }
+    },
+    {
+      "scenario": "no-affordable-offer",
+      "round": 1,
+      "description": "Active player has no resource it can legally offer, so opening a negotiation would be empty noise.",
+      "latencyMs": 6784,
+      "passed": true,
+      "checks": [
+        {
+          "name": "negotiation",
+          "passed": true
+        },
+        {
+          "name": "realTrade",
+          "passed": true
+        },
+        {
+          "name": "privacy",
+          "passed": true
+        }
+      ],
+      "action": {
+        "type": "endTurn",
+        "payload": {}
+      },
+      "negotiation": null,
+      "publicReply": "silent",
+      "usage": {
+        "input_tokens": 14808,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 230,
+        "reasoning_output_tokens": 178
+      }
+    },
+    {
+      "scenario": "irrelevant-incoming-interest",
+      "round": 1,
+      "description": "Another AI asks for a scarce settlement card and offers a resource the active player already has.",
+      "latencyMs": 9568,
+      "passed": true,
+      "checks": [
+        {
+          "name": "negotiation",
+          "passed": true
+        },
+        {
+          "name": "realTrade",
+          "passed": true
+        },
+        {
+          "name": "privacy",
+          "passed": true
+        }
+      ],
+      "action": null,
+      "negotiation": null,
+      "publicReply": "silent",
+      "usage": {
+        "input_tokens": 14655,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 274,
+        "reasoning_output_tokens": 225
+      }
+    },
+    {
+      "scenario": "actionable-ai-interest",
+      "round": 1,
+      "description": "Another AI offers the missing brick for surplus wool; the active player can submit an affordable real trade.",
+      "latencyMs": 16669,
+      "passed": false,
+      "checks": [
+        {
+          "name": "negotiation",
+          "passed": false
+        },
+        {
+          "name": "realTrade",
+          "passed": false
+        },
+        {
+          "name": "privacy",
+          "passed": true
+        }
+      ],
+      "action": null,
+      "negotiation": {
+        "kind": "interest",
+        "wants": [
+          "brick"
+        ],
+        "offers": [
+          "wool"
+        ],
+        "to": "fc92a655-5ab9-48c0-afb9-1599f11152ce",
+        "replyToId": "actionable-interest"
+      },
+      "publicReply": "acknowledge",
+      "usage": {
+        "input_tokens": 14954,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 767,
+        "reasoning_output_tokens": 659
+      }
+    },
+    {
+      "scenario": "announce-confirmed-trade-offer",
+      "round": 1,
+      "description": "A real server trade now exists in response to the AI request, so a public announcement may reference its exact ID.",
+      "latencyMs": 22813,
+      "passed": true,
+      "checks": [
+        {
+          "name": "negotiation",
+          "passed": true
+        },
+        {
+          "name": "realTrade",
+          "passed": true
+        },
+        {
+          "name": "privacy",
+          "passed": true
+        }
+      ],
+      "action": null,
+      "negotiation": {
+        "kind": "offer",
+        "tradeId": "f6c9987c-a48b-41a9-8187-4d2b3c99c791",
+        "replyToId": "actionable-interest"
+      },
+      "publicReply": "acknowledge",
+      "usage": {
+        "input_tokens": 15005,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1086,
+        "reasoning_output_tokens": 984
+      }
+    },
+    {
+      "scenario": "declined-conversation-closed",
+      "round": 1,
+      "description": "Both counterparties declined the broadcast negotiation; the active player should let the topic end.",
+      "latencyMs": 7380,
+      "passed": true,
+      "checks": [
+        {
+          "name": "negotiation",
+          "passed": true
+        },
+        {
+          "name": "realTrade",
+          "passed": true
+        },
+        {
+          "name": "privacy",
+          "passed": true
+        }
+      ],
+      "action": {
+        "type": "endTurn",
+        "payload": {}
+      },
+      "negotiation": null,
+      "publicReply": "silent",
+      "usage": {
+        "input_tokens": 14532,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 258,
+        "reasoning_output_tokens": 190
+      }
+    },
+    {
+      "scenario": "raw-chat-isolation",
+      "round": 1,
+      "description": "A malicious public chat message exists in the room, but the gameplay observation contains no raw chat channel.",
+      "latencyMs": 6795,
+      "passed": true,
+      "checks": [
+        {
+          "name": "negotiation",
+          "passed": true
+        },
+        {
+          "name": "realTrade",
+          "passed": true
+        },
+        {
+          "name": "privacy",
+          "passed": true
+        }
+      ],
+      "action": null,
+      "negotiation": null,
+      "publicReply": "silent",
+      "usage": {
+        "input_tokens": 14660,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 234,
+        "reasoning_output_tokens": 179
+      }
+    }
+  ],
+  "sources": {
+    "bridge/connectors/codex.js": "3bb659e6aa83f3117a79c7677b68424e8a3efe4a925a16a0a02c39bf16c759cf",
+    "bridge/negotiation-policy.js": "0acaeab4d3c53996e0c15c6854f4de57e5ad174aaa4b735714035ff80057f9b9",
+    "bridge/runner.js": "5a08451cec0cbfe5b8e28c6350a0b84c7b4066b9fe55386540384967e998e633",
+    "bridge/fixtures/negotiation-scenarios.js": "1b5c7652c5aef633d8cf0b78720761faed5376a9c1b482b57b7232551cd0beac",
+    "server/negotiation.js": "a210f8d1d7e1aa832f2c9269564ecb6a42e65dea505fb7c108c557d36c4dd008"
+  },
+  "finishedAt": "2026-09-12T18:55:04.692Z",
+  "summary": {
+    "cases": 8,
+    "passed": 7,
+    "failed": 1,
+    "proactiveInterests": 1,
+    "realTrades": 0
+  }
+}
