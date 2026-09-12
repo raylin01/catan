@@ -1,3 +1,4 @@
+import {AiControls, ChatModelFields, AiStatus} from './components/AiControls';
 import { useEffect, useMemo, useState } from 'react';
 import './room.css';
 
@@ -54,7 +55,8 @@ function RoomLobby({
           next[slot.id] = {
             kind: slot.kind,
             provider: slot.provider || providers[0]?.id || '',
-            model: slot.model || ''
+            model: slot.model || '',
+          chatEnabled: slot.chatEnabled !== false, chatModel: slot.chatModel || '', chatReasoning: slot.chatReasoning || ''
           };
         }
       });
@@ -113,13 +115,14 @@ function RoomLobby({
     const draft = seatDrafts[slot.id] || {
       kind: slot.kind,
       provider: slot.provider || providers[0]?.id || '',
-      model: slot.model || ''
+      model: slot.model || '',
+          chatEnabled: slot.chatEnabled !== false, chatModel: slot.chatModel || '', chatReasoning: slot.chatReasoning || ''
     };
     onHostCommand('configureSeat', {
       seatId: slot.id,
       kind: draft.kind,
       ...(draft.kind === 'ai'
-        ? { provider: draft.provider || providers[0]?.id, model: draft.model.trim() || undefined }
+        ? { provider: draft.provider || providers[0]?.id, model: draft.model.trim() || undefined, chatEnabled: draft.chatEnabled !== false, chatModel: draft.chatModel?.trim() || null, chatReasoning: draft.chatReasoning || null }
         : {})
     });
   };
@@ -185,7 +188,8 @@ function RoomLobby({
                 const draft = seatDrafts[slot.id] || {
                   kind: slot.kind,
                   provider: slot.provider || providers[0]?.id || '',
-                  model: slot.model || ''
+                  model: slot.model || '',
+          chatEnabled: slot.chatEnabled !== false, chatModel: slot.chatModel || '', chatReasoning: slot.chatReasoning || ''
                 };
                 const providerName = providers.find(provider => provider.id === slot.provider)?.name || slot.provider;
                 return (
@@ -201,6 +205,7 @@ function RoomLobby({
                       <div className="room-seat-status" aria-label={`${slot.name} status`}>
                         <span>{slot.occupied ? 'Occupied' : 'Vacant'}</span>
                         <span>{slot.connected ? 'Connected' : 'Waiting'}</span>
+                        <AiStatus slot={slot}/>
                         <span>{slot.ready ? 'Ready' : 'Not ready'}</span>
                       </div>
                     </div>
@@ -242,6 +247,7 @@ function RoomLobby({
                                 maxLength={40}
                               />
                             </label>
+                      <ChatModelFields draft={draft} onChange={(field,value)=>updateSeatDraft(slot.id,field,value)}/>
                           </>
                         )}
                         <button
@@ -255,6 +261,7 @@ function RoomLobby({
                       </div>
                     )}
 
+                    {isHost && slot.kind === 'ai' && <AiControls slot={slot} onCommand={onHostCommand} busy={busy} showStatus={false}/>}
                     {isHost && slot.occupied && (
                       <div className="room-seat-actions">
                         <button

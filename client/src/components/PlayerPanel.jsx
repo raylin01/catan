@@ -1,7 +1,8 @@
 import './PlayerPanel.css';
 import GameIcon from './GameIcon';
+import {AiStatus} from './AiControls';
 
-function PlayerPanel({ player, isCurrentTurn, isMe, longestRoad, largestArmy, onRightClick, gameOver = false }) {
+function PlayerPanel({ slot, player, isCurrentTurn, isMe, longestRoad, largestArmy, onRightClick, gameOver = false }) {
   const totalCards = typeof player.resources === 'number' 
     ? player.resources 
     : Object.values(player.resources).reduce((a, b) => a + b, 0);
@@ -60,6 +61,7 @@ function PlayerPanel({ player, isCurrentTurn, isMe, longestRoad, largestArmy, on
         </div>
       </div>
       
+      <AiStatus slot={slot}/>
       <div className="player-stats">
         <div 
           className="stat has-info"

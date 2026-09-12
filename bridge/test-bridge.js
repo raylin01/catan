@@ -54,8 +54,8 @@ test('a concurrent ready conflict re-observes and retries before calling the mod
     },
   };
   const connector={ready:async()=>{},decide:async()=>{decisions++;return {memory:''};}};
-  await runPlayer(client,connector,{signal:controller.signal,pollMs:1});
-  assert.deepEqual(attempts,[0,1]);assert.equal(observations,2);assert.equal(decisions,0);
+  await assert.rejects(runPlayer(client,connector,{signal:controller.signal,pollMs:1}),{name:'AbortError'});
+  assert.equal(attempts.length,2);assert.ok(attempts[1]>attempts[0]);assert.equal(decisions,0);
 });
 test('a non-conflict ready failure stops the runner',async()=>{
   let decisions=0;

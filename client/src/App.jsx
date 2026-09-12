@@ -1,3 +1,4 @@
+import {AiControls, ChatModelFields} from './components/AiControls';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import RoomLobby from './RoomLobby';
@@ -257,7 +258,8 @@ function HostToolbar({ paused, busy, onCommand, slots = [], providers = [], phas
         next[slot.id] = previous[slot.id] || {
           kind: slot.kind,
           provider: slot.provider || providers[0]?.id || '',
-          model: slot.model || ''
+          model: slot.model || '',
+          chatEnabled: slot.chatEnabled !== false, chatModel: slot.chatModel || '', chatReasoning: slot.chatReasoning || ''
         };
       });
       return next;
@@ -275,13 +277,14 @@ function HostToolbar({ paused, busy, onCommand, slots = [], providers = [], phas
     const draft = seatDrafts[slot.id] || {
       kind: slot.kind,
       provider: slot.provider || providers[0]?.id || '',
-      model: slot.model || ''
+      model: slot.model || '',
+          chatEnabled: slot.chatEnabled !== false, chatModel: slot.chatModel || '', chatReasoning: slot.chatReasoning || ''
     };
     await onCommand('removeController', {
       seatId: slot.id,
       kind: draft.kind,
       ...(draft.kind === 'ai'
-        ? { provider: draft.provider || providers[0]?.id, model: draft.model.trim() || undefined }
+        ? { provider: draft.provider || providers[0]?.id, model: draft.model.trim() || undefined, chatEnabled: draft.chatEnabled !== false, chatModel: draft.chatModel?.trim() || null, chatReasoning: draft.chatReasoning || null }
         : {})
     });
     setSeatDrafts(previous => ({
@@ -327,7 +330,8 @@ function HostToolbar({ paused, busy, onCommand, slots = [], providers = [], phas
             const draft = seatDrafts[slot.id] || {
               kind: slot.kind,
               provider: slot.provider || providers[0]?.id || '',
-              model: slot.model || ''
+              model: slot.model || '',
+          chatEnabled: slot.chatEnabled !== false, chatModel: slot.chatModel || '', chatReasoning: slot.chatReasoning || ''
             };
             const providerName = providers.find(provider => provider.id === slot.provider)?.name || slot.provider;
             return (
@@ -339,6 +343,7 @@ function HostToolbar({ paused, busy, onCommand, slots = [], providers = [], phas
                     {slot.kind === 'ai' ? ` · ${providerName || 'AI'}${slot.model ? ` · ${slot.model}` : ''}` : ' · Human'}
                   </p>
                 </div>
+                <AiControls slot={slot} onCommand={onCommand} busy={busy}/>
                 <div className="room-host-seat-controls">
                   <label>
                     Controller
@@ -375,6 +380,7 @@ function HostToolbar({ paused, busy, onCommand, slots = [], providers = [], phas
                           maxLength={40}
                         />
                       </label>
+                      <ChatModelFields draft={draft} onChange={(field,value)=>updateSeatDraft(slot.id,field,value)}/>
                     </>
                   )}
                   <button
@@ -890,6 +896,7 @@ function App() {
           legalActions={snapshot?.legalActions || []}
           events={snapshot?.events || []}
           rollEvent={snapshot?.rollEvent || null}
+          slots={snapshot?.slots || []}
           cardEvents={snapshot?.cardEvents || []}
           robberPick={snapshot?.robberPick || null}
           paused={Boolean(snapshot?.paused)}

@@ -31,6 +31,10 @@ export function createAppServer({service,hostKey}) {
   });
   app.post('/api/rooms/:code/join',(req,res)=>send(res,service.join(code(req),req.body)));
   app.get('/api/rooms/:code',(req,res)=>send(res,service.observe(code(req),token(req))));
+  app.post('/api/rooms/:code/ai/lease',(req,res)=>send(res,service.aiLease(code(req),token(req),req.body)));
+  app.post('/api/rooms/:code/ai/heartbeat',(req,res)=>send(res,service.aiHeartbeat(code(req),token(req),req.body)));
+  app.post('/api/rooms/:code/ai/chat/read',(req,res)=>send(res,service.aiChatRead(code(req),token(req),req.body)));
+  app.post('/api/rooms/:code/ai/chat/reply',(req,res)=>send(res,service.aiChatReply(code(req),token(req),req.body)));
   app.post('/api/rooms/:code/commands',(req,res)=>send(res,service.command(code(req),token(req),req.body)));
   app.use('/api',(_req,res)=>send(res,{success:false,statusCode:404,error:'Unknown endpoint'}));
   app.use('/socket.io',(_req,res)=>send(res,{success:false,statusCode:404,error:'Unknown endpoint'}));

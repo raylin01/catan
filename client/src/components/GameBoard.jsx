@@ -27,6 +27,7 @@ function GameBoard({
   events = [],
   rollEvent = null,
   cardEvents = [],
+  slots = [],
   robberPick = null,
   paused = false,
   tradePanel = null
@@ -454,7 +455,8 @@ function GameBoard({
         <div className="sidebar left-sidebar">
           <h3>Players</h3>
           {gameState.players.map((player, idx) => (
-            <PlayerPanel 
+            <PlayerPanel
+              slot={slots.find(slot=>slot.id===player.id)}
               key={player.id}
               player={player}
               isCurrentTurn={idx === gameState.currentPlayerIndex}

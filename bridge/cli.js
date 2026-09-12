@@ -27,7 +27,7 @@ async function join(args) {
   const server=options.server||session?.server;if(!server)throw Error('Specify --server https://your-game-host');
   const client=new GameClient({server,code:args.code});
   const joined=await client.join({name:args.name,role:'ai',provider,model:args.model,seatId:args.seatId});
-  session={server:client.server,code:joined.code,token:joined.token,provider,model:args.model,reasoning:selectedReasoning,memory:''};await save();
+  session={server:client.server,code:joined.code,token:joined.token,provider,model:args.model,reasoning:selectedReasoning,memory:'',contexts:{},chatCursor:0};await save();
   return {success:true,code:joined.code,seatId:joined.seatId};
 }
 
@@ -36,7 +36,7 @@ async function mcp() {
   const tools=[
     {name:'catan_join',description:'Join a vacant remote AI seat by room code. Does not take over an occupied seat.',inputSchema:{type:'object',properties:{code:{type:'string'},name:{type:'string'},provider:{type:'string'},model:{type:'string'},reasoning:{type:'string',enum:[...reasoningValues]},seatId:{type:'string'}},required:['code','name'],additionalProperties:false}},
     {name:'catan_observe',description:'Read your private player view, legal choices, required decisions and structured trades. No free-form chat.',inputSchema:{type:'object',properties:{},additionalProperties:false}},
-    {name:'catan_act',description:'Submit one action against an observed revision and generation. Use a unique requestId; reuse it unchanged for network retries.',inputSchema:{type:'object',properties:{type:{type:'string'},payload:{type:'object'},revision:{type:'integer'},generation:{type:'integer'},requestId:{type:'string'}},required:['type','payload','revision','generation','requestId'],additionalProperties:false}},
+    {name:'catan_act',description:'Submit one action against an observed revision and generation. Use a unique requestId; reuse it unchanged for network retries.',inputSchema:{type:'object',properties:{type:{type:'string'},payload:{type:'object'},revision:{type:'integer'},generation:{type:'integer'},controlEpoch:{type:'integer'},requestId:{type:'string'}},required:['type','payload','revision','generation','controlEpoch','requestId'],additionalProperties:false}},
   ];
   for await(const line of createInterface({input:process.stdin,crlfDelay:Infinity})){
     let request;
@@ -74,7 +74,7 @@ async function main(){
     const client=await load(),connector=connectors.get(session.provider);if(!connector)throw Error('Connector unavailable');
     const controller=new AbortController();process.once('SIGINT',()=>controller.abort());process.once('SIGTERM',()=>controller.abort());
     console.error(`Running ${session.provider} for room ${session.code}. Stop with Ctrl-C; the seat remains reserved.`);
-    await runPlayer(client,connector,{model:session.model,reasoning:reasoning(session.reasoning),memory:session.memory,signal:controller.signal,save:async memory=>{session.memory=memory;await save();}});
+    await runPlayer(client,connector,{model:session.model,reasoning:reasoning(session.reasoning),memory:session.memory,contexts:session.contexts||{},chatCursor:session.chatCursor||0,pendingProposals:session.pendingProposals||[],pendingReplySequence:session.pendingReplySequence||0,signal:controller.signal,save:async (memory,state)=>{session.memory=memory;session.contexts=state.contexts;session.chatCursor=state.chatCursor;session.pendingProposals=state.pendingProposals;session.pendingReplySequence=state.pendingReplySequence;await save();}});
   } else if(command==='mcp')await mcp();
   else console.log('Catan bridge\n  join --server https://game.example --code ROOM --name Codex [--model MODEL] [--reasoning EFFORT] [--session FILE]\n  run [--session FILE]\n  observe [--session FILE]\n  act --command JSON_ENVELOPE [--session FILE]\n  mcp --server https://game.example [--session FILE]\nEach AI seat must use its own session file.');
 }

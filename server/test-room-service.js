@@ -18,10 +18,12 @@ class MemoryStore {
 
 function issue(service,code,actor,type,payload={},overrides={}) {
   const room=service.rooms.get(code);
+  const slot=actor.role==='ai'?room.slots.find(candidate=>candidate.id===actor.seatId):null;
   return service.command(code,actor.token,{
     requestId:overrides.requestId||nextRequest(),
     revision:overrides.revision??room.revision,
     generation:overrides.generation??actor.generation,
+    ...(slot?{controlEpoch:overrides.controlEpoch??slot.controlEpoch,...(actor.runId?{runId:actor.runId}:{})}:{}),
     type,payload
   });
 }
