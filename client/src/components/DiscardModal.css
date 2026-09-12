@@ -142,3 +142,6 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.discard-modal{max-height:calc(100dvh - 30px);overflow:auto;outline:none}
+@media(prefers-reduced-motion:reduce){.discard-modal{animation:none}.progress-bar{transition:none}.confirm-discard:hover:not(:disabled){transform:none}}

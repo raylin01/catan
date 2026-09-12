@@ -301,10 +301,16 @@ test('roll receipts preserve exact production, isolate seats, and survive replay
     const result=issue(service,lobby.code,actor,'rollDice',{}, {requestId:'receipt-roll',revision});assert.equal(result.success,true);
     const receipt=service.observe(lobby.code,actor.token).rollEvent;
     assert.equal(receipt.roll.total,6);assert.equal(receipt.gains.grain,1,'finite bank gives only one card');
+    const resourceEvent=service.observe(lobby.code,actor.token).cardEvents.at(-1);
+    assert.equal(resourceEvent.type,'rollDice');assert.equal(resourceEvent.revision,result.revision);assert.equal(resourceEvent.rollId,receipt.id);
+    assert.deepEqual(resourceEvent.transfers,[{from:'bank',to:actor.seatId,count:1,resource:'grain'}]);
+    const publicTransfer=service.observe(lobby.code,spectator.token).cardEvents.at(-1).transfers[0];
+    assert.deepEqual(publicTransfer,{from:'bank',to:actor.seatId,count:1});
     assert.deepEqual(service.observe(lobby.code,spectator.token).rollEvent.gains,{});
     const other=players.find(p=>p.seatId!==actor.seatId);assert.equal(service.observe(lobby.code,other.token).rollEvent.gains.grain,0);
     assert.equal(JSON.stringify(service.observe(lobby.code,other.token)).includes('gainsBySeat'),false);
     assert.deepEqual(issue(service,lobby.code,actor,'rollDice',{}, {requestId:'receipt-roll',revision}),result);
+    assert.equal(service.observe(lobby.code,actor.token).cardEvents.length,1,'idempotent replay does not append an event');
     assert.equal(service.observe(lobby.code,actor.token).rollEvent.id,receipt.id);
     const restarted=new RoomService({store});assert.deepEqual(restarted.observe(lobby.code,actor.token).rollEvent,receipt);
     assert.equal(issue(service,lobby.code,actor,'endTurn').success,true);
@@ -312,5 +318,58 @@ test('roll receipts preserve exact production, isolate seats, and survive replay
     assert.equal(issue(service,lobby.code,next,'rollDice').success,true);
     const second=service.observe(lobby.code,actor.token).rollEvent;assert.equal(second.roll.total,6);assert.notEqual(second.id,receipt.id);
     assert.equal(second.gains.grain,0,'the empty bank does not invent a resource animation');
+    assert.equal(issue(service,lobby.code,lobby.host,'removeController',{seatId:actor.seatId}).success,true);
+    const replacement=service.join(lobby.code,{name:'Replacement',role:'human',seatId:actor.seatId});
+    assert.equal(replacement.success,true);
+    assert.deepEqual(service.observe(lobby.code,replacement.token).rollEvent.gains,{},'replacement cannot see previous roll history');
   } finally {Math.random=originalRandom;}
+});
+
+test('robber choices are opaque, private, persistent, and settle once',()=>{
+  const store=new MemoryStore(),service=new RoomService({store});
+  const lobby=makeLobby(service),players=fillHumanLobby(service,lobby);startRoom(service,lobby);
+  const room=setMainTurn(service,lobby.code),game=room.game;
+  game.turnPhase='robber';game.hasRolledThisTurn=true;
+  const targetKey=Object.keys(game.hexes).find(key=>key!==game.robber),target=game.hexes[targetKey];
+  game.vertices[`v_${target.q}_${target.r}_0`]={building:'settlement',owner:1};
+  const thief=players.find(player=>player.seatId===game.players[0].id);
+  const victim=players.find(player=>player.seatId===game.players[1].id);
+  game.players[1].resources.brick=2;game.players[1].resources.ore=1;
+  const spectator=service.join(lobby.code,{name:'Watcher',role:'spectator'});
+
+  assert.equal(issue(service,lobby.code,thief,'moveRobber',{hexKey:targetKey,stealFromPlayerId:victim.seatId}).success,true);
+  const thiefView=service.observe(lobby.code,thief.token),victimView=service.observe(lobby.code,victim.token),publicView=service.observe(lobby.code,spectator.token);
+  assert.equal(thiefView.robberPick.count,3);assert.equal(thiefView.robberPick.cardIds.length,3);
+  assert.equal(new Set(thiefView.robberPick.cardIds).size,3);
+  assert.equal(Object.hasOwn(victimView.robberPick,'cardIds'),false);assert.equal(Object.hasOwn(publicView.robberPick,'cardIds'),false);
+  assert.equal(JSON.stringify(thiefView.gameState).includes('pendingRobberPick'),false);
+
+  const restarted=new RoomService({store});
+  assert.deepEqual(restarted.observe(lobby.code,thief.token).robberPick,thiefView.robberPick,'restart preserves card order and ids');
+  assert.equal(issue(restarted,lobby.code,lobby.host,'resume').success,true);
+  const ready=restarted.observe(lobby.code,thief.token),cardId=ready.robberPick.cardIds[0];
+  const envelope={requestId:'choose-once',revision:ready.revision,generation:thief.generation,type:'chooseRobberCard',payload:{cardId}};
+  const chosen=restarted.command(lobby.code,thief.token,envelope);assert.equal(chosen.success,true);
+  const after=restarted.observe(lobby.code,thief.token),event=after.cardEvents.at(-1);
+  assert.equal(after.robberPick,null);assert.equal(after.gameState.turnPhase,'main');assert.equal(event.type,'chooseRobberCard');
+  assert.equal(event.transfers.length,1);assert.equal(event.transfers[0].from,victim.seatId);assert.equal(event.transfers[0].to,thief.seatId);
+  assert.ok(['brick','ore'].includes(event.transfers[0].resource));
+  assert.equal(Object.hasOwn(restarted.observe(lobby.code,spectator.token).cardEvents.at(-1).transfers[0],'resource'),false);
+  const eventCount=after.cardEvents.length;
+  assert.deepEqual(restarted.command(lobby.code,thief.token,envelope),chosen);
+  assert.equal(restarted.observe(lobby.code,thief.token).cardEvents.length,eventCount,'replay neither redraws nor transfers again');
+});
+
+test('ending a game clears mandatory discard and robber choices',()=>{
+  for(const phase of ['discard','robberPick']) {
+    const service=new RoomService(),lobby=makeLobby(service);
+    fillHumanLobby(service,lobby);startRoom(service,lobby);
+    const room=setMainTurn(service,lobby.code);
+    room.game.turnPhase=phase;
+    room.game.discardingPlayers=[{playerIndex:0,cardsToDiscard:4}];
+    room.game.pendingRobberPick={id:'pick',thiefId:room.game.players[0].id,victimId:room.game.players[1].id,cards:[{id:'card',resource:'brick'}]};
+    assert.equal(issue(service,lobby.code,lobby.host,'endGame').success,true);
+    const view=service.observe(lobby.code,lobby.host.token);
+    assert.equal(view.gameState.phase,'finished');assert.equal(view.robberPick,null);assert.deepEqual(view.gameState.discardingPlayers,[]);
+  }
 });

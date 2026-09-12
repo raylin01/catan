@@ -1,0 +1,11 @@
+.card-movement-layer{position:fixed;inset:0;pointer-events:none;z-index:1500;overflow:hidden}
+.moving-card{position:absolute;left:0;top:0;width:44px;height:60px;border:1px solid #ecd59d;border-radius:6px;background:linear-gradient(145deg,#f6ead2,#d4b981);color:#263c3e;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;box-shadow:0 7px 16px #0007;animation:card-transfer 1050ms cubic-bezier(.2,.65,.25,1) var(--flight-delay) both}
+.moving-card.movement-back{background:repeating-linear-gradient(45deg,#29464e,#29464e 4px,#32515a 4px,#32515a 7px);color:#e2c486}
+.moving-card strong{font-size:11px}.moving-card .game-icon{color:inherit}
+@keyframes card-transfer{0%{opacity:0;transform:translate(var(--from-x),var(--from-y)) rotate(-12deg) scale(.75)}12%{opacity:1}55%{opacity:1}88%{opacity:1;transform:translate(var(--to-x),var(--to-y)) rotate(4deg) scale(1)}100%{opacity:0;transform:translate(var(--to-x),var(--to-y)) rotate(0) scale(.7)}}
+.card-movement-notice{position:absolute;left:50%;bottom:135px;transform:translateX(-50%);max-width:min(92vw,640px);width:max-content;padding:10px 15px;border:1px solid #c3ac77;border-radius:8px;background:#203a40f5;color:#f1ecdf;box-shadow:0 7px 20px #0005;font-size:12px;line-height:1.5;text-align:center;animation:card-notice-in .2s ease-out}
+@keyframes card-notice-in{from{opacity:0}to{opacity:1}}
+.bank-anchor{position:absolute;left:8px;top:0;display:flex;align-items:center;gap:9px;color:#d9c08c;font-size:11px;padding:9px 12px;border:1px solid #667976;border-radius:7px;background:#193037;box-shadow:0 4px 10px #0002}
+.bank-anchor .game-icon{width:25px;height:25px}
+@media(max-width:700px){.card-movement-notice{bottom:150px;font-size:11px}.bank-anchor{left:0;padding:8px;font-size:10px}}
+@media(prefers-reduced-motion:reduce){.moving-card{display:none}.card-movement-notice{animation:none}}

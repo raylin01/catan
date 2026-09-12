@@ -186,9 +186,10 @@ test('placing an opponent settlement recomputes a split longest road', () => {
   assert.ok(game.players[0].roadLength < before);
 });
 
-test('robber rejects non-adjacent victims and draws uniformly across cards', () => {
+test('robber persists shuffled opaque cards and transfers only the selected card', () => {
   const game = createPlayingGame(3);
   game.turnPhase = 'robber';
+  game.hasRolledThisTurn = true;
   const targetKey = Object.keys(game.hexes).find(key => key !== game.robber);
   const target = game.hexes[targetKey];
   game.vertices[GameLogic.vertexKey(target.q, target.r, 0)] = { building: 'settlement', owner: 1 };
@@ -198,11 +199,31 @@ test('robber rejects non-adjacent victims and draws uniformly across cards', () 
   assert.equal(GameLogic.moveRobber(game, 'p1', targetKey, 'p3').success, false);
   assert.equal(snapshot(game), before);
 
+  assert.equal(GameLogic.moveRobber(game, 'p1', targetKey).success, false,'an eligible victim is required');
+  assert.equal(snapshot(game), before);
+
   const result = withRandom(0.9, () => GameLogic.moveRobber(game, 'p1', targetKey, 'p2'));
   assert.equal(result.success, true);
-  assert.equal(result.stolenInfo.resource, 'ore');
+  assert.equal(game.turnPhase,'robberPick');
+  assert.equal(game.pendingRobberPick.cards.length,4);
+  assert.equal(new Set(game.pendingRobberPick.cards.map(card=>card.id)).size,4);
+  assert.deepEqual(game.pendingRobberPick.cards.map(card=>card.resource).sort(),['brick','ore','ore','ore']);
+  assert.equal(game.players[1].resources.ore, 3,'moving the robber does not steal before a card is chosen');
+  const fixed=structuredClone(game.pendingRobberPick);
+  before=snapshot(game);
+  assert.equal(GameLogic.chooseRobberCard(game,'p1','not-a-card').success,false);
+  assert.equal(snapshot(game),before);
+  assert.deepEqual(game.pendingRobberPick,fixed);
+
+  const oreCard=game.pendingRobberPick.cards.find(card=>card.resource==='ore');
+  const chosen=GameLogic.chooseRobberCard(game,'p1',oreCard.id);
+  assert.equal(chosen.success,true);
+  assert.equal(chosen.stolenInfo.resource,'ore');
   assert.equal(game.players[1].resources.ore, 2);
   assert.equal(game.players[0].resources.ore, 1);
+  assert.equal(game.pendingRobberPick,null);
+  assert.equal(game.turnPhase,'main');
+  assert.equal(GameLogic.chooseRobberCard(game,'p1',oreCard.id).success,false);
 });
 
 test('finished games reject gameplay actions without mutation', () => {

@@ -46,7 +46,8 @@
   filter: url(#hex-shadow) brightness(0.76) saturate(0.72);
 }
 
-.terrain-tile,
+.terrain-tile { pointer-events: visiblePainted; }
+
 .tile-bevel,
 .terrain-art,
 .terrain-badge {

@@ -184,6 +184,7 @@ function HexBoard({
   myIndex,
   gamePhase,
   turnPhase,
+  paused = false,
   onPlaceSettlement,
   onPlaceRoad,
   onUpgradeToCity,
@@ -250,7 +251,7 @@ function HexBoard({
   };
 
   // Can click on hex (for robber)
-  const canClickHex = turnPhase === 'robber' && isMyTurn;
+  const canClickHex = gamePhase === 'playing' && !paused && turnPhase === 'robber' && isMyTurn;
 
   // Parse vertex/edge keys
   const parseVertexKey = (key) => {
@@ -505,6 +506,14 @@ function HexBoard({
             <g 
               key={key} 
               className={`hex ${canClickHex ? 'clickable' : ''} ${isRobberHere ? 'has-robber' : ''}`}
+              role={canClickHex ? 'button' : undefined}
+              tabIndex={canClickHex ? 0 : undefined}
+              aria-label={canClickHex ? `Move robber to ${hex.terrain} ${hex.number || 'desert'} at ${key}` : undefined}
+              onKeyDown={event => {
+                if (canClickHex && (event.key === 'Enter' || event.key === ' ')) {
+                  event.preventDefault(); onHexClick(key);
+                }
+              }}
               onClick={() => canClickHex && onHexClick(key)}
               onContextMenu={(e) => onHexRightClick && onHexRightClick(e, hex)}
               style={{ cursor: 'context-menu' }}

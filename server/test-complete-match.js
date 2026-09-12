@@ -180,6 +180,11 @@ test('three scripted remote seats complete a deterministic match through RoomSer
         assert.ok(move,'robber has no legal destination');
         assert.equal(command(actor,view,move.type,move.payload).success,true);continue;
       }
+      if(game.turnPhase==='robberPick') {
+        const card=view.legalActions.find(action=>action.type==='chooseRobberCard');
+        assert.ok(card,'robber has no face-down card choice');
+        assert.equal(command(actor,view,card.type,card.payload).success,true);continue;
+      }
       if(game.yearOfPlentyPicks>0) {
         const cost=desiredCost(view),hand=me.resources;
         const picks=view.legalActions.filter(action=>action.type==='yearOfPlentyPick');
@@ -259,7 +264,7 @@ test('three scripted remote seats complete a deterministic match through RoomSer
     assert.ok(winner.victoryPoints>=10);
     assert.equal(structuredTrade,true,'match never found a naturally affordable structured trade');
     assert.equal(rejectionChecked,true);
-    for(const type of ['rollDice','discardCards','moveRobber','placeSettlement','placeRoad','upgradeToCity','buyDevCard','playDevCard','yearOfPlentyPick','bankTrade','endTurn','tradeOffer','tradeAccept','tradeConfirm']) {
+    for(const type of ['rollDice','discardCards','moveRobber','chooseRobberCard','placeSettlement','placeRoad','upgradeToCity','buyDevCard','playDevCard','yearOfPlentyPick','bankTrade','endTurn','tradeOffer','tradeAccept','tradeConfirm']) {
       assert.ok(successful[type]>0,`match did not exercise ${type}`);
     }
     for(const card of ['knight','yearOfPlenty','monopoly','roadBuilding'])assert.ok(playedCards.has(card),`match did not play ${card}`);

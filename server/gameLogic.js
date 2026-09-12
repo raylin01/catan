@@ -862,6 +862,7 @@ export function createGame(gameId, hostPlayer, isExtended = false, enableSpecial
     largestArmyPlayer: null,
     largestArmySize: 2, // Must have at least 3 to claim
     diceRoll: null,
+    pendingRobberPick: null,
     winner: null,
     tradeOffer: null,
     discardingPlayers: [],
@@ -1155,13 +1156,9 @@ export function discardCards(game, playerId, resources) {
   return { success: true };
 }
 
-/** 
- * Move the robber to a new hex and optionally steal from a player
- * 
- * IMPORTANT: After moving robber, the turn phase depends on hasRolledThisTurn:
- * - If Knight was played before rolling → return to 'roll' phase
- * - If 7 was rolled (hasRolledThisTurn=true) → proceed to 'main' phase
- */
+/** Move the robber and, when possible, materialize one shuffled face-down card
+ * per resource held by the selected victim. The opaque mapping is persisted in
+ * game state so retries and process restarts cannot redraw the choice. */
 export function moveRobber(game, playerId, hexKey, stealFromPlayerId) {
   if (game.phase !== 'playing') {
     return { success: false, error: 'Game is not active' };
@@ -1185,49 +1182,69 @@ export function moveRobber(game, playerId, hexKey, stealFromPlayerId) {
     return { success: false, error: 'Must move robber to a different hex' };
   }
 
-  let victim = null;
-  if (stealFromPlayerId) {
-    const victimIndex = game.players.findIndex(p => p.id === stealFromPlayerId);
-    const adjacentPlayers = getPlayersOnHex(game, hexKey, game.currentPlayerIndex);
-    if (victimIndex === -1 || !adjacentPlayers.includes(victimIndex)) {
-      return { success: false, error: 'Selected player is not adjacent to the robber' };
-    }
-    victim = game.players[victimIndex];
+  const eligibleVictimIndexes = getPlayersOnHex(game, hexKey, game.currentPlayerIndex)
+    .filter(index => Object.values(game.players[index].resources).some(amount => amount > 0));
+  const victimIndex = stealFromPlayerId == null ? -1 : game.players.findIndex(p => p.id === stealFromPlayerId);
+  if (eligibleVictimIndexes.length > 0 && !eligibleVictimIndexes.includes(victimIndex)) {
+    return { success: false, error: 'Select an adjacent player with resource cards' };
   }
-  
+  if (eligibleVictimIndexes.length === 0 && stealFromPlayerId != null) {
+    return { success: false, error: 'Selected player has no resource cards to steal' };
+  }
+
   game.robber = hexKey;
-  
-  let stolenInfo = null;
-  
-  // Steal from player if specified
-  if (victim) {
-    const totalCards = Object.values(victim.resources).reduce((sum, amount) => sum + amount, 0);
-
-    if (totalCards > 0) {
-      // Draw uniformly from the victim's cards, so a resource held five times is
-      // five times as likely to be stolen as one held once.
-      let cardIndex = Math.floor(Math.random() * totalCards);
-      const stolenResource = RESOURCE_TYPES.find(resource => {
-        cardIndex -= victim.resources[resource];
-        return cardIndex < 0;
-      });
-      victim.resources[stolenResource]--;
-      player.resources[stolenResource]++;
-
-      stolenInfo = {
-        resource: stolenResource,
-        thief: player.id,
-        thiefName: player.name,
-        victim: victim.id,
-        victimName: victim.name
-      };
+  if (victimIndex !== -1) {
+    const victim = game.players[victimIndex];
+    const cards = [];
+    for (const resource of RESOURCE_TYPES) {
+      for (let index = 0; index < victim.resources[resource]; index++) {
+        cards.push({ id: crypto.randomUUID(), resource });
+      }
     }
+    game.pendingRobberPick = {
+      id: crypto.randomUUID(),
+      thiefId: player.id,
+      victimId: victim.id,
+      cards: shuffle(cards),
+      resumePhase: game.hasRolledThisTurn ? 'main' : 'roll'
+    };
+    game.turnPhase = 'robberPick';
+    return { success: true, robberPick: { id: game.pendingRobberPick.id, count: cards.length } };
   }
-  
-  // Return to appropriate phase based on whether dice have been rolled
-  // This handles the case where Knight is played BEFORE rolling
+
+  game.pendingRobberPick = null;
   game.turnPhase = game.hasRolledThisTurn ? 'main' : 'roll';
-  
+  return { success: true };
+}
+
+/** Reveal and transfer exactly one of the persisted face-down robber cards. */
+export function chooseRobberCard(game, playerId, cardId) {
+  if (game.phase !== 'playing' || game.turnPhase !== 'robberPick' || !game.pendingRobberPick) {
+    return { success: false, error: 'There is no robber card to choose' };
+  }
+  const pending = game.pendingRobberPick;
+  if (pending.thiefId !== playerId || game.players[game.currentPlayerIndex]?.id !== playerId) {
+    return { success: false, error: 'Not your robber card choice' };
+  }
+  const card = pending.cards.find(candidate => candidate.id === cardId);
+  if (!card) return { success: false, error: 'Invalid robber card' };
+  const thief = game.players.find(candidate => candidate.id === pending.thiefId);
+  const victim = game.players.find(candidate => candidate.id === pending.victimId);
+  if (!thief || !victim || victim.resources[card.resource] < 1) {
+    return { success: false, error: 'Robber card choice is no longer available' };
+  }
+
+  victim.resources[card.resource]--;
+  thief.resources[card.resource]++;
+  const stolenInfo = {
+    resource: card.resource,
+    thief: thief.id,
+    thiefName: thief.name,
+    victim: victim.id,
+    victimName: victim.name
+  };
+  game.pendingRobberPick = null;
+  game.turnPhase = pending.resumePhase;
   return { success: true, stolenInfo };
 }
 

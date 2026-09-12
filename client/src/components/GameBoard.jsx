@@ -8,6 +8,8 @@ import DiceDisplay from './DiceDisplay';
 import Chat from './Chat';
 import DevCardModal from './DevCardModal';
 import DiscardModal from './DiscardModal';
+import CardMovements from './CardMovements';
+import RobberPickModal from './RobberPickModal';
 import CardReveal from './CardReveal';
 import InfoPopup, { useInfoPopup, INFO_DATA } from './InfoPopup';
 import Confetti from './Confetti';
@@ -24,6 +26,9 @@ function GameBoard({
   legalActions = [],
   events = [],
   rollEvent = null,
+  cardEvents = [],
+  robberPick = null,
+  paused = false,
   tradePanel = null
 }) {
   const [selectedAction, setSelectedAction] = useState(null); // 'settlement', 'road', 'city'
@@ -53,7 +58,7 @@ function GameBoard({
   const isSetup = gameState.phase === 'setup';
   const isWaiting = gameState.phase === 'waiting';
   const isHost = gameState.players[0]?.id === playerId;
-  const needsToDiscard = gameState.discardingPlayers?.some(
+  const needsToDiscard = gameState.phase === 'playing' && gameState.discardingPlayers?.some(
     d => d.playerIndex === gameState.myIndex
   );
   
@@ -401,6 +406,7 @@ function GameBoard({
     switch (gameState.turnPhase) {
       case 'roll': return 'Roll the dice';
       case 'robber': return 'Move the robber';
+      case 'robberPick': return 'Choose a face-down card';
       case 'discard': return 'Waiting for players to discard';
       case 'main': return 'Build, trade, or end turn';
       default: return '';
@@ -496,6 +502,7 @@ function GameBoard({
 
         {/* Center - Board */}
         <div className="board-container">
+          <div className="bank-anchor" data-card-bank><GameIcon name="bank" size={22}/><span>Bank</span></div>
           <HexBoard 
             legalActions={legalActions}
             hexes={gameState.hexes}
@@ -510,6 +517,7 @@ function GameBoard({
             myIndex={gameState.myIndex}
             gamePhase={gameState.phase}
             turnPhase={gameState.turnPhase}
+            paused={paused}
             onPlaceSettlement={handlePlaceSettlement}
             onPlaceRoad={handlePlaceRoad}
             onUpgradeToCity={handleUpgradeToCity}
@@ -600,11 +608,9 @@ function GameBoard({
 
       {/* Bottom - My Resources */}
       {myPlayer ? (
-        <div className="my-resources-bar">
+        <div className="my-resources-bar" data-own-hand>
           <ResourceCards
             resources={myPlayer.resources}
-            gain={freshRoll ? {id:freshRoll.id,gains:freshRoll.gains,fromRoll:freshRoll.roll.total} : null}
-            gainDelay={900}
             onRightClick={(e, resourceKey) => showInfo(e, resourceKey)}
           />
 
@@ -631,7 +637,7 @@ function GameBoard({
       )}
 
       {/* Discard Phase Banner - shows when waiting for others to discard */}
-      {gameState.turnPhase === 'discard' && isMyTurn && (
+      {gameState.turnPhase === 'discard' && isMyTurn && !needsToDiscard && (
         <div className="discard-notification-banner">
           <GameIcon name="cards" size={24}/>
           <span className="discard-text">
@@ -678,6 +684,14 @@ function GameBoard({
         </div>
       )}
 
+      <CardMovements events={cardEvents} seatId={playerId}/>
+      {gameState.phase === 'playing' && robberPick?.cardIds && <RobberPickModal
+        key={robberPick.id}
+        pick={robberPick}
+        victimName={gameState.players.find(p => p.id === robberPick.victimId)?.name || 'this player'}
+        paused={paused}
+        onPick={cardId => new Promise(resolve => socket.emit('chooseRobberCard', {cardId}, resolve))}
+      />}
       {/* Modals */}
       {showTradeModal && tradePanel && tradePanel(() => setShowTradeModal(false), tradeMode)}
 
@@ -704,6 +718,7 @@ function GameBoard({
         <DiscardModal 
           socket={socket}
           player={myPlayer}
+          paused={paused}
           cardsToDiscard={
             gameState.discardingPlayers.find(d => d.playerIndex === gameState.myIndex)?.cardsToDiscard
           }
@@ -712,7 +727,7 @@ function GameBoard({
       )}
 
       {/* Steal selection modal */}
-      {pendingRobberHex && playersOnHex.length > 0 && (
+      {gameState.phase === 'playing' && gameState.turnPhase === 'robber' && pendingRobberHex && playersOnHex.length > 0 && (
         <div className="modal-overlay">
           <div className="steal-modal">
             <h3>Steal from whom?</h3>
@@ -722,7 +737,7 @@ function GameBoard({
                   key={p.id}
                   className="steal-btn"
                   onClick={() => handleStealFromPlayer(p.id)}
-                  disabled={!p.hasResources}
+                  disabled={paused || !p.hasResources}
                 >
                   {p.name}
                   {!p.hasResources && <span className="no-cards">(no cards)</span>}
@@ -733,6 +748,7 @@ function GameBoard({
             {playersOnHex.every(p => !p.hasResources) && (
               <button 
                 className="steal-ok-btn"
+                disabled={paused}
                 onClick={() => handleStealFromPlayer(null)}
               >
                 OK

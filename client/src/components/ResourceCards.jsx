@@ -56,6 +56,7 @@ function ResourceCards({ resources, compact = false, selectable = false, selecte
       const gained = activeGain?.gains[resource.key] || 0;
       return <div
         key={resource.key}
+        data-hand-resource={resource.key}
         className={`resource-card ${count === 0 ? 'empty' : ''} ${selectable ? 'selectable' : ''} ${onRightClick ? 'has-info' : ''} ${gained ? 'is-receiving' : ''}`}
         style={{ '--resource-color': resource.color }}
         onClick={selectable && count > selectedCount ? () => onSelect?.(resource.key, 1) : undefined}
