@@ -1,9 +1,30 @@
 .player-panel {
+  width: 100%;
   background: var(--bg-secondary);
   border: 2px solid var(--border-color);
   border-radius: 10px;
   padding: 0.5rem 0.6rem;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   transition: all 0.3s ease;
+}
+
+button.player-panel.is-selectable {
+  cursor: pointer;
+}
+
+button.player-panel.is-selectable:hover:not(:disabled),
+button.player-panel.is-selectable:focus-visible {
+  border-color: color-mix(in srgb, var(--accent-gold) 72%, white);
+  box-shadow: 0 0 0 2px rgba(212, 169, 66, 0.18), 0 7px 18px rgba(0, 0, 0, 0.22);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+button.player-panel.is-selectable:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .player-panel.current-turn {
@@ -13,6 +34,11 @@
 
 .player-panel.is-me {
   background: linear-gradient(135deg, var(--bg-secondary), rgba(212, 169, 66, 0.1));
+}
+
+.player-panel.is-viewing {
+  background: linear-gradient(135deg, var(--bg-secondary), rgba(212, 169, 66, 0.14));
+  border-color: var(--accent-gold);
 }
 
 .player-header {
@@ -60,6 +86,11 @@
   border-radius: 8px;
   font-weight: 700;
   letter-spacing: 0.05em;
+}
+
+.viewing-badge {
+  background: color-mix(in srgb, var(--accent-gold) 84%, white);
+  letter-spacing: 0.08em;
 }
 
 .victory-points {

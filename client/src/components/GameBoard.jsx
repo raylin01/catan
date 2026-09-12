@@ -13,6 +13,7 @@ import RobberPickModal from './RobberPickModal';
 import CardReveal from './CardReveal';
 import InfoPopup, { useInfoPopup, INFO_DATA } from './InfoPopup';
 import Confetti from './Confetti';
+import ReplayHand from '../replay/ReplayHand';
 import './GameBoard.css';
 
 function GameBoard({
@@ -30,8 +31,10 @@ function GameBoard({
   slots = [],
   robberPick = null,
   paused = false,
-  tradePanel = null
+  tradePanel = null,
+  replay = null
 }) {
+  const isReplay = Boolean(replay);
   const [selectedAction, setSelectedAction] = useState(null); // 'settlement', 'road', 'city'
   const [lastPlacedSettlement, setLastPlacedSettlement] = useState(null);
   const [showTradeModal, setShowTradeModal] = useState(false);
@@ -41,7 +44,8 @@ function GameBoard({
   const [playersOnHex, setPlayersOnHex] = useState([]);
   const [showChat, setShowChat] = useState(false);
   const [freshRoll, setFreshRoll] = useState(null);
-  const rollSeen = useRef({identity:`${gameCode}:${playerId}`,id:rollEvent?.id});
+  const rollIdentity = isReplay ? `replay:${replay.resetKey || replay.perspective || 'public'}` : `${gameCode}:${playerId}`;
+  const rollSeen = useRef({identity: rollIdentity, id: rollEvent?.id});
   const [revealedCard, setRevealedCard] = useState(null);
   const [lastTradeOfferId, setLastTradeOfferId] = useState(null);
   const [dismissedTradeId, setDismissedTradeId] = useState(null);
@@ -82,19 +86,25 @@ function GameBoard({
   // Polls can repeat the same snapshot. Only a new authoritative receipt
   // animates; initial hydration and seat changes establish a baseline.
   useEffect(() => {
-    const identity = `${gameCode}:${playerId}`;
+    const identity = isReplay ? `replay:${replay.resetKey || replay.perspective || 'public'}` : `${gameCode}:${playerId}`;
     if (rollSeen.current.identity !== identity) {
       rollSeen.current = {identity, id: rollEvent?.id};
+      setFreshRoll(null);
+      return;
+    }
+    if (isReplay && !replay.playing) {
+      rollSeen.current.id = rollEvent?.id;
       setFreshRoll(null);
       return;
     }
     if (!rollEvent || rollSeen.current.id === rollEvent.id) return;
     rollSeen.current.id = rollEvent.id;
     setFreshRoll(rollEvent);
-  }, [gameCode, playerId, rollEvent?.id]);
+  }, [gameCode, isReplay, playerId, replay?.playing, replay?.perspective, replay?.resetKey, rollEvent?.id]);
 
   // Listen for steal notifications
   useEffect(() => {
+    if (isReplay || !socket) return undefined;
     
     const handleStealResult = ({ type, resource, otherPlayer }) => {
       if (type === 'stole') {
@@ -106,10 +116,11 @@ function GameBoard({
     
     socket.on('stealResult', handleStealResult);
     return () => socket.off('stealResult', handleStealResult);
-  }, [socket, addNotification]);
+  }, [isReplay, socket, addNotification]);
 
   // Listen for special building phase events (5-6 player extension)
   useEffect(() => {
+    if (isReplay || !socket) return undefined;
     const handleSpecialBuildStarted = ({ currentBuilder }) => {
       if (currentBuilder === playerId) {
         addNotification(' Special Building Phase - Your turn to build!');
@@ -135,10 +146,11 @@ function GameBoard({
       socket.off('specialBuildNext', handleSpecialBuildNext);
       socket.off('specialBuildingPhaseEnded', handleSpecialBuildEnded);
     };
-  }, [socket, playerId, addNotification]);
+  }, [isReplay, socket, playerId, addNotification]);
 
   // Track new chat messages for notification dot
   useEffect(() => {
+    if (isReplay) return;
     if (chatMessages.length > lastMessageCount) {
       // Only increment unread if chat is closed and message is from another player
       if (!showChat) {
@@ -150,7 +162,7 @@ function GameBoard({
       }
       setLastMessageCount(chatMessages.length);
     }
-  }, [chatMessages, lastMessageCount, showChat, playerId]);
+  }, [chatMessages, isReplay, lastMessageCount, showChat, playerId]);
 
   // Reset unread count when chat is opened
   useEffect(() => {
@@ -161,6 +173,7 @@ function GameBoard({
 
   // Auto-open trade modal when there's a pending trade from another player
   useEffect(() => {
+    if (isReplay) return;
     const tradeOffer = gameState.tradeOffer;
     const isTradeForMe = tradeOffer?.to === gameState.myIndex;
     
@@ -180,10 +193,14 @@ function GameBoard({
       setLastTradeOfferId(null);
       setDismissedTradeId(null);
     }
-  }, [gameState.tradeOffer, gameState.myIndex, gameState.players, lastTradeOfferId, addNotification]);
+  }, [gameState.tradeOffer, gameState.myIndex, gameState.players, isReplay, lastTradeOfferId, addNotification]);
 
   // Auto-select action during setup
   useEffect(() => {
+    if (isReplay) {
+      setSelectedAction(null);
+      return;
+    }
     if (isSetup && isMyTurn) {
       const availableSetupActions = legalActions.filter(action => (
         action.type === 'placeSettlement' || action.type === 'placeRoad'
@@ -196,7 +213,7 @@ function GameBoard({
         setSelectedAction(null);
       }
     }
-  }, [gameState, isSetup, isMyTurn, legalActions]);
+  }, [gameState, isReplay, isSetup, isMyTurn, legalActions]);
 
   // Reset roll notification tracker when turn phase goes back to 'roll' (new turn)
   useEffect(() => {
@@ -207,6 +224,7 @@ function GameBoard({
 
   // Handle dice roll notification (only for 7 - robber)
   useEffect(() => {
+    if (isReplay) return;
     if (gameState.diceRoll && gameState.turnPhase !== 'roll') {
       // Create unique key for this roll to prevent duplicate notifications
       const rollKey = rollEvent?.id || `${gameState.diceRoll.die1}-${gameState.diceRoll.die2}-${gameState.currentPlayerIndex}`;
@@ -220,15 +238,16 @@ function GameBoard({
         setLastNotifiedRoll(rollKey);
       }
     }
-  }, [gameState.diceRoll, gameState.turnPhase, gameState.currentPlayerIndex, gameState.players, lastNotifiedRoll, addNotification, rollEvent?.id]);
+  }, [gameState.diceRoll, gameState.turnPhase, gameState.currentPlayerIndex, gameState.players, isReplay, lastNotifiedRoll, addNotification, rollEvent?.id]);
 
   // Handle winner
   useEffect(() => {
+    if (isReplay) return;
     if (gameState.winner) {
       const winner = gameState.players.find(p => p.id === gameState.winner);
       if (winner) addNotification(` ${winner.name} wins the game!`);
     }
-  }, [gameState.winner]);
+  }, [gameState.winner, isReplay]);
 
   const handleRollDice = useCallback(() => {
     socket.emit('rollDice', (response) => {
@@ -374,6 +393,16 @@ function GameBoard({
 
   const getStatusMessage = () => {
     const maxPlayers = gameState.maxPlayers || 4;
+    if (isReplay) {
+      if (gameState.phase === 'finished') {
+        const winner = gameState.players.find(p => p.id === gameState.winner);
+        return winner ? `${winner.name} wins · Final board` : 'Final recorded board';
+      }
+      if (gameState.phase === 'waiting') return 'Recorded lobby';
+      if (isSetup) return `${currentPlayer?.name || 'A player'} is setting up`;
+      const phase = String(gameState.turnPhase || gameState.phase || 'recorded turn').replaceAll('-', ' ');
+      return `${currentPlayer?.name || 'A player'}'s turn · ${phase}`;
+    }
     if (gameState.phase === 'waiting') {
       const modeText = gameState.isExtended ? '(5-6 Player Mode)' : '';
       return `Board Preview ${modeText} - Waiting for players... (${gameState.players.length}/${maxPlayers})`;
@@ -424,11 +453,12 @@ function GameBoard({
   }, [socket, addNotification]);
 
   return (
-    <div className="game-board">
+    <div className={`game-board ${isReplay ? 'replay-game-board' : ''}`}>
       {/* Header */}
       <div className="game-header">
         <div className="game-code-display">
           <span className="table-wordmark">CATAN</span>
+          {isReplay && <span className="replay-game-label">Replay</span>}
         </div>
         
         <div className="turn-indicator">
@@ -460,7 +490,17 @@ function GameBoard({
               key={player.id}
               player={player}
               isCurrentTurn={idx === gameState.currentPlayerIndex}
-              isMe={idx === gameState.myIndex}
+              isMe={!isReplay && idx === gameState.myIndex}
+              viewSelected={isReplay && player.id === replay.perspective}
+              viewLabel={isReplay ? (
+                player.id === replay.perspective
+                  ? `Viewing ${player.name}`
+                  : (replay.allowedSeatIds || []).includes(player.id)
+                    ? `View as ${player.name}`
+                    : `${player.name}'s private view is unavailable`
+              ) : undefined}
+              viewDisabled={isReplay && !(replay.allowedSeatIds || []).includes(player.id)}
+              onSelect={isReplay && replay.onSelectPlayer ? () => replay.onSelectPlayer(player.id) : undefined}
               longestRoad={gameState.longestRoadPlayer === idx}
               largestArmy={gameState.largestArmyPlayer === idx}
               gameOver={gameState.phase === 'finished'}
@@ -476,7 +516,7 @@ function GameBoard({
             />
           ))}
           
-          {isWaiting && (
+          {!isReplay && isWaiting && (
             <div className="waiting-controls">
               {isHost && (
                 <>
@@ -506,24 +546,24 @@ function GameBoard({
         <div className="board-container">
           <div className="bank-anchor" data-card-bank><GameIcon name="bank" size={22}/><span>Bank</span></div>
           <HexBoard 
-            legalActions={legalActions}
+            legalActions={isReplay ? [] : legalActions}
             hexes={gameState.hexes}
             vertices={gameState.vertices}
             edges={gameState.edges}
             robber={gameState.robber}
             players={gameState.players}
             ports={gameState.ports || []}
-            selectedAction={selectedAction}
-            isMyTurn={isMyTurn}
-            canBuildNow={canBuildNow}
+            selectedAction={isReplay ? null : selectedAction}
+            isMyTurn={isReplay ? false : isMyTurn}
+            canBuildNow={isReplay ? false : canBuildNow}
             myIndex={gameState.myIndex}
             gamePhase={gameState.phase}
             turnPhase={gameState.turnPhase}
-            paused={paused}
-            onPlaceSettlement={handlePlaceSettlement}
-            onPlaceRoad={handlePlaceRoad}
-            onUpgradeToCity={handleUpgradeToCity}
-            onHexClick={handleHexClick}
+            paused={isReplay ? true : paused}
+            onPlaceSettlement={isReplay ? undefined : handlePlaceSettlement}
+            onPlaceRoad={isReplay ? undefined : handlePlaceRoad}
+            onUpgradeToCity={isReplay ? undefined : handleUpgradeToCity}
+            onHexClick={isReplay ? undefined : handleHexClick}
             onHexRightClick={showHexInfo}
             lastPlacedSettlement={lastPlacedSettlement}
             freeRoads={gameState.freeRoads}
@@ -534,6 +574,7 @@ function GameBoard({
             <DiceDisplay 
               roll={gameState.diceRoll} 
               rollId={rollEvent?.id}
+              duration={isReplay ? 900 / (replay.speed || 1) : 900}
               animate={Boolean(freshRoll && freshRoll.id === rollEvent?.id)}
               onRightClick={(e, key, extra) => showInfo(e, key, extra)}
             />
@@ -542,6 +583,7 @@ function GameBoard({
 
         {/* Right sidebar - Actions */}
         <div className="sidebar right-sidebar">
+          {isReplay ? replay.inspector : <>
           {legalActions.some(action => action.type === 'advanceSetup') && (
             <button type="button" className="room-secondary-button" onClick={() => socket.emit('advanceSetup', response => { if (!response.success) addNotification(response.error); })}>
               Continue setup
@@ -605,11 +647,14 @@ function GameBoard({
               <span className="chat-notification-dot">{unreadMessages}</span>
             )}
           </button>
+          </>}
         </div>
       </div>
 
       {/* Bottom - My Resources */}
-      {myPlayer ? (
+      {isReplay ? (
+        <ReplayHand players={gameState.players} perspective={replay.perspective} />
+      ) : myPlayer ? (
         <div className="my-resources-bar" data-own-hand>
           <ResourceCards
             resources={myPlayer.resources}
@@ -629,7 +674,7 @@ function GameBoard({
       )}
 
       {/* Robber Phase Banner - shows when player needs to move the robber */}
-      {gameState.turnPhase === 'robber' && isMyTurn && (
+      {!isReplay && gameState.turnPhase === 'robber' && isMyTurn && (
         <div className="robber-notification-banner">
           <GameIcon name="robber" size={24}/>
           <span className="robber-text">
@@ -639,7 +684,7 @@ function GameBoard({
       )}
 
       {/* Discard Phase Banner - shows when waiting for others to discard */}
-      {gameState.turnPhase === 'discard' && isMyTurn && !needsToDiscard && (
+      {!isReplay && gameState.turnPhase === 'discard' && isMyTurn && !needsToDiscard && (
         <div className="discard-notification-banner">
           <GameIcon name="cards" size={24}/>
           <span className="discard-text">
@@ -649,7 +694,7 @@ function GameBoard({
       )}
 
       {/* Special Building Phase Banner (5-6 player extension) */}
-      {isMySpecialBuild && (
+      {!isReplay && isMySpecialBuild && (
         <div className="special-build-banner">
           <GameIcon name="settlement" size={24}/>
           <span className="special-build-text">
@@ -662,7 +707,7 @@ function GameBoard({
       )}
 
       {/* Trade Notification Banner - shows when there's a pending trade from another player */}
-      {gameState.tradeOffer && 
+      {!isReplay && gameState.tradeOffer &&
        gameState.tradeOffer.from !== gameState.myIndex && 
        !showTradeModal && 
        dismissedTradeId !== gameState.tradeOffer.id && (
@@ -686,8 +731,10 @@ function GameBoard({
         </div>
       )}
 
-      <CardMovements events={cardEvents} seatId={playerId}/>
-      {gameState.phase === 'playing' && robberPick?.cardIds && <RobberPickModal
+      {(!isReplay || replay.playing) && <CardMovements key={isReplay ? replay.resetKey : undefined} events={cardEvents}
+        seatId={isReplay ? (['public', 'omniscient'].includes(replay.perspective) ? undefined : replay.perspective) : playerId}
+        playbackRate={isReplay ? replay.speed : 1}/>}
+      {!isReplay && gameState.phase === 'playing' && robberPick?.cardIds && <RobberPickModal
         key={robberPick.id}
         pick={robberPick}
         victimName={gameState.players.find(p => p.id === robberPick.victimId)?.name || 'this player'}
@@ -695,9 +742,9 @@ function GameBoard({
         onPick={cardId => new Promise(resolve => socket.emit('chooseRobberCard', {cardId}, resolve))}
       />}
       {/* Modals */}
-      {showTradeModal && tradePanel && tradePanel(() => setShowTradeModal(false), tradeMode)}
+      {!isReplay && showTradeModal && tradePanel && tradePanel(() => setShowTradeModal(false), tradeMode)}
 
-      {showDevCardModal && myPlayer && (
+      {!isReplay && showDevCardModal && myPlayer && (
         <DevCardModal 
           socket={socket}
           myPlayer={myPlayer}
@@ -709,14 +756,14 @@ function GameBoard({
         />
       )}
 
-      {revealedCard && (
+      {!isReplay && revealedCard && (
         <CardReveal 
           cardType={revealedCard}
           onClose={() => setRevealedCard(null)}
         />
       )}
 
-      {needsToDiscard && (
+      {!isReplay && needsToDiscard && (
         <DiscardModal 
           socket={socket}
           player={myPlayer}
@@ -729,7 +776,7 @@ function GameBoard({
       )}
 
       {/* Steal selection modal */}
-      {gameState.phase === 'playing' && gameState.turnPhase === 'robber' && pendingRobberHex && playersOnHex.length > 0 && (
+      {!isReplay && gameState.phase === 'playing' && gameState.turnPhase === 'robber' && pendingRobberHex && playersOnHex.length > 0 && (
         <div className="modal-overlay">
           <div className="steal-modal">
             <h3>Steal from whom?</h3>
@@ -761,7 +808,7 @@ function GameBoard({
       )}
 
       {/* Chat panel */}
-      {showChat && (
+      {!isReplay && showChat && (
         <Chat 
           messages={chatMessages}
           onSend={handleSendChat}
@@ -779,7 +826,7 @@ function GameBoard({
       )}
 
       {/* Victory celebration with confetti */}
-      {gameState.phase === 'finished' && gameState.winner && (
+      {!isReplay && gameState.phase === 'finished' && gameState.winner && (
         <Confetti 
           winner={gameState.players.find(p => p.id === gameState.winner)}
           onBackToLobby={onLeaveGame}

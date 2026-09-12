@@ -96,6 +96,17 @@ Recorded AI diagnostics include the configured provider/model, reported status t
 
 Recordings stay on disk until the operator explicitly deletes a terminal recording. Paused and unfinished matches cannot be deleted while they remain resumable. Ending a match manually does not declare a winner. Recording data shares the existing SQLite backup lifecycle; do not delete database tables or copy a running WAL database piecemeal. See [the replay API and file format](docs/replays.md) for exports and downstream analysis.
 
+Open **Recordings** from the home screen and enter the operator key to browse matches, copy unlisted links or delete terminal recordings. A lobby or active table also has **View recording / View replay**. Opening a replay does not vacate your seat. Its clock follows elapsed match time at 0.5×–8×, with optional idle skipping. Scrub to any time, step between turns, or choose robber, VP, award and winner markers above the timeline. Finished matches default to **Omniscient** with every hand visible; click a player panel for that player's board and hand presentation at the same moment. **Events**, **Chat**, **Details**, and **Charts** show the recorded facts available to that perspective. **Export** downloads its JSONL gzip file.
+
+To try sample replays in an isolated database without changing existing games:
+
+```sh
+npm run samples -- --db data/replay-demo/rooms.sqlite
+CATAN_DATA_DIR=data/replay-demo PORT=3005 npm start
+```
+
+The generator refuses an existing database path and creates two finished matches plus one paused match. They are marked **Sample match**, use scripted human-seat controllers and synthetic event timing, and make no model calls. Follow the printed replay paths at `http://127.0.0.1:3005`, or use the separate `data/replay-demo/host-key` to open that server's archive. Restarting the demo marks the unfinished match as interrupted, just as recovery does for a real match. Use a new output directory to regenerate samples.
+
 ## Verify
 
 ```sh

@@ -618,3 +618,218 @@
 
 
 @media(prefers-reduced-motion:reduce){.trade-notification-banner,.robber-notification-banner,.discard-notification-banner,.special-build-notification-banner{animation:none}}
+
+/* The replay embeds the familiar table inside its own transport shell. */
+.replay-game-board {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+}
+
+.replay-game-board .game-header {
+  min-height: 44px;
+  padding-block: 0.38rem;
+}
+
+.replay-game-label {
+  padding: 0.18rem 0.48rem;
+  border: 1px solid color-mix(in srgb, var(--accent-gold) 62%, var(--border-color));
+  border-radius: 999px;
+  color: var(--accent-gold);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.replay-game-board .game-main {
+  min-height: 230px;
+}
+
+.replay-game-board .sidebar {
+  width: clamp(190px, 18vw, 245px);
+}
+
+.replay-game-board .left-sidebar {
+  padding-right: 0.45rem;
+}
+
+.replay-game-board .right-sidebar {
+  width: clamp(230px, 23vw, 315px);
+  padding-left: 0.45rem;
+  overflow: hidden;
+}
+
+.replay-game-board .right-sidebar > * {
+  min-width: 0;
+}
+
+.replay-game-board .right-sidebar > .replay-inspector,
+.replay-game-board .right-sidebar > .replay-game-inspector,
+.replay-game-board .right-sidebar > [data-replay-inspector] {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.replay-game-board .board-container {
+  min-height: 220px;
+}
+
+.replay-game-board .board-container .hex-board {
+  max-width: min(100%, 720px);
+  max-height: 100%;
+}
+
+.replay-game-board .board-container .hex-board * {
+  cursor: default !important;
+}
+
+.replay-game-board .player-panel {
+  padding-block: 0.42rem;
+}
+
+.replay-game-board .player-achievements {
+  margin-top: 0.3rem;
+}
+
+.replay-game-board .replay-table-hands {
+  max-height: min(215px, 32vh);
+  overflow-y: auto;
+}
+
+@media (max-height: 720px) and (min-width: 761px) {
+  .replay-game-board .game-header { min-height: 40px; }
+  .replay-game-board .game-main { padding-block: 0.35rem; }
+  .replay-game-board .sidebar { gap: 0.3rem; }
+  .replay-game-board .sidebar h3 { margin-bottom: 0.2rem; font-size: 0.78rem; }
+  .replay-game-board .player-panel { padding-block: 0.3rem; }
+  .replay-game-board .player-header { margin-bottom: 0.25rem; }
+  .replay-game-board .player-stats { padding-block: 0.2rem; margin-bottom: 0.2rem; }
+  .replay-game-board .replay-table-hands { max-height: 176px; }
+}
+
+@media (max-width: 760px) {
+  .replay-game-board {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .replay-game-board .game-header {
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.45rem 0.65rem;
+  }
+
+  .replay-game-board .turn-indicator {
+    min-width: 0;
+    align-items: flex-end;
+    flex-direction: column;
+    gap: 0.18rem;
+    text-align: right;
+  }
+
+  .replay-game-board .current-player-badge {
+    max-width: 48vw;
+    overflow: hidden;
+    padding: 0.25rem 0.62rem;
+    font-size: 0.75rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .replay-game-board .status-message {
+    max-width: 58vw;
+    font-size: 0.7rem;
+    line-height: 1.25;
+  }
+
+  .replay-game-board .game-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.65rem;
+    overflow: visible;
+    min-height: 0;
+    padding: 0.45rem;
+  }
+
+  .replay-game-board .board-container {
+    order: 1;
+    min-height: 330px;
+  }
+
+  .replay-game-board .left-sidebar,
+  .replay-game-board .right-sidebar {
+    width: 100%;
+    padding: 0;
+    overflow: visible;
+  }
+
+  .replay-game-board .left-sidebar {
+    order: 2;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .replay-game-board .left-sidebar > h3 {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+
+  .replay-game-board .right-sidebar {
+    order: 3;
+    max-height: 520px;
+  }
+
+  .replay-game-board .right-sidebar > .replay-inspector,
+  .replay-game-board .right-sidebar > .replay-game-inspector,
+  .replay-game-board .right-sidebar > [data-replay-inspector] {
+    min-height: 360px;
+    max-height: 520px;
+  }
+
+  .replay-game-board .replay-table-hands {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 430px) {
+  .replay-game-board .left-sidebar {
+    gap: 0.4rem;
+  }
+
+  .replay-game-board .player-panel {
+    padding: 0.38rem 0.42rem;
+  }
+
+  .replay-game-board .player-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .replay-game-board .player-name {
+    min-width: calc(100% - 28px);
+    gap: 0.3rem;
+    font-size: 0.78rem;
+  }
+
+  .replay-game-board .victory-points {
+    margin-left: auto;
+    padding: 0.22rem 0.38rem;
+  }
+
+  .replay-game-board .player-stats,
+  .replay-game-board .player-pieces {
+    justify-content: space-between;
+    gap: 0.22rem;
+  }
+
+  .replay-game-board .achievement {
+    font-size: 0.62rem;
+  }
+}

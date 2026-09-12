@@ -2,6 +2,14 @@
 
 Recording begins when a lobby is created. The server saves accepted transitions and their resolved state, so playback does not roll dice again or execute a newer version of the rules. Rejected commands and idempotent retries do not add events. Actual public chat is recorded; mouse movement and tentative UI selections are not.
 
+## Watching a match
+
+The replay opens on the recorded board setup. Its playhead follows elapsed match time continuously, including the waiting time between moves, with 0.5×, 1×, 2×, 4× and 8× speeds. Scrub to any time or use previous/next turn. **Skip idle** is optional and off initially; when enabled, it keeps up to 1.2 seconds of each gap before jumping to the next recorded event. Seeking clears transient animations; playing shows recorded dice and card transfers at the selected speed.
+
+Markers above the time slider identify robber moves, VP gains, Longest Road, Largest Army, turn changes and the winner. Nearby markers are grouped; open a group to choose a precise moment. Colored bands show whose turn occupied each interval. Charts also use elapsed time, with selectable points and an accessible data table.
+
+Finished replays open in **Omniscient** view with every hand shown as cards. Click a player panel to use the shared game board and that player's hand presentation, with opponents' card backs and counts. The replay has no game-action controls or game socket. Unfinished matches retain the server's privacy restrictions: an unlisted viewer sees the public board; a currently authorized player can select their own recorded perspective. Public view remains an API option but is omitted from the finished replay's UI.
+
 ## Access
 
 Recording IDs are random 256-bit unlisted identifiers. Possession permits public playback of an unfinished match. Once the match is won or permanently ended, possession also permits omniscient and individual-seat playback. A room invitation is not a replay identifier. The server sends `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, and `X-Robots-Tag: noindex, noarchive` on recording API responses.

@@ -2,14 +2,31 @@ import './PlayerPanel.css';
 import GameIcon from './GameIcon';
 import {AiStatus} from './AiControls';
 
-function PlayerPanel({ slot, player, isCurrentTurn, isMe, longestRoad, largestArmy, onRightClick, gameOver = false }) {
+function PlayerPanel({
+  slot,
+  player,
+  isCurrentTurn,
+  isMe,
+  longestRoad,
+  largestArmy,
+  onRightClick,
+  gameOver = false,
+  onSelect,
+  viewSelected = false,
+  viewLabel,
+  viewDisabled = false
+}) {
   const totalCards = typeof player.resources === 'number' 
     ? player.resources 
-    : Object.values(player.resources).reduce((a, b) => a + b, 0);
+    : Object.values(player.resources || {}).reduce((a, b) => a + b, 0);
   
-  const devCardCount = typeof player.developmentCards === 'number'
+  const developmentCards = typeof player.developmentCards === 'number'
     ? player.developmentCards
     : player.developmentCards?.length || 0;
+  const newDevelopmentCards = typeof player.newDevCards === 'number'
+    ? player.newDevCards
+    : player.newDevCards?.length || 0;
+  const devCardCount = developmentCards + newDevelopmentCards;
 
   const hiddenVP = player.hiddenVictoryPoints || 0;
 
@@ -19,8 +36,21 @@ function PlayerPanel({ slot, player, isCurrentTurn, isMe, longestRoad, largestAr
     }
   };
 
+  const Root = onSelect ? 'button' : 'div';
+  const rootProps = onSelect ? {
+    type: 'button',
+    onClick: onSelect,
+    disabled: viewDisabled,
+    'aria-pressed': viewSelected,
+    'aria-label': viewLabel || `View as ${player.name}`,
+    title: viewLabel
+  } : {};
+
   return (
-    <div className={`player-panel ${isCurrentTurn ? 'current-turn' : ''} ${isMe ? 'is-me' : ''}`}>
+    <Root
+      className={`player-panel ${isCurrentTurn ? 'current-turn' : ''} ${isMe ? 'is-me' : ''} ${onSelect ? 'is-selectable' : ''} ${viewSelected ? 'is-viewing' : ''}`}
+      {...rootProps}
+    >
       <div className="player-header">
         {player.turnOrder && (
           <div 
@@ -38,6 +68,7 @@ function PlayerPanel({ slot, player, isCurrentTurn, isMe, longestRoad, largestAr
         <div className="player-name">
           {player.name}
           {isMe && <span className="you-badge">YOU</span>}
+          {viewSelected && <span className="you-badge viewing-badge">VIEWING</span>}
         </div>
         <div 
           className="victory-points has-info"
@@ -47,7 +78,7 @@ function PlayerPanel({ slot, player, isCurrentTurn, isMe, longestRoad, largestAr
           <span className="vp-number">
             {gameOver ? player.victoryPoints + hiddenVP : player.victoryPoints}
           </span>
-          {!gameOver && isMe && hiddenVP > 0 && (
+          {!gameOver && (isMe || viewSelected) && hiddenVP > 0 && (
             <span className="hidden-vp" title="Hidden VP from Development Cards (only you can see this)">
               +{hiddenVP}
             </span>
@@ -73,7 +104,7 @@ function PlayerPanel({ slot, player, isCurrentTurn, isMe, longestRoad, largestAr
               onRightClick(e, 'resourceCards', {
                 title: 'Resource Cards',
                 icon: 'cards',
-                description: `Total resource cards in hand. ${isMe ? 'Your cards are shown in detail below.' : 'Other players\' cards are hidden.'}`
+                description: `Total resource cards in this player's hand.`
               });
             }
           }}
@@ -147,7 +178,7 @@ function PlayerPanel({ slot, player, isCurrentTurn, isMe, longestRoad, largestAr
           </div>
         )}
       </div>
-    </div>
+    </Root>
   );
 }
 
