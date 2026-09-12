@@ -86,6 +86,16 @@ Robber theft has two steps for every client: `moveRobber {hexKey, stealFromPlaye
 
 The Codex connector uses an isolated temporary directory for each call and resumes explicit, separate channel histories with external tools, hooks, plugins and user configuration disabled. It still uses Codex's own login store. Session files contain seat credentials and private memory: treat them as secrets and do not share or commit them.
 
+## Match recordings
+
+The server records every lobby automatically, including matches that are paused or never finish. Accepted actions, public chat, controller changes, resolved game state and event timing commit to SQLite together with the live room. Restarted matches retain their history and gain a recovery marker. Rooms saved before recording was installed begin with a **partial** baseline; earlier actions cannot be recovered.
+
+Recordings have random unlisted IDs independent of room codes. There is no public recording directory. The operator can list recordings with `GET /api/replays` and the `X-Host-Key` header. Keep the data directory private: authoritative recordings contain every hand. A won match or one permanently ended by the host allows anyone with its recording link to view every hand and choose any player perspective. A paused or interrupted match remains protected: public viewers see counts, and only the current controller can access its own generation's private history. A replacement controller does not inherit the previous controller's private history.
+
+Recorded AI diagnostics include the configured provider/model, reported status transitions and accepted actions. They exclude model prompts, local transcripts, private strategic memory, context IDs, raw provider errors and credentials. Polling and unchanged heartbeats do not create journal events. A recording explains what happened, but cannot explain unrecorded private model reasoning.
+
+Recordings stay on disk until the operator explicitly deletes a terminal recording. Paused and unfinished matches cannot be deleted while they remain resumable. Ending a match manually does not declare a winner. Recording data shares the existing SQLite backup lifecycle; do not delete database tables or copy a running WAL database piecemeal. See [the replay API and file format](docs/replays.md) for exports and downstream analysis.
+
 ## Verify
 
 ```sh

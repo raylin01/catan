@@ -8,6 +8,6 @@
   "scripts": {
     "start": "node server/index.js",
     "build": "npm run build --prefix client",
-    "test": "node --test server/test-actions.js server/test-ai-control.js server/test-card-events.js server/test-engine-contract.js server/test-store.js server/test-room-service.js server/test-http.js server/test-complete-match.js bridge/test-bridge.js bridge/test-chat-policy.js bridge/test-connected-chat.js bridge/test-mcp.js"
+    "test": "node --test server/test-actions.js server/test-ai-control.js server/test-card-events.js server/test-engine-contract.js server/test-store.js server/test-room-service.js server/test-http.js server/test-recording.js server/test-replay-http.js server/test-complete-match.js bridge/test-bridge.js bridge/test-chat-policy.js bridge/test-connected-chat.js bridge/test-mcp.js"
   }
 }

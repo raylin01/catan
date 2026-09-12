@@ -38,7 +38,7 @@ export default function RoomTradePanel({snapshot,gameState,seatId,onCommand,onCl
   const recipientName=gameState.players.find(p=>p.id===trade?.to)?.name||'Recipient';
   const canTrade=gameState.phase==='playing'&&gameState.turnPhase==='main'&&!snapshot.paused&&!gameState.freeRoads&&!gameState.yearOfPlentyPicks;
   const ratio=gameState.tradeRatios?.[bankGive]||4;
-  const bankAllowed=canTrade&&active?.id===seatId&&player?.resources?.[bankGive]>=ratio&&bankGive!==bankGet&&(gameState.bank?.[bankGet]??0)>0;
+  const bankAllowed=canTrade&&active?.id===seatId&&player?.resources?.[bankGive]>=ratio&&bankGive!==bankGet&&gameState.bankAvailable?.[bankGet];
   useEffect(()=>{if(!partners.some(p=>p.id===partner))setPartner(partners[0]?.id||'');},[partner,partners.map(p=>p.id).join(',')]);
   useEffect(()=>{setCountering(false);setError('');},[trade?.id]);
   useEffect(()=>{
@@ -66,7 +66,7 @@ export default function RoomTradePanel({snapshot,gameState,seatId,onCommand,onCl
     {!canTrade&&<p className="exchange-note">{snapshot.paused?'The room is paused.':'Trading is available after the roll and any required actions.'}</p>}
     {bank? <form onSubmit={e=>{e.preventDefault();if(bankAllowed)send('bankTrade',{giveResource:bankGive,giveAmount:ratio,getResource:bankGet},`Traded ${ratio} ${bankGive} for 1 ${bankGet}.`,true);}}>
       <div className="bank-choice-section"><h3>You give <strong>{ratio}</strong></h3><div className="bank-choices">{TYPES.map(r=><button type="button" key={r} aria-pressed={bankGive===r} onClick={()=>{setBankGive(r);if(bankGet===r)setBankGet(TYPES.find(t=>t!==r));}}><GameIcon name={r} size={42}/><span>{name(r)}</span><small>{player?.resources?.[r]||0} available · {gameState.tradeRatios?.[r]||4}:1</small></button>)}</div></div>
-      <div className="bank-choice-section"><h3>You receive <strong>1</strong></h3><div className="bank-choices">{TYPES.map(r=><button type="button" key={r} aria-pressed={bankGet===r} disabled={r===bankGive||!(gameState.bank?.[r]>0)} onClick={()=>setBankGet(r)}><GameIcon name={r} size={42}/><span>{name(r)}</span><small>{gameState.bank?.[r]||0} in bank</small></button>)}</div></div>
+      <div className="bank-choice-section"><h3>You receive <strong>1</strong></h3><div className="bank-choices">{TYPES.map(r=><button type="button" key={r} aria-pressed={bankGet===r} disabled={r===bankGive||!gameState.bankAvailable?.[r]} onClick={()=>setBankGet(r)}><GameIcon name={r} size={42}/><span>{name(r)}</span><small>{gameState.bankAvailable?.[r]?'In stock':'Empty'}</small></button>)}</div></div>
       <footer className="exchange-footer"><p>{ratio} {name(bankGive)} <span aria-hidden="true">→</span> 1 {name(bankGet)}</p><button type="submit" className="room-primary-button" disabled={!bankAllowed||busy}>{busy?'Trading…':'Confirm bank trade'}</button></footer>
       {player?.resources?.[bankGive]<ratio&&<p className="exchange-note">You need {ratio} {bankGive} for this exchange.</p>}
     </form>:<>
