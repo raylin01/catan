@@ -163,6 +163,7 @@ function RoomLobby({
               <p className="room-subtitle">
                 Invite players, choose your seats, and get ready to play.
               </p>
+              {snapshot.replayId && <a className="room-link-button" href={`/replay/${encodeURIComponent(snapshot.replayId)}`}>View recording</a>}
             </div>
             <div className="room-code-block">
               <span className="room-label">Room code</span>
@@ -378,6 +379,7 @@ function RoomLobby({
             <h1>CATAN</h1>
             <p className="room-subtitle">Play Catan with friends and AI players.</p>
           </div>
+          <a className="room-link-button" href="/replays">Recordings</a>
         </header>
 
         {error && <div className="room-error" role="alert">{error}</div>}

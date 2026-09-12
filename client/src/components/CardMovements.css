@@ -1,5 +1,5 @@
 .card-movement-layer{position:fixed;inset:0;pointer-events:none;z-index:1500;overflow:hidden}
-.moving-card{position:absolute;left:0;top:0;width:44px;height:60px;border:1px solid #ecd59d;border-radius:6px;background:linear-gradient(145deg,#f6ead2,#d4b981);color:#263c3e;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;box-shadow:0 7px 16px #0007;animation:card-transfer 1050ms cubic-bezier(.2,.65,.25,1) var(--flight-delay) both}
+.moving-card{position:absolute;left:0;top:0;width:44px;height:60px;border:1px solid #ecd59d;border-radius:6px;background:linear-gradient(145deg,#f6ead2,#d4b981);color:#263c3e;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;box-shadow:0 7px 16px #0007;animation:card-transfer var(--flight-duration,1050ms) cubic-bezier(.2,.65,.25,1) var(--flight-delay) both}
 .moving-card.movement-back{background:repeating-linear-gradient(45deg,#29464e,#29464e 4px,#32515a 4px,#32515a 7px);color:#e2c486}
 .moving-card strong{font-size:11px}.moving-card .game-icon{color:inherit}
 @keyframes card-transfer{0%{opacity:0;transform:translate(var(--from-x),var(--from-y)) rotate(-12deg) scale(.75)}12%{opacity:1}55%{opacity:1}88%{opacity:1;transform:translate(var(--to-x),var(--to-y)) rotate(4deg) scale(1)}100%{opacity:0;transform:translate(var(--to-x),var(--to-y)) rotate(0) scale(.7)}}

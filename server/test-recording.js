@@ -24,6 +24,32 @@ function fixture({path=':memory:',now={value:1000}}={}) {
   return {store,service,created,players,now};
 }
 
+test('timeline metrics expose historical turn and award holders without private VP',()=>{
+  const {store,service,created,players,now}=fixture();
+  try {
+    const room=service.roomFor(created.code),game=room.game;
+    const first=game.players[0],second=game.players[1];
+    game.phase='playing';game.turnPhase='main';game.currentPlayerIndex=0;
+    game.longestRoadPlayer=-1;game.largestArmyPlayer=-1;first.hiddenVictoryPoints=1;
+    service.persist(room,{type:'rollDice',actorSeatId:first.id,payload:{}});
+    const before=service.replayMetrics(created.replayId).points.at(-1);
+    assert.equal(before.currentPlayerId,first.id);
+    assert.equal(before.longestRoadPlayerId,null);assert.equal(before.largestArmyPlayerId,null);
+    now.value+=5000;game.currentPlayerIndex=1;game.longestRoadPlayer=0;game.largestArmyPlayer=1;
+    service.persist(room,{type:'endTurn',actorSeatId:first.id,payload:{}});
+    const points=service.replayMetrics(created.replayId).points,after=points.at(-1);
+    assert.equal(after.currentPlayerId,second.id);assert.equal(after.longestRoadPlayerId,first.id);
+    assert.equal(after.largestArmyPlayerId,second.id);assert.equal(after.elapsedMs-before.elapsedMs,5000);
+    assert.equal(after.phase,'playing');assert.equal(after.turnPhase,'main');assert.equal(after.winnerId,null);
+    assert.equal(Object.hasOwn(after.players[0],'totalVP'),false);
+    assert.equal(Object.hasOwn(points.at(-2).players[0],'totalVP'),false);
+    const controller=players.find(player=>player.seatId===first.id);
+    const own=service.replayMetrics(created.replayId,{perspective:first.id,token:controller.token}).points.at(-1);
+    assert.equal(own.players[0].totalVP,first.victoryPoints+1);
+    assert.equal(Object.hasOwn(own.players[1],'totalVP'),false);
+  } finally {store.close();}
+});
+
 test('journal commits exact state with receipts and idempotent retries',()=>{
   const dir=mkdtempSync(join(tmpdir(),'catan-recording-')),path=join(dir,'rooms.sqlite');
   try {

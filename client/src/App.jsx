@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom';
 import RoomLobby from './RoomLobby';
 import GameBoard from './components/GameBoard';
 import RoomTradePanel from './components/RoomTradePanel';
+import ReplayPage from './replay/ReplayPage';
+import ReplayArchive from './replay/ReplayArchive';
 import './App.css';
 import './room.css';
 
@@ -452,7 +454,7 @@ function LiveClaimSeatForm({ code, defaultName = '', vacantHumanSlots = [], busy
 }
 
 
-function App() {
+function LiveApp() {
   const [session, setSession] = useState(readStoredSession);
   const [requestedRoomCode, setRequestedRoomCode] = useState(readRequestedRoom);
   const [snapshot, setSnapshot] = useState(null);
@@ -880,6 +882,7 @@ function App() {
             {snapshot?.paused && <span>Paused by host</span>}
           </div>
           <button type="button" className="room-link-button" onClick={handleLeaveRoom}>Leave room</button>
+          {snapshot?.replayId && <a className="room-link-button" href={`/replay/${encodeURIComponent(snapshot.replayId)}`}>View replay</a>}
         </div>
         {error && <div className="room-error room-live-error" role="alert">{error}</div>}
         {hostControls}
@@ -911,6 +914,19 @@ function App() {
       )}
     </>
   );
+}
+
+function App() {
+  const path = window.location.pathname;
+  const goHome = () => window.location.assign('/');
+  if (path === '/replays' || path === '/replays/') {
+    return <ReplayArchive onBack={goHome} onOpen={id => window.location.assign(`/replay/${encodeURIComponent(id)}`)} />;
+  }
+  const match = /^\/replay\/([A-Za-z0-9_-]+)\/?$/.exec(path);
+  if (match) {
+    return <ReplayPage replayId={match[1]} onBack={goHome} getToken={roomCode => readStoredSession()?.rooms?.[roomCode]?.playerToken || null} />;
+  }
+  return <LiveApp />;
 }
 
 export default App;

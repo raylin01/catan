@@ -182,7 +182,11 @@ export function metrics(recording,events,access) {
   const append=(seq,elapsedMs,turn)=>{
     if(!state.gameState)return;
     const historicalSlots=new Map((state.slots||[]).map(slot=>[slot.id,slot]));
-    points.push({seq,elapsedMs,turn,players:(state.gameState.players||[]).map(player=>{
+    const game=state.gameState,playerId=index=>game.players?.[index]?.id||null;
+    points.push({seq,elapsedMs,turn,phase:game.phase,turnPhase:game.turnPhase,
+      currentPlayerId:playerId(game.currentPlayerIndex),longestRoadPlayerId:playerId(game.longestRoadPlayer),
+      largestArmyPlayerId:playerId(game.largestArmyPlayer),winnerId:game.winner||null,
+      players:(game.players||[]).map(player=>{
       const visible=access.full||(access.seatId===player.id&&(access.ownsSeatHistory||historicalSlots.get(player.id)?.generation===access.generation));
       return {id:player.id,publicVP:player.victoryPoints||0,...(visible?{totalVP:(player.victoryPoints||0)+(player.hiddenVictoryPoints||0)}:{}),...counts(player)};
     })});
