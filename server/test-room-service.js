@@ -125,7 +125,7 @@ test('start uses the complete ready roster and supports an all-AI room with a sp
   assert.deepEqual(new Set(hostView.gameState.players.map(player=>player.id)),new Set(slots.map(slot=>slot.id)));
   assert.ok(hostView.gameState.players.every(player=>typeof player.resources==='number'));
   const bankBrick=service.rooms.get(lobby.code).game.bank.brick;
-  hostView.gameState.bank.brick=999;
+  hostView.gameState.bankAvailable.brick=false;
   assert.equal(service.rooms.get(lobby.code).game.bank.brick,bankBrick);
 });
 

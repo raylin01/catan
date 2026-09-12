@@ -84,6 +84,11 @@ export function executeAction(game, playerId, type, payload = {}, dryRun = false
 export function playerView(game, playerId) {
   const view = G.getPlayerView(game,playerId);
   delete view.pendingRobberPick;
+  // Exact bank deltas reveal another seat's private discard composition.
+  // Clients need availability to choose legal exchanges, not each pile's size.
+  view.bankAvailable = Object.fromEntries(resources.map(resource => [resource, (game.bank?.[resource] || 0) > 0]));
+  view.bankTotal = resources.reduce((sum, resource) => sum + (game.bank?.[resource] || 0), 0);
+  delete view.bank;
   // Spectators and other seats never receive hidden cards, including at game end.
   view.players = view.players.map((p,index) => {
     const raw = game.players[index];

@@ -2,6 +2,9 @@ import express from 'express';
 import {createServer} from 'node:http';
 import {timingSafeEqual} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import {Readable} from 'node:stream';
+import {pipeline} from 'node:stream/promises';
+import {createGzip} from 'node:zlib';
 import {PROVIDERS} from './providers.js';
 
 const same=(a,b)=>typeof a==='string'&&typeof b==='string'&&Buffer.byteLength(a)===Buffer.byteLength(b)&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
@@ -23,7 +26,42 @@ export function createAppServer({service,hostKey}) {
   const send=(res,result)=>res.status(result.statusCode|| (result.success?200:400)).json(result);
   const token=req=>/^Bearer (.+)$/.exec(req.headers.authorization||'')?.[1];
   const code=req=>req.params.code.toUpperCase();
+  const operator=req=>same(req.headers['x-host-key'],hostKey);
+  const replayQuery=req=>{
+    const result={token:token(req),perspective:req.query.perspective||'public'};
+    if(typeof result.perspective!=='string')throw Error('Invalid perspective');
+    for(const name of ['at','after','limit','offset'])if(req.query[name]!==undefined){
+      if(typeof req.query[name]!=='string'||!/^\d+$/.test(req.query[name]))throw Error(`Invalid ${name}`);
+      const value=Number(req.query[name]);
+      if(!Number.isSafeInteger(value))throw Error(`Invalid ${name}`);
+      result[name]=value;
+    }
+    return result;
+  };
   app.get('/health',(_req,res)=>res.json({success:true,status:'ok'}));
+  app.use(['/api/replays','/replay','/replays'],(_req,res,next)=>{res.setHeader('X-Robots-Tag','noindex, noarchive');next();});
+  app.get('/api/replays',(req,res)=>{
+    if(!operator(req))return send(res,{success:false,statusCode:403,error:'Enter the operator key to manage recordings'});
+    send(res,service.listReplays(replayQuery(req)));
+  });
+  app.get('/api/replays/:id/events',(req,res)=>send(res,service.replayEvents(req.params.id,replayQuery(req))));
+  app.get('/api/replays/:id/metrics',(req,res)=>send(res,service.replayMetrics(req.params.id,replayQuery(req))));
+  app.get('/api/replays/:id/export',async(req,res,next)=>{
+    try {
+      const result=service.replayExport(req.params.id,replayQuery(req));
+      if(!result.success)return send(res,result);
+      const gzip=req.query.gzip==='1';
+      res.setHeader('Content-Type',gzip?'application/gzip':'application/x-ndjson; charset=utf-8');
+      res.setHeader('Content-Disposition',`attachment; filename="catan-replay.${gzip?'jsonl.gz':'jsonl'}"`);
+      const stream=Readable.from(result.lines);
+      if(gzip)await pipeline(stream,createGzip(),res);else await pipeline(stream,res);
+    }catch(error){if(res.headersSent)res.destroy(error);else next(error);}
+  });
+  app.get('/api/replays/:id',(req,res)=>send(res,service.replay(req.params.id,replayQuery(req))));
+  app.delete('/api/replays/:id',(req,res)=>{
+    if(!operator(req))return send(res,{success:false,statusCode:403,error:'Only the operator can delete recordings'});
+    send(res,service.deleteReplay(req.params.id));
+  });
   app.get('/api/providers',(_req,res)=>res.json({success:true,providers:Object.values(PROVIDERS)}));
   app.post('/api/rooms',(req,res)=>{
     if(!same(req.headers['x-host-key'],hostKey))return send(res,{success:false,statusCode:403,error:'Enter the host key from the hosting computer'});
