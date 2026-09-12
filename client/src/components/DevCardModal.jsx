@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import './DevCardModal.css';
 import GameIcon from './GameIcon';
+import CardArtwork from './CardArtwork';
+import {useDialogFocus} from '../presentation/useDialogFocus';
 
 const DEV_CARD_INFO = {
   knight: {
@@ -38,6 +40,7 @@ const DEV_CARD_INFO = {
 const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
 
 function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks, onClose, addNotification }) {
+  const dialog = useDialogFocus(onClose);
   const [selectedCard, setSelectedCard] = useState(null);
   const [monopolyResource, setMonopolyResource] = useState(null);
 
@@ -99,7 +102,7 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="dev-card-modal" onClick={e => e.stopPropagation()}>
+      <div className="dev-card-modal" ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Development cards" onClick={e => e.stopPropagation()}>
         <button className="close-btn" onClick={onClose} aria-label="Close development cards">
           <GameIcon name="close" size={18} />
         </button>
@@ -117,7 +120,7 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
                   className="resource-pick-btn"
                   onClick={() => handleYearOfPlentyPick(r)}
                 >
-                  <GameIcon className="icon" name={r} size={24} />
+                  <CardArtwork className="resource-choice-art" name={r} />
                   <span className="name">{r}</span>
                 </button>
               ))}
@@ -134,9 +137,10 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
                 <button
                   key={r}
                   className={`resource-pick-btn ${monopolyResource === r ? 'selected' : ''}`}
+                  aria-pressed={monopolyResource === r}
                   onClick={() => setMonopolyResource(r)}
                 >
-                  <GameIcon className="icon" name={r} size={24} />
+                  <CardArtwork className="resource-choice-art" name={r} />
                   <span className="name">{r}</span>
                 </button>
               ))}
@@ -163,6 +167,7 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
                     
                     return (
                       <div key={cardType} className={`dev-card ${isPlayable ? 'playable' : ''}`}>
+                        <CardArtwork name={cardType} className="dev-card-illustration" />
                         <div className="card-header">
                           <GameIcon className="card-icon" name={info.icon} size={26} />
                           <span className="card-name">{info.name}</span>
@@ -192,7 +197,7 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
                         const info = DEV_CARD_INFO[cardType];
                         return (
                           <div key={idx} className="dev-card new">
-                            <GameIcon className="card-icon" name={info.icon} size={22} />
+                            <CardArtwork name={cardType} className="dev-card-illustration" />
                             <span className="card-name">{info.name}</span>
                           </div>
                         );

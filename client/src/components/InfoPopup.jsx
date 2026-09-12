@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import './InfoPopup.css';
 import GameIcon from './GameIcon';
 
@@ -195,6 +195,21 @@ function CostIcons({ cost }) {
 }
 
 function InfoPopup({ position, info, onClose }) {
+  const popupElement = useRef(null);
+  const [layout, setLayout] = useState(null);
+  useLayoutEffect(() => {
+    const fit = () => {
+      const popup = popupElement.current;
+      if (!popup) return;
+      setLayout({
+        left: Math.max(8, Math.min(position.x, window.innerWidth - popup.offsetWidth - 8)),
+        top: Math.max(8, Math.min(position.y, window.innerHeight - popup.offsetHeight - 8))
+      });
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [position.x, position.y, info]);
   useEffect(() => {
     const handleClickOutside = () => onClose();
     const handleEscape = (e) => e.key === 'Escape' && onClose();
@@ -217,13 +232,10 @@ function InfoPopup({ position, info, onClose }) {
   if (!info) return null;
 
   // Adjust position to keep popup on screen
-  const style = {
-    left: Math.min(position.x, window.innerWidth - 280),
-    top: Math.min(position.y, window.innerHeight - 200),
-  };
+  const style = layout || { left: 8, top: 8 };
 
   return (
-    <div className="info-popup" style={style} onClick={e => e.stopPropagation()}>
+    <div ref={popupElement} className="info-popup" style={style} onClick={e => e.stopPropagation()}>
       <div className="info-popup-header">
         <span className="info-popup-icon"><GameIcon name={info.icon} size={24} /></span>
         <span className="info-popup-title">{info.title}</span>

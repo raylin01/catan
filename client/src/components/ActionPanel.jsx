@@ -1,4 +1,5 @@
 import GameIcon from './GameIcon';
+import BuildingPiece from './BuildingPiece';
 import './ActionPanel.css';
 
 const BUILDING_COSTS = {
@@ -41,19 +42,24 @@ function ActionPanel({
   const canTrade = isMyTurn && turnPhase === 'main' && !isSpecialBuildPhase;
   const canEnd = isMyTurn && turnPhase === 'main' && !isSpecialBuildPhase;
   
-  // Can play dev cards on your own turn before or after rolling (but not during special build)
-  const canPlayDevCards = isMyTurn && (turnPhase === 'roll' || turnPhase === 'main');
 
   const canAffordRoad = hasResources(player, BUILDING_COSTS.road) || freeRoads > 0;
   const canAffordSettlement = hasResources(player, BUILDING_COSTS.settlement);
   const canAffordCity = hasResources(player, BUILDING_COSTS.city);
   const canAffordDevCard = hasResources(player, BUILDING_COSTS.developmentCard);
 
-  const hasDevCards = (player.developmentCards?.length || 0) > 0;
+
+  if (isMyTurn && turnPhase === 'robber') return <div className="action-panel board-choice-prompt">
+    <GameIcon name="robber" size={34}/>
+    <h3>Move the robber</h3>
+    <p>Choose a glowing tile on the board. You can then steal from a player beside it.</p>
+  </div>;
 
   return (
     <div className="action-panel">
-      <h3>Actions</h3>
+      <div className="action-heading"><h3>Build & trade</h3>
+        {selectedAction && canBuild && <button type="button" className="cancel-placement" onClick={() => setSelectedAction(null)} title="Cancel placement (Escape)">Cancel</button>}
+      </div>
       
       {/* Special Build Phase indicator */}
       {isMySpecialBuild && (
@@ -64,13 +70,13 @@ function ActionPanel({
       )}
       
       {/* Roll Dice */}
-      <button 
+      {turnPhase === 'roll' && <button
         className={`action-btn roll-btn ${canRoll ? 'primary' : ''}`}
         onClick={onRollDice}
         disabled={!canRoll}
       >
         <GameIcon name="dice" size={22}/> Roll dice
-      </button>
+      </button>}
 
       {/* Year of Plenty indicator */}
       {yearOfPlentyPicks > 0 && (
@@ -94,81 +100,75 @@ function ActionPanel({
       )}
 
       {/* Build Section */}
-      <div className="action-section">
+      <div className="action-section build-actions" role="group" aria-label="Build costs">
         <h4>Build</h4>
         
         <button
           className={`action-btn build-btn ${selectedAction === 'road' ? 'active' : ''}`}
+          aria-label="Road — costs 1 brick and 1 lumber"
+          aria-pressed={selectedAction === 'road'}
           onClick={() => setSelectedAction(selectedAction === 'road' ? null : 'road')}
           disabled={!canBuild || (!canAffordRoad && freeRoads === 0)}
         >
-          <GameIcon name="road" size={22}/>
+          <BuildingPiece kind="road" color={player.color}/>
           <span className="btn-label">Road</span>
           <span className="cost"><span title="1 brick"><GameIcon name="brick" size={16}/>1</span><span title="1 lumber"><GameIcon name="lumber" size={16}/>1</span></span>
         </button>
 
         <button
           className={`action-btn build-btn ${selectedAction === 'settlement' ? 'active' : ''}`}
+          aria-label="Settlement — costs 1 brick, 1 lumber, 1 wool and 1 grain"
+          aria-pressed={selectedAction === 'settlement'}
           onClick={() => setSelectedAction(selectedAction === 'settlement' ? null : 'settlement')}
           disabled={!canBuild || !canAffordSettlement || player.settlements <= 0}
         >
-          <GameIcon name="settlement" size={22}/>
+          <BuildingPiece kind="settlement" color={player.color}/>
           <span className="btn-label">Settlement</span>
           <span className="cost"><span title="1 brick"><GameIcon name="brick" size={16}/>1</span><span title="1 lumber"><GameIcon name="lumber" size={16}/>1</span><span title="1 wool"><GameIcon name="wool" size={16}/>1</span><span title="1 grain"><GameIcon name="grain" size={16}/>1</span></span>
         </button>
 
         <button
           className={`action-btn build-btn ${selectedAction === 'city' ? 'active' : ''}`}
+          aria-label="City — costs 3 ore and 2 grain"
+          aria-pressed={selectedAction === 'city'}
           onClick={() => setSelectedAction(selectedAction === 'city' ? null : 'city')}
           disabled={!canBuild || !canAffordCity || player.cities <= 0}
         >
-          <GameIcon name="city" size={22}/>
+          <BuildingPiece kind="city" color={player.color}/>
           <span className="btn-label">City</span>
           <span className="cost"><span title="3 ore"><GameIcon name="ore" size={16}/>3</span><span title="2 grain"><GameIcon name="grain" size={16}/>2</span></span>
         </button>
 
         <button
           className="action-btn build-btn dev-card-btn"
+          aria-label="Buy development card — costs 1 ore, 1 grain and 1 wool"
           onClick={onBuyDevCard}
           disabled={!canBuild || !canAffordDevCard || devCardsLeft === 0}
         >
-          <GameIcon name="devCard" size={22}/>
-          <span className="btn-label">Dev Card</span>
+          <BuildingPiece kind="development"/>
+          <span className="btn-label">Development</span>
           <span className="cost"><span title="1 ore"><GameIcon name="ore" size={16}/>1</span><span title="1 grain"><GameIcon name="grain" size={16}/>1</span><span title="1 wool"><GameIcon name="wool" size={16}/>1</span></span>
           {devCardsLeft <= 5 && <span className="remaining">({devCardsLeft} left)</span>}
         </button>
       </div>
 
       {/* Trade Section */}
-      <div className="action-section">
+      <div className="action-section trade-actions">
         <h4>Trade {isMySpecialBuild && <span className="disabled-hint">(disabled)</span>}</h4>
         
         <button
           className="action-btn trade-btn"
+          aria-label="Trade with bank"
           onClick={() => onOpenTrade('bank')}
           disabled={!canTrade || freeRoads > 0 || yearOfPlentyPicks > 0}
         >
-          <GameIcon name="bank" size={22}/> Trade with bank
+          <GameIcon name="bank" size={22}/> Bank
         </button>
-      <button className="action-btn trade-btn" onClick={() => onOpenTrade('player')} disabled={turnPhase !== 'main' || isSpecialBuildPhase || freeRoads > 0 || yearOfPlentyPicks > 0}>
-        <GameIcon name="trade" size={22}/> Trade with player
+      <button className="action-btn trade-btn" aria-label="Trade with player" onClick={() => onOpenTrade('player')} disabled={turnPhase !== 'main' || isSpecialBuildPhase || freeRoads > 0 || yearOfPlentyPicks > 0}>
+        <GameIcon name="trade" size={22}/> Players
       </button>
 
       </div>
-
-      {/* Development Cards */}
-      {hasDevCards && (
-        <div className="action-section">
-          <h4>Development Cards</h4>
-          <button
-            className="action-btn"
-            onClick={onOpenDevCards}
-            disabled={!canPlayDevCards}
-          >
-            <GameIcon name="devCard" size={20}/> View & play cards ({player.developmentCards.length})
-          </button>
-        </div>
-      )}
 
       {/* End Turn */}
       <button 

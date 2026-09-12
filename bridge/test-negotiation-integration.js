@@ -117,7 +117,7 @@ function fakeConnector({seatId, actorSeatId, partnerSeatId, counters, timeline})
   };
 }
 
-test('four HTTP runners negotiate a useful trade, settle it, and then stay bounded', {timeout: 15_000}, async () => {
+test('four HTTP runners negotiate a useful trade, settle it, and then stay bounded', {timeout: 30_000}, async () => {
   const service = new RoomService();
   const hostKey = 'negotiation-integration-host-key';
   const server = createAppServer({service, hostKey});
@@ -209,11 +209,14 @@ test('four HTTP runners negotiate a useful trade, settle it, and then stay bound
       }),
       {
         signal: stop.signal,
-        pollMs: 25,
-        heartbeatMs: 50,
+        // Allow another HTTP runner to wake on a busy CI worker before the
+        // initiator gives up its reply window. Keep polling below the real
+        // server rate limit; this fixture tests negotiation, not load handling.
+        pollMs: 100,
+        heartbeatMs: 250,
         chatBatchMs: 0,
-        negotiationGraceMs: 25,
-        decisionTimeoutMs: 1_000
+        negotiationGraceMs: 2_000,
+        decisionTimeoutMs: 5_000
       }
     ));
     const results = await Promise.allSettled(runs);

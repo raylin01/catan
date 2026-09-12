@@ -6,6 +6,7 @@ import GameBoard from './components/GameBoard';
 import RoomTradePanel from './components/RoomTradePanel';
 import ReplayPage from './replay/ReplayPage';
 import ReplayArchive from './replay/ReplayArchive';
+import {createObservationBoundary, isOlderObservation} from './presentation/observationBoundary';
 import './App.css';
 import './room.css';
 
@@ -458,6 +459,9 @@ function LiveApp() {
   const [session, setSession] = useState(readStoredSession);
   const [requestedRoomCode, setRequestedRoomCode] = useState(readRequestedRoom);
   const [snapshot, setSnapshot] = useState(null);
+  const [presentationEpoch, setPresentationEpoch] = useState(0);
+  const observationBoundary = useRef(null);
+  observationBoundary.current ||= createObservationBoundary();
   const [hostSnapshot, setHostSnapshot] = useState(null);
   const [providers, setProviders] = useState([]);
   const activeSession = requestedRoomCode && session?.code !== requestedRoomCode ? null : session;
@@ -470,7 +474,21 @@ function LiveApp() {
   const snapshotRef = useRef(null);
   const hostSnapshotRef = useRef(null);
 
+  const observationContext = useRef(null);
+  const connectionError = useRef(null);
+  const acceptSnapshot = useCallback((next, code, token) => {
+    if (observationContext.current?.code !== code || observationContext.current?.token !== token) return;
+    if (isOlderObservation(snapshotRef.current, next)) return;
+    const recoveredError = connectionError.current;
+    if (recoveredError) setError(current => current === recoveredError ? null : current);
+    connectionError.current = null;
+    setPresentationEpoch(observationBoundary.current.accept());
+    snapshotRef.current = next;
+    setSnapshot(next);
+  }, []);
+
   const activeToken = activeSession?.playerToken || activeSession?.hostToken || null;
+  observationContext.current = {code:activeSession?.code, token:activeToken};
   const activeRole = activeSession?.playerRole || (activeSession?.hostToken ? 'host' : null);
   const boardState = useMemo(() => normalizeGameState(snapshot), [snapshot]);
   const chatMessages = useMemo(() => {
@@ -569,16 +587,17 @@ function LiveApp() {
       try {
         const next = await observe(code, token);
         if (!cancelled) {
-          snapshotRef.current = next;
-          setSnapshot(next);
+          acceptSnapshot(next, code, token);
           setLoading(false);
         }
       } catch (requestError) {
         if (!cancelled) {
+          observationBoundary.current.interrupt();
           setLoading(false);
           if (requestError.status === 401) {
             handleAuthFailure(token, token);
           } else {
+            connectionError.current = requestError.message;
             setError(requestError.message);
           }
         }
@@ -588,13 +607,14 @@ function LiveApp() {
       }
     };
 
+    observationBoundary.current.interrupt();
     setLoading(true);
     poll();
     return () => {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [activeSession?.code, activeToken, handleAuthFailure, observe]);
+  }, [activeSession?.code, activeToken, handleAuthFailure, observe, acceptSnapshot]);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -680,16 +700,17 @@ function LiveApp() {
     if (!code || !token) return null;
     try {
       const next = await observe(code, token);
-      snapshotRef.current = next;
-      setSnapshot(next);
+      acceptSnapshot(next, code, token);
       setLoading(false);
       return next;
     } catch (requestError) {
+      if (observationContext.current?.code !== code || observationContext.current?.token !== token) return null;
+      observationBoundary.current.interrupt();
       if (requestError.status === 401) handleAuthFailure(token, activeToken);
-      else setError(requestError.message);
+      else { connectionError.current = requestError.message; setError(requestError.message); }
       return null;
     }
-  }, [activeSession?.code, activeToken, handleAuthFailure, observe]);
+  }, [activeSession?.code, activeToken, handleAuthFailure, observe, acceptSnapshot]);
 
   const issueCommand = useCallback(async (type, payload = {}, { asHost = false } = {}) => {
     const currentSession = activeSession;
@@ -888,7 +909,8 @@ function LiveApp() {
         {hostControls}
         {liveClaimSeatForm}
         <GameBoard
-          key={`${snapshot?.code}:${activeSession?.seatId || 'spectator'}`}
+          key={`${snapshot?.code}:${activeSession?.seatId || 'spectator'}:${snapshot?.generation ?? 0}`}
+          presentationKey={`${snapshot?.code}:${snapshot?.generation ?? 0}:${snapshot?.controlEpoch ?? 0}:${presentationEpoch}`}
           socket={adapter}
           gameState={boardState}
           playerId={session?.seatId || null}

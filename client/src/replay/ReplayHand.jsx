@@ -1,5 +1,6 @@
 import GameIcon from '../components/GameIcon';
 import ResourceCards from '../components/ResourceCards';
+import CardArtwork from '../components/CardArtwork';
 import './ReplayHand.css';
 
 const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
@@ -73,8 +74,8 @@ function DevelopmentCards({ player }) {
       const info = DEV_CARD_INFO[card.type] || { label: 'Development Card', icon: 'devCard', tone: 'blue' };
       return <div key={`${card.type || 'unknown'}-${card.isNew ? 'new' : 'ready'}`} className={`replay-development-card replay-development-card--${info.tone}`} title={`${info.label}${card.isNew ? ', bought this turn' : ''}`}>
         {card.isNew && <span className="replay-new-card-badge">New</span>}
-        <GameIcon name={info.icon} size={24} />
-        <span>{info.label}</span>
+        <div className="replay-development-art"><CardArtwork name={card.type} /></div>
+        <span><GameIcon name={info.icon} size={11} />{info.label}</span>
         {card.count > 1 && <strong>×{card.count}</strong>}
       </div>;
     })}
@@ -87,8 +88,8 @@ function CompactVisibleHand({ player, index }) {
     <header><i aria-hidden="true" /><strong>{player?.name || `Player ${index + 1}`}</strong></header>
     <div className="replay-compact-hand-body">
       {resourcesVisible ? <div className="replay-compact-resources" aria-label="Resource cards">
-        {RESOURCES.map(resource => <div key={resource} className={`replay-compact-resource replay-compact-resource--${resource}`} title={`${resource}: ${Number(player.resources[resource]) || 0}`}>
-          <GameIcon name={resource} size={18} />
+        {RESOURCES.map(resource => <div key={resource} className={`replay-compact-resource replay-compact-resource--${resource} ${Number(player.resources[resource]) ? '' : 'is-empty'}`} title={`${resource}: ${Number(player.resources[resource]) || 0}`}>
+          <CardArtwork name={resource} />
           <strong>{Number(player.resources[resource]) || 0}</strong>
         </div>)}
       </div> : <ConcealedCards kind="resource" count={resourceCount(player?.resources)} />}
@@ -97,7 +98,7 @@ function CompactVisibleHand({ player, index }) {
   </article>;
 }
 
-function ProminentHand({ player, index }) {
+function ProminentHand({ player, index, onCardInfo }) {
   const resourcesVisible = player?.resources && typeof player.resources === 'object' && !Array.isArray(player.resources);
   return <article className="replay-visible-hand replay-visible-hand--primary" style={{ '--replay-seat-color': playerColor(player, index) }} data-own-hand>
     <header>
@@ -105,13 +106,13 @@ function ProminentHand({ player, index }) {
       <small>Recorded player view</small>
     </header>
     <div className="replay-primary-hand-body">
-      {resourcesVisible ? <ResourceCards resources={player.resources} /> : <ConcealedCards kind="resource" count={resourceCount(player?.resources)} />}
+      {resourcesVisible ? <ResourceCards resources={player.resources} onRightClick={onCardInfo} /> : <ConcealedCards kind="resource" count={resourceCount(player?.resources)} />}
       <DevelopmentCards player={player} />
     </div>
   </article>;
 }
 
-export default function ReplayHand({ players = [], perspective = 'public' }) {
+export default function ReplayHand({ players = [], perspective = 'public', onCardInfo }) {
   if (!players.length) return null;
   if (perspective === 'omniscient') {
     return <section className="replay-table-hands replay-table-hands--omniscient" aria-label="All recorded hands">
@@ -127,11 +128,11 @@ export default function ReplayHand({ players = [], perspective = 'public' }) {
   const hasPrivateHand = selectedPlayer?.resources && typeof selectedPlayer.resources === 'object' && !Array.isArray(selectedPlayer.resources);
 
   return <section className={`replay-table-hands ${hasPrivateHand ? 'replay-table-hands--seat' : 'replay-table-hands--public'}`} aria-label="Recorded hands">
-    {hasPrivateHand && <ProminentHand player={selectedPlayer} index={selectedIndex} />}
-    <div className="replay-concealed-hands-row">
+    {hasPrivateHand && <ProminentHand player={selectedPlayer} index={selectedIndex} onCardInfo={onCardInfo} />}
+    {!hasPrivateHand && <div className="replay-concealed-hands-row">
       {players.map((player, index) => (
-        hasPrivateHand && index === selectedIndex ? null : <ConcealedHand key={player.id || index} player={player} index={index} />
+        <ConcealedHand key={player.id || index} player={player} index={index} />
       ))}
-    </div>
+    </div>}
   </section>;
 }

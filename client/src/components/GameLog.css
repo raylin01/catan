@@ -1,0 +1,17 @@
+.game-log { position: relative; flex-shrink: 0; }
+.game-log-toggle { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 5px 8px; color: #d2d3c1; border: 1px solid transparent; border-radius: 3px; background: transparent; font: 12px system-ui,sans-serif; cursor: pointer; }
+.game-log-toggle:hover,.game-log-toggle[aria-expanded=true] { background: #ffffff0d; border-color: #c9c8ae40; color: #f0ddb0; }
+.game-log-panel { position: absolute; top: calc(100% + 10px); right: 0; width: min(360px,calc(100vw - 24px)); z-index: 45; background: #142b32fa; border: 1px solid #b5af8d66; border-radius: 4px; box-shadow: 0 12px 40px #06151c80; color: #e4e7db; }
+.game-log-panel header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 8px 15px; border-bottom: 1px solid #b5af8d30; }
+.game-log-panel h2 { margin: 0; font: 400 17px Georgia,serif; color: #e5d6b3; }
+.game-log-panel header button { display: grid; place-items: center; width: 32px; height: 32px; border: 0; background: transparent; color: #bdc8bd; cursor: pointer; border-radius: 3px; }
+.game-log-panel header button:hover { background: #ffffff10; color: #f2dfb3; }
+.game-log-events { margin: 0; list-style: none; padding: 0 14px; max-height: min(390px,55dvh); overflow: auto; overscroll-behavior: contain; }
+.game-log-events li { display: grid; grid-template-columns: 20px 1fr auto; align-items: start; gap: 9px; padding: 12px 0; border-bottom: 1px solid #b5af8d20; font: 12px/1.5 system-ui,sans-serif; }
+.game-log-events li:last-child { border-bottom: 0; }
+.game-log-events li>.game-icon { color: #c8b481; margin-top: 1px; }
+.game-log-events li>span { overflow-wrap: anywhere; }
+.game-log-events time { color: #9aaead; font-size: 10px; white-space: nowrap; padding-top: 2px; }
+.game-log-events .game-log-empty { display: block; color: #a9b7b1; }
+.game-log :is(button,ol):focus-visible { outline: 2px solid #e3c78a; outline-offset: -2px; }
+@media(max-width:760px) { .game-log-panel { position: fixed; top: 92px; right: 12px; }.game-log-toggle { min-height: 40px; } }

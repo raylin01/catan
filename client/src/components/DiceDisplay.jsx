@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useGamePresentation } from '../presentation/GamePresentation';
 import './DiceDisplay.css';
 
 const FACE_DOTS = {
@@ -19,7 +20,8 @@ function DieFace({ value, side }) {
 
 function Die({ value, index, rollId, tumbling }) {
   const [x, y] = LANDING_ROTATION[value] || LANDING_ROTATION[1];
-  return <span className="die-stage" aria-hidden="true">
+  return <span className={`die-stage die-stage-${index} ${tumbling ? 'is-tumbling' : ''}`} aria-hidden="true">
+    <span className="die-shadow" />
     <span key={`${rollId ?? 'roll'}-${index}`} className={`die-cube ${tumbling ? 'is-tumbling' : ''} die-cube-${index}`} style={{ '--die-x': x, '--die-y': y }}>
       <DieFace value={1} side="front" /><DieFace value={6} side="back" />
       <DieFace value={3} side="right" /><DieFace value={4} side="left" />
@@ -30,13 +32,30 @@ function Die({ value, index, rollId, tumbling }) {
 
 function DiceDisplay({ roll, rollId, onRightClick, animate = true, duration = 900 }) {
   const [tumbling, setTumbling] = useState(false);
+  const { playSound } = useGamePresentation();
+  const animatedRollId = useRef(null);
+  const soundedRollId = useRef(null);
+  const tumbleTimer = useRef(null);
   const hasRoll = Boolean(roll);
+  const motionDuration = Number.isFinite(duration) && duration > 0 ? duration : 900;
   useEffect(() => {
-    if (!hasRoll || !animate || rollId == null) { setTumbling(false); return undefined; }
+    if (!hasRoll || !animate || rollId == null) {
+      window.clearTimeout(tumbleTimer.current);
+      setTumbling(false);
+      return;
+    }
+    // Changing playback speed must not roll already-settled dice again.
+    if (animatedRollId.current === rollId) return;
+    animatedRollId.current = rollId;
+    window.clearTimeout(tumbleTimer.current);
     setTumbling(true);
-    const timer = window.setTimeout(() => setTumbling(false), duration);
-    return () => window.clearTimeout(timer);
-  }, [rollId, animate, duration, hasRoll]);
+    if (soundedRollId.current !== rollId) {
+      soundedRollId.current = rollId;
+      playSound('dice');
+    }
+    tumbleTimer.current = window.setTimeout(() => setTumbling(false), motionDuration);
+  }, [rollId, animate, motionDuration, hasRoll, playSound]);
+  useEffect(() => () => { window.clearTimeout(tumbleTimer.current); animatedRollId.current = null; }, []);
 
   if (!roll) return null;
   const isSeven = roll.total === 7;
@@ -56,11 +75,12 @@ function DiceDisplay({ roll, rollId, onRightClick, animate = true, duration = 90
     className={`dice-display ${tumbling ? 'is-tumbling' : ''} ${isSeven ? 'seven' : ''}`}
     onContextMenu={handleContextMenu}
     title={onRightClick ? 'Right-click for roll details' : undefined}
-    style={{ '--dice-duration': `${duration}ms` }}
+    style={{ '--dice-duration': `${motionDuration}ms` }}
     role="status" aria-live="polite" aria-busy={tumbling}
     aria-label={`Rolled ${roll.die1} and ${roll.die2}, total ${roll.total}${isSeven ? '. Robber activated.' : '.'}`}
   >
     <div className="dice-container">
+      <span className="dice-tray-mark" aria-hidden="true" />
       <Die value={roll.die1} index={1} rollId={rollId} tumbling={tumbling} />
       <Die value={roll.die2} index={2} rollId={rollId} tumbling={tumbling} />
     </div>

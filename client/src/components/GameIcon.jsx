@@ -153,6 +153,8 @@ function iconShape(name) {
           <path d="M17 8h3v3M7 16H4v-3" fill="none" strokeWidth="2" />
         </>
       );
+    case 'history':
+      return <><path d="M4 10a8 8 0 1 1 1 7M4 4v6h6M12 7v5l3 2" fill="none"/></>;
     case 'chat':
       return (
         <>

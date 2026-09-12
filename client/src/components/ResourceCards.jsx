@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import GameIcon from './GameIcon';
+import CardArtwork from './CardArtwork';
 import './ResourceCards.css';
 
 const RESOURCES = [
@@ -48,31 +48,66 @@ function ResourceCards({ resources, compact = false, selectable = false, selecte
     } else if (onRightClick) onRightClick(event, resourceKey);
   };
 
+  const selectWithKey = (event, resourceKey, count, selectedCount) => {
+    if (!selectable) return;
+    if (['ArrowUp', 'ArrowRight'].includes(event.key) && count > selectedCount) {
+      event.preventDefault();
+      onSelect?.(resourceKey, 1);
+    } else if (['ArrowDown', 'ArrowLeft', 'Backspace', 'Delete'].includes(event.key) && selectedCount > 0) {
+      event.preventDefault();
+      onSelect?.(resourceKey, -1);
+    }
+  };
+
   return <div className={`resource-cards ${compact ? 'compact' : ''}`}>
     {activeGain && <div key={activeGain.id} className="resource-gain-summary" role="status" aria-live="polite">{gainSummary}</div>}
     {RESOURCES.map(resource => {
       const count = resources?.[resource.key] || 0;
       const selectedCount = selected[resource.key] || 0;
       const gained = activeGain?.gains[resource.key] || 0;
+      const cardContents = <>
+        <div className="resource-card-art">
+          <CardArtwork name={resource.key} />
+          <span className="resource-count" aria-hidden="true">{count}</span>
+        </div>
+        <div className="resource-card-caption">
+          <span className="resource-name">{resource.name}</span>
+        </div>
+      </>;
       return <div
         key={resource.key}
         data-hand-resource={resource.key}
         className={`resource-card ${count === 0 ? 'empty' : ''} ${selectable ? 'selectable' : ''} ${onRightClick ? 'has-info' : ''} ${gained ? 'is-receiving' : ''}`}
         style={{ '--resource-color': resource.color }}
-        onClick={selectable && count > selectedCount ? () => onSelect?.(resource.key, 1) : undefined}
-        onContextMenu={event => handleContextMenu(event, resource.key)}
-        title={onRightClick && !selectable ? 'Right-click for info' : undefined}
+        title={onRightClick && !selectable ? 'Click or right-click for info' : undefined}
       >
         {gained > 0 && <div key={`${activeGain.id}-${resource.key}`} className="resource-gain-flyer" aria-hidden="true">
-          <GameIcon name={resource.key} size={20} className="resource-gain-icon" />
+          <CardArtwork name={resource.key} className="resource-gain-art" />
           <strong>+{gained}</strong>
         </div>}
-        <div className="card-top"><GameIcon name={resource.key} size={24} className="resource-icon" /></div>
-        <div className="card-bottom">
-          <span className="resource-name">{resource.name}</span>
-          <span className="resource-count">{count}</span>
-          {selectable && selectedCount > 0 && <span className="selected-indicator">−{selectedCount}</span>}
-        </div>
+        {selectable ? <button
+          type="button"
+          className="resource-card-surface"
+          onClick={count > selectedCount ? () => onSelect?.(resource.key, 1) : undefined}
+          onKeyDown={event => selectWithKey(event, resource.key, count, selectedCount)}
+          onContextMenu={event => handleContextMenu(event, resource.key)}
+          aria-label={`${resource.name}: ${count} in hand, ${selectedCount} selected. Add one`}
+          aria-pressed={selectedCount > 0}
+          aria-disabled={count <= selectedCount}
+        >{cardContents}</button> : onRightClick ? <button
+          type="button"
+          className="resource-card-surface"
+          onClick={event => onRightClick(event, resource.key)}
+          onContextMenu={event => handleContextMenu(event, resource.key)}
+          aria-label={`${resource.name}: ${count} in hand. Show card details`}
+        >{cardContents}</button> : <div className="resource-card-surface" role="img" aria-label={`${count} ${resource.name}`}>{cardContents}</div>}
+        {selectable && selectedCount > 0 && <button
+          type="button"
+          className="selected-indicator"
+          onClick={event => { event.stopPropagation(); onSelect?.(resource.key, -1); }}
+          aria-label={`Remove one selected ${resource.name}`}
+          title={`Remove one ${resource.name}`}
+        >−{selectedCount}</button>}
       </div>;
     })}
   </div>;

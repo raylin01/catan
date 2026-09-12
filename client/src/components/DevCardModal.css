@@ -63,6 +63,19 @@
   transition: all 0.2s ease;
 }
 
+.dev-card-modal .dev-card { background:#f0ecdf; border:1px solid #cbb994; border-radius:7px; color:#344233; box-shadow:0 1px 3px #0002; position:relative; padding:14px 14px 14px 104px; min-height:110px; }
+.dev-card-modal .dev-card .card-name { color:#344233; font-family:Georgia,serif; }
+.dev-card-modal .dev-card .card-count { color:#695829; }
+.dev-card-modal .dev-card .card-description { color:#52604d; font-size:13px; }
+.dev-card-modal .dev-card .card-icon { display:none; }
+.dev-card-modal .dev-card-illustration { position:absolute;left:12px;top:14px;width:78px;height:98px;border:4px solid #fffaec;outline:1px solid #c0b596;border-radius:4px; }
+.dev-card-modal .dev-card .play-card-btn { background:#315e4d; color:#fff4d8; min-height:38px; border:1px solid #294e40; }
+.dev-card-modal .dev-card.new { padding:10px 12px 10px 60px; min-height:64px; opacity:1; }
+.dev-card-modal .dev-card.new .dev-card-illustration { width:36px;height:44px;left:10px;top:10px;border-width:2px; }
+.dev-card-modal .dev-card.playable { cursor:default; }
+@media(max-width:420px){.dev-card-modal .dev-card{padding:12px 12px 12px 82px}.dev-card-modal .dev-card-illustration{width:58px;height:82px;left:10px}.dev-card-modal h2{font-size:21px}}
+@media(prefers-reduced-motion:reduce){.dev-card-modal .dev-card.playable:hover{transform:none}}
+
 .dev-card.playable {
   cursor: pointer;
 }

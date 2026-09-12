@@ -1,9 +1,21 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './HexBoard.css';
-import { GameIconSymbol } from './GameIcon';
+import BoardViewport from './BoardViewport';
+import {CARD_ARTWORK, TERRAIN_ARTWORK} from '../presentation/artwork';
+import { useGamePresentation } from '../presentation/GamePresentation';
+import { createBoardSnapshot, getBoardTransitions, motionDuration } from './boardMotion';
 
 // Hex geometry constants - POINTY-TOP orientation
 const HEX_SIZE = 50;
+const BOARD_GUTTER = 62;
+const COAST_NEIGHBORS = [[1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1]];
+const EMPTY_ACTIVE_MOTION = { roads: new Set(), settlements: new Set(), cities: new Set(), robber: null };
+
+const activateWithKeyboard = (event, callback) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  callback();
+};
 
 // Convert axial coordinates to pixel position (POINTY-TOP)
 function axialToPixel(q, r) {
@@ -42,15 +54,6 @@ function getNumberColor(num) {
   return '#2c2c2c';
 }
 
-// Get the local SVG icon name for a terrain type.
-function getTerrainIcon(terrain) {
-  return terrain || 'unknown';
-}
-
-function getPortIcon(port) {
-  return port.resource || 'port';
-}
-
 const TERRAIN_GRADIENTS = {
   forest: 'url(#forest-gradient)',
   hills: 'url(#hills-gradient)',
@@ -68,102 +71,8 @@ function probabilityDots(number) {
   return Math.max(1, 6 - Math.abs(7 - number));
 }
 
-function TerrainArtwork({ terrain }) {
-  if (terrain === 'forest') {
-    return (
-      <g className="terrain-art terrain-art--forest">
-        <path d="M-48 21 Q-25 -2 -2 18 T48 13 V52 H-48Z" fill="#184f3d" opacity=".72" />
-        <path d="M-48 31 Q-19 8 8 31 T48 22 V52 H-48Z" fill="#123d33" opacity=".82" />
-        {[-35, -25, -13, 18, 30, 39].map((x, index) => {
-          const y = index % 2 ? 11 : 21;
-          const scale = index % 3 === 0 ? 1.08 : .82;
-          return (
-            <g key={x} transform={`translate(${x} ${y}) scale(${scale})`}>
-              <path d="M0 -22 L-9 -5 H-5 L-13 9 H13 L5 -5 H9Z" fill="#0d342b" />
-              <path d="M0 -19 L-6 -6 H-2 L-9 6 H1Z" fill="#2d7551" opacity=".72" />
-              <path d="M-1 8 H3 V18 H-1Z" fill="#60402a" />
-            </g>
-          );
-        })}
-      </g>
-    );
-  }
-
-  if (terrain === 'hills') {
-    return (
-      <g className="terrain-art terrain-art--hills">
-        <path d="M-52 16 Q-31 -14 -6 15 Q17 -20 51 15 V52 H-52Z" fill="#bb5031" opacity=".82" />
-        <path d="M-52 28 Q-26 3 3 25 Q29 5 52 24 V52 H-52Z" fill="#883826" opacity=".65" />
-        <path d="M-39 26 Q-25 15 -12 25 M12 19 Q28 8 43 21" fill="none" stroke="#f7b171" strokeWidth="2" opacity=".42" />
-        <g fill="#71301f" opacity=".8">
-          <rect x="-42" y="32" width="14" height="6" rx="1" />
-          <rect x="-25" y="32" width="14" height="6" rx="1" />
-          <rect x="-34" y="40" width="14" height="6" rx="1" />
-          <rect x="22" y="34" width="14" height="6" rx="1" />
-        </g>
-      </g>
-    );
-  }
-
-  if (terrain === 'pasture') {
-    return (
-      <g className="terrain-art terrain-art--pasture">
-        <path d="M-52 14 Q-25 -9 3 15 T52 10 V52 H-52Z" fill="#72a94e" opacity=".6" />
-        <path d="M-52 30 Q-19 11 9 31 T52 25 V52 H-52Z" fill="#4e8a45" opacity=".48" />
-        <path d="M-42 34 Q-38 27 -35 34 M-35 36 Q-31 27 -28 36 M27 32 Q31 23 34 32 M35 35 Q39 27 42 35" fill="none" stroke="#326f3c" strokeWidth="1.5" strokeLinecap="round" />
-        <g transform="translate(-28 17)" fill="#fff9e7" stroke="#665947" strokeWidth=".8">
-          <ellipse rx="7" ry="4.4" />
-          <circle cx="6.5" cy="-1" r="2.6" />
-          <path d="M-3 3 V8 M3 3 V8" fill="none" />
-        </g>
-        <g transform="translate(31 11) scale(.78)" fill="#fff9e7" stroke="#665947" strokeWidth=".9">
-          <ellipse rx="7" ry="4.4" />
-          <circle cx="6.5" cy="-1" r="2.6" />
-          <path d="M-3 3 V8 M3 3 V8" fill="none" />
-        </g>
-      </g>
-    );
-  }
-
-  if (terrain === 'fields') {
-    return (
-      <g className="terrain-art terrain-art--fields">
-        <path d="M-52 9 Q-18 -6 12 12 T52 8 V52 H-52Z" fill="#d79d27" opacity=".55" />
-        <path d="M-52 26 Q-17 6 18 27 T52 20 V52 H-52Z" fill="#b97c1e" opacity=".5" />
-        {[-39, -30, -21, 22, 31, 40].map((x, index) => (
-          <g key={x} transform={`translate(${x} ${index % 2 ? 18 : 12})`} stroke="#fff0a3" strokeWidth="1.25" strokeLinecap="round" opacity=".82">
-            <path d="M0 25 V-5 M0 3 L-5 -1 M0 8 L5 3 M0 13 L-5 8 M0 18 L5 13" fill="none" />
-          </g>
-        ))}
-        <path d="M-49 38 Q-17 19 9 39 T50 33" fill="none" stroke="#f4cd58" strokeWidth="2" opacity=".5" />
-      </g>
-    );
-  }
-
-  if (terrain === 'mountains') {
-    return (
-      <g className="terrain-art terrain-art--mountains">
-        <path d="M-53 33 L-31 -3 L-15 17 L5 -24 L28 12 L40 -6 L55 31 V52 H-53Z" fill="#596c72" />
-        <path d="M-15 17 L5 -24 L11 -2 L28 12 L9 3 Z" fill="#354b54" opacity=".88" />
-        <path d="M-4 -9 L5 -24 L14 -9 L8 -12 L4 -7 L1 -13Z" fill="#eef3ec" />
-        <path d="M-37 8 L-31 -3 L-23 9 L-29 6 L-32 11Z" fill="#e7eee9" opacity=".9" />
-        <path d="M31 8 L40 -6 L48 10 L41 6 L38 12Z" fill="#eef3ec" opacity=".85" />
-        <path d="M-50 37 L-22 20 L-10 36 L17 14 L52 38 V52 H-52Z" fill="#2e4148" opacity=".64" />
-      </g>
-    );
-  }
-
-  return (
-    <g className="terrain-art terrain-art--desert">
-      <path d="M-54 19 Q-29 -5 -4 20 Q19 40 54 10 V52 H-54Z" fill="#d6ad63" opacity=".62" />
-      <path d="M-54 34 Q-25 13 4 35 Q27 48 54 28 V52 H-54Z" fill="#bc8c49" opacity=".42" />
-      <path d="M-42 24 Q-18 7 2 24 M10 37 Q30 22 48 31" fill="none" stroke="#f5d58c" strokeWidth="2" opacity=".64" />
-      <g transform="translate(31 14)" fill="none" stroke="#3e7655" strokeWidth="3" strokeLinecap="round">
-        <path d="M0 21 V-5 M0 5 C8 5 8 0 8 -4 M0 11 C-7 11 -7 7 -7 3" />
-      </g>
-      <ellipse cx="-29" cy="34" rx="11" ry="3.5" fill="#5d9674" opacity=".72" />
-    </g>
-  );
+function TerrainArtwork({terrain}) {
+  return <image className="terrain-art" href={TERRAIN_ARTWORK[terrain]} x="-50" y="-50" width="100" height="100" preserveAspectRatio="xMidYMid slice" />;
 }
 
 // Create a position key for deduplication (rounded to avoid float issues)
@@ -192,8 +101,14 @@ function HexBoard({
   onHexRightClick,
   lastPlacedSettlement,
   freeRoads,
-  legalActions = []
+  legalActions = [],
+  animate = true,
+  resetKey,
+  playbackRate = 1,
+  cameraKey,
+  cameraState
 }) {
+  const { playSound } = useGamePresentation();
   // Calculate board bounds
   const bounds = useMemo(() => {
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -207,14 +122,15 @@ function HexBoard({
     return { minX, maxX, minY, maxY };
   }, [hexes]);
 
-  const width = bounds.maxX - bounds.minX + 60;
-  const height = bounds.maxY - bounds.minY + 60;
-  const offsetX = -bounds.minX + 30;
-  const offsetY = -bounds.minY + 30;
+  const width = bounds.maxX - bounds.minX + BOARD_GUTTER * 2;
+  const height = bounds.maxY - bounds.minY + BOARD_GUTTER * 2;
+  const offsetX = -bounds.minX + BOARD_GUTTER;
+  const offsetY = -bounds.minY + BOARD_GUTTER;
 
   // Check if vertex can be placed
   // Use canBuildNow which includes special building phase
   const canPlaceAtVertex = (vKey) => {
+    if (paused) return false;
     if (gamePhase === 'setup') {
       if (!isMyTurn) return false;
       if (selectedAction === 'settlement') return true;
@@ -228,6 +144,7 @@ function HexBoard({
 
   // Check if vertex can be upgraded
   const canUpgradeVertex = (vKey, vertex) => {
+    if (paused) return false;
     if (!canBuildNow) return false;
     if (gamePhase !== 'playing') return false;
     if (turnPhase !== 'main' && turnPhase !== 'specialBuild') return false;
@@ -238,6 +155,7 @@ function HexBoard({
 
   // Check if edge can be placed
   const canPlaceAtEdge = () => {
+    if (paused) return false;
     if (gamePhase === 'setup') {
       if (!isMyTurn) return false;
       if (selectedAction === 'road') return true;
@@ -251,7 +169,12 @@ function HexBoard({
   };
 
   // Can click on hex (for robber)
-  const canClickHex = gamePhase === 'playing' && !paused && turnPhase === 'robber' && isMyTurn;
+  const canChooseRobberDestination = gamePhase === 'playing' && !paused && turnPhase === 'robber' && isMyTurn;
+  const legalRobberHexes = useMemo(() => new Set(
+    legalActions
+      .filter(action => action.type === 'moveRobber')
+      .map(action => action.payload.hexKey)
+  ), [legalActions]);
 
   // Parse vertex/edge keys
   const parseVertexKey = (key) => {
@@ -288,10 +211,9 @@ function HexBoard({
     };
   };
 
-  // SIMPLE APPROACH: Get all roads directly from edges that have road: true
-  // No deduplication - if same road appears twice, it just overlaps (no visual issue)
+  // Collapse equivalent edge keys into one physical wooden road.
   const roads = useMemo(() => {
-    const roadList = [];
+    const roadMap = new Map();
     
     Object.entries(edges).forEach(([key, edge]) => {
       if (!edge.road) return;
@@ -302,7 +224,10 @@ function HexBoard({
       // Calculate the two vertex positions for this edge
       const { v1, v2 } = getEdgeEndpoints(parsed.q, parsed.r, parsed.dir);
       
-      roadList.push({
+      const id = [posKey(v1.x, v1.y), posKey(v2.x, v2.y)].sort().join('|');
+      if (roadMap.has(id)) return;
+      roadMap.set(id, {
+        id,
         key,
         owner: edge.owner,
         v1,
@@ -310,13 +235,12 @@ function HexBoard({
       });
     });
     
-    return roadList;
+    return [...roadMap.values()];
   }, [edges]);
 
   // Get unique edge positions for clickable areas (edges without roads)
   const clickableEdges = useMemo(() => {
-    const edgeList = [];
-    const seenPositions = new Set();
+    const edgeMap = new Map();
     
     // First, mark all positions that have roads
     const roadPositions = new Set();
@@ -340,18 +264,12 @@ function HexBoard({
       // Skip if there's already a road at this position
       if (roadPositions.has(pk)) return;
       
-      // Skip if we've already added this position
-      if (seenPositions.has(pk)) return;
-      
-      seenPositions.add(pk);
-      edgeList.push({
-        key,
-        v1,
-        v2
-      });
+      const existing = edgeMap.get(pk);
+      if (existing) existing.keys.push(key);
+      else edgeMap.set(pk, { id: pk, key, keys: [key], v1, v2 });
     });
     
-    return edgeList;
+    return [...edgeMap.values()];
   }, [edges]);
 
   // Get unique vertices - merge buildings from equivalent vertex keys
@@ -370,16 +288,20 @@ function HexBoard({
       const pk = posKey(pos.x, pos.y);
       
       if (!seen.has(pk)) {
-        seen.set(pk, { key, vertex, pos, parsed });
-        result.push({ key, vertex, pos, parsed });
+        const entry = { id: pk, key, keys: [key], vertex, pos, parsed };
+        seen.set(pk, entry);
+        result.push(entry);
       } else {
-        // If we already have this vertex, update if this one has a building
         const existing = seen.get(pk);
+        existing.keys.push(key);
+        // Prefer the equivalent key carrying the actual building state.
         if (vertex.building && !existing.vertex.building) {
           const idx = result.findIndex(r => r.key === existing.key);
           if (idx !== -1) {
-            result[idx] = { key, vertex, pos, parsed };
-            seen.set(pk, { key, vertex, pos, parsed });
+            existing.key = key;
+            existing.vertex = vertex;
+            existing.parsed = parsed;
+            result[idx] = existing;
           }
         }
       }
@@ -388,19 +310,85 @@ function HexBoard({
     return result;
   }, [vertices, hexes]);
 
+  const coastEdges = useMemo(() => Object.values(hexes).flatMap((hex) => {
+    return COAST_NEIGHBORS.flatMap(([dq, dr], direction) => {
+      if (hexes[`${hex.q + dq},${hex.r + dr}`]) return [];
+      const { v1, v2 } = getEdgeEndpoints(hex.q, hex.r, direction);
+      return [{ id: `${hex.q},${hex.r}:${direction}`, v1, v2 }];
+    });
+  }), [hexes]);
+
+  const snapshot = useMemo(
+    () => createBoardSnapshot(roads, uniqueVertices, robber),
+    [roads, uniqueVertices, robber]
+  );
+  const previousPresentation = useRef(null);
+  const motionTimer = useRef(null);
+  const [activeMotion, setActiveMotion] = useState(EMPTY_ACTIVE_MOTION);
+  const resetChanged = previousPresentation.current && previousPresentation.current.resetKey !== resetKey;
+  const transitions = animate && !resetChanged
+    ? getBoardTransitions(previousPresentation.current?.snapshot, snapshot)
+    : getBoardTransitions(null, snapshot);
+
+  useEffect(() => {
+    previousPresentation.current = { resetKey, snapshot };
+  }, [resetKey, snapshot]);
+
+  const pieceTransitionKey = [
+    ...transitions.roads,
+    ...transitions.settlements,
+    ...transitions.cities
+  ].sort().join(',');
+  const pieceMotionDuration = motionDuration(playbackRate, 520);
+  const robberMotionDuration = motionDuration(playbackRate, 440);
+
+  useEffect(() => {
+    if (!animate || resetChanged) {
+      clearTimeout(motionTimer.current);
+      motionTimer.current = null;
+      setActiveMotion(EMPTY_ACTIVE_MOTION);
+      return;
+    }
+    if (!pieceTransitionKey && !transitions.robber) return;
+
+    setActiveMotion(current => ({
+      roads: new Set([...current.roads, ...transitions.roads]),
+      settlements: new Set([...current.settlements, ...transitions.settlements]),
+      cities: new Set([...current.cities, ...transitions.cities]),
+      robber: transitions.robber ? robber : current.robber
+    }));
+    if (pieceTransitionKey) playSound('piece');
+    if (transitions.robber) playSound('robber');
+    clearTimeout(motionTimer.current);
+    motionTimer.current = setTimeout(() => {
+      motionTimer.current = null;
+      setActiveMotion(EMPTY_ACTIVE_MOTION);
+    }, Math.max(Number.parseInt(pieceMotionDuration), Number.parseInt(robberMotionDuration)) + 40);
+  }, [animate, pieceMotionDuration, pieceTransitionKey, playSound, resetChanged, robber, robberMotionDuration, transitions.cities, transitions.roads, transitions.robber, transitions.settlements]);
+
+  useEffect(() => () => clearTimeout(motionTimer.current), []);
+
   const showEdgePlaceholders = canPlaceAtEdge();
 
   return (
-    <svg 
+    <BoardViewport cameraKey={cameraKey} cameraState={cameraState}>
+    <svg
       className="hex-board"
       viewBox={`0 0 ${width} ${height}`}
-      style={{ maxWidth: '100%', maxHeight: '100%' }}
+      style={{
+        maxWidth: '100%',
+        maxHeight: '100%',
+        '--piece-motion-duration': pieceMotionDuration,
+        '--robber-motion-duration': robberMotionDuration
+      }}
+      role="group"
+      aria-label="Catan game board"
     >
       <defs>
         <linearGradient id="ocean-gradient" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#123f56" />
-          <stop offset=".48" stopColor="#17637a" />
-          <stop offset="1" stopColor="#0d3449" />
+          <stop offset="0" stopColor="#3a6c82" />
+          <stop offset=".48" stopColor="#457d91" />
+          <stop offset="1" stopColor="#2c566b" />
         </linearGradient>
         <radialGradient id="ocean-glow" cx="50%" cy="42%" r="66%">
           <stop offset="0" stopColor="#62b5bd" stopOpacity=".34" />
@@ -409,6 +397,11 @@ function HexBoard({
         </radialGradient>
         <pattern id="water-lines" patternUnits="userSpaceOnUse" width="34" height="18">
           <path d="M-9 9 Q0 2 9 9 T27 9 T45 9" fill="none" stroke="#a9e0dc" strokeWidth="1.1" opacity=".16" />
+        </pattern>
+        <pattern id="paint-grain" patternUnits="userSpaceOnUse" width="17" height="19">
+          <path d="M1 4 Q5 1 9 3 M9 14 Q13 11 17 13" fill="none" stroke="#fff8d8" strokeWidth="1.1" opacity=".16" />
+          <circle cx="4" cy="13" r="1.1" fill="#183528" opacity=".13" />
+          <circle cx="14" cy="6" r=".8" fill="#51321e" opacity=".13" />
         </pattern>
         <linearGradient id="forest-gradient" x1="0" y1="0" x2="1" y2="1">
           <stop stopColor="#477f50" /><stop offset=".52" stopColor="#2d6949" /><stop offset="1" stopColor="#19473b" />
@@ -441,13 +434,16 @@ function HexBoard({
           <feDropShadow dx="0" dy="6" stdDeviation="7" floodColor="#031e29" floodOpacity=".55" />
         </filter>
         <filter id="hex-shadow" x="-25%" y="-25%" width="150%" height="160%">
-          <feDropShadow dx="0" dy="3" stdDeviation="2.2" floodColor="#102a25" floodOpacity=".62" />
+          <feDropShadow dx="0" dy="1" stdDeviation=".6" floodColor="#102a25" floodOpacity=".4" />
         </filter>
         <filter id="token-shadow" x="-45%" y="-45%" width="190%" height="200%">
-          <feDropShadow dx="0" dy="2.5" stdDeviation="2" floodColor="#28170d" floodOpacity=".58" />
+          <feDropShadow dx="0" dy="1.2" stdDeviation=".75" floodColor="#28170d" floodOpacity=".35" />
         </filter>
         <filter id="building-shadow" x="-70%" y="-70%" width="240%" height="250%">
           <feDropShadow dx="1" dy="2.4" stdDeviation="1.4" floodColor="#07141a" floodOpacity=".72" />
+        </filter>
+        <filter id="piece-contact-shadow" x="-80%" y="-80%" width="260%" height="280%">
+          <feGaussianBlur stdDeviation="1.8" />
         </filter>
         {Object.keys(hexes).map((key) => (
           <clipPath id={`tile-clip-${key.replace(',', '-')}`} key={`clip-${key}`}>
@@ -458,92 +454,68 @@ function HexBoard({
       
       <g transform={`translate(${offsetX}, ${offsetY})`}>
         {/* Framed ocean and the shallow shelf beneath the island. */}
-        <rect
-          className="ocean-frame"
-          x={bounds.minX - 29}
-          y={bounds.minY - 29}
-          width={width - 2}
-          height={height - 2}
-          rx="44"
-          fill="url(#ocean-gradient)"
-          filter="url(#board-shadow)"
-        />
-        <rect
-          className="ocean-light"
-          x={bounds.minX - 25}
-          y={bounds.minY - 25}
-          width={width - 10}
-          height={height - 10}
-          rx="40"
-          fill="url(#ocean-glow)"
-          stroke="#6db4b6"
-          strokeWidth="1.5"
-          strokeOpacity=".38"
-        />
-        <rect
-          x={bounds.minX - 24}
-          y={bounds.minY - 24}
-          width={width - 12}
-          height={height - 12}
-          rx="39"
-          fill="url(#water-lines)"
-        />
+        <path className="ocean-frame" d={`M${-width*.29},${-height/2+3} L${width*.29},${-height/2+3} L${width/2-3},0 L${width*.29},${height/2-3} L${-width*.29},${height/2-3} L${-width/2+3},0 Z`} fill="url(#ocean-gradient)" filter="url(#board-shadow)" />
         <g className="island-shelf">
           {Object.values(hexes).map((hex) => {
             const pos = axialToPixel(hex.q, hex.r);
             return <path key={`shelf-${hex.q}-${hex.r}`} d={hexPath(pos.x, pos.y, HEX_SIZE + 4)} />;
           })}
         </g>
+        <g className="coastline" aria-hidden="true">
+          {coastEdges.map(({ id, v1, v2 }) => (
+            <g key={id}>
+              <line className="coastline-sand" x1={v1.x} y1={v1.y} x2={v2.x} y2={v2.y} />
+              <line className="coastline-foam" x1={v1.x} y1={v1.y} x2={v2.x} y2={v2.y} />
+            </g>
+          ))}
+        </g>
         
         {/* Hexes */}
         {Object.entries(hexes).map(([key, hex]) => {
           const pos = axialToPixel(hex.q, hex.r);
           const isRobberHere = robber === key;
+          const isLegalRobberDestination = canChooseRobberDestination && legalRobberHexes.has(key);
           const clipId = `tile-clip-${key.replace(',', '-')}`;
           const dots = probabilityDots(hex.number);
           
           return (
             <g 
               key={key} 
-              className={`hex ${canClickHex ? 'clickable' : ''} ${isRobberHere ? 'has-robber' : ''}`}
-              role={canClickHex ? 'button' : undefined}
-              tabIndex={canClickHex ? 0 : undefined}
-              aria-label={canClickHex ? `Move robber to ${hex.terrain} ${hex.number || 'desert'} at ${key}` : undefined}
+              className={`hex ${isLegalRobberDestination ? 'clickable legal-robber-target' : ''} ${isRobberHere ? 'has-robber' : ''}`}
+              role={isLegalRobberDestination ? 'button' : undefined}
+              tabIndex={isLegalRobberDestination ? 0 : undefined}
+              aria-label={isLegalRobberDestination ? `Move robber to ${hex.terrain} ${hex.number || 'desert'}` : undefined}
               onKeyDown={event => {
-                if (canClickHex && (event.key === 'Enter' || event.key === ' ')) {
-                  event.preventDefault(); onHexClick(key);
-                }
+                if (isLegalRobberDestination) activateWithKeyboard(event, () => onHexClick(key));
               }}
-              onClick={() => canClickHex && onHexClick(key)}
+              onClick={() => isLegalRobberDestination && onHexClick(key)}
               onContextMenu={(e) => onHexRightClick && onHexRightClick(e, hex)}
-              style={{ cursor: 'context-menu' }}
             >
               <path
                 className="terrain-tile"
                 d={hexPath(pos.x, pos.y, HEX_SIZE)}
                 fill={terrainFill(hex.terrain, hex.color)}
-                stroke="#553c27"
-                strokeWidth="3.2"
+                stroke="#6c6755"
+                strokeWidth="1.5"
                 filter="url(#hex-shadow)"
               />
               <g clipPath={`url(#${clipId})`} transform={`translate(${pos.x} ${pos.y})`}>
                 <TerrainArtwork terrain={hex.terrain} />
-                <path className="tile-sunwash" d="M-48 -48 H48 V-7 Q2 -25 -48 5Z" />
               </g>
               <path
                 d={hexPath(pos.x, pos.y, HEX_SIZE - 4)}
                 fill="none"
-                stroke="rgba(255,255,255,0.38)"
-                strokeWidth="1.25"
+                stroke="rgba(249,242,218,0.32)"
+                strokeWidth=".65"
                 className="tile-bevel"
               />
               
+              {isLegalRobberDestination && <path className="robber-choice-ring" d={hexPath(pos.x, pos.y, HEX_SIZE - 2)} />}
               {/* Number token */}
               {hex.number && (
                 <g className={`number-token ${hex.number === 6 || hex.number === 8 ? 'number-token--hot' : ''}`} filter="url(#token-shadow)">
-                  <circle cx={pos.x} cy={pos.y} r="18" fill="url(#token-rim)" />
-                  <circle cx={pos.x} cy={pos.y} r="15.5" fill="url(#token-face)" stroke="#6f4d2d" strokeWidth=".7" />
-                  <circle cx={pos.x - 5} cy={pos.y - 6} r="7" fill="#fff" opacity=".2" />
+                  <circle cx={pos.x} cy={pos.y + .8} r="17" fill="#a1967b" />
+                  <circle cx={pos.x} cy={pos.y} r="16.5" fill="#f2e7c9" stroke="#b9ab8b" strokeWidth=".6" />
                   <text
                     x={pos.x}
                     y={pos.y + 3.5}
@@ -563,21 +535,9 @@ function HexBoard({
                 </g>
               )}
               
-              {/* Resource icon at bottom of hex */}
-              <g className="terrain-badge">
-                <circle cx={pos.x} cy={pos.y + 34} r="10" />
-                <GameIconSymbol
-                  name={getTerrainIcon(hex.terrain)}
-                  x={pos.x}
-                  y={pos.y + 34}
-                  size={14}
-                  opacity="0.96"
-                />
-              </g>
-              
               {/* Robber */}
               {isRobberHere && (
-                <g className="robber" transform={`translate(${pos.x} ${pos.y - 2})`} filter="url(#building-shadow)">
+                <g className={`robber ${transitions.robber || activeMotion.robber === key ? 'is-new' : ''}`} transform={`translate(${pos.x} ${pos.y - 2})`} filter="url(#building-shadow)">
                   <title>Robber</title>
                   <ellipse cx="0" cy="18" rx="12" ry="4" fill="#061217" opacity=".5" />
                   <path d="M-10 15 Q-9 3 -5 -3 Q-9 -8 -7 -14 Q-5 -21 0 -21 Q5 -21 7 -14 Q9 -8 5 -3 Q9 3 10 15Z" fill="#152329" stroke="#080e11" strokeWidth="2" />
@@ -588,109 +548,164 @@ function HexBoard({
           );
         })}
 
-        {/* Clickable edge areas (only shown when placing roads and no road exists) */}
-        {showEdgePlaceholders && clickableEdges.filter(({key}) => legalActions.some(action => action.type === 'placeRoad' && action.payload.edgeKey === key)).map(({ key, v1, v2 }) => (
-          <line
-            key={`click-${key}`}
-            x1={v1.x}
-            y1={v1.y}
-            x2={v2.x}
-            y2={v2.y}
-            stroke="rgba(255, 255, 255, 0.3)"
-            strokeWidth="10"
-            strokeLinecap="round"
-            className="edge-placeholder"
-            onClick={() => onPlaceRoad(key)}
-          />
-        ))}
+        {/* Legal road previews remain fully governed by legalActions. */}
+        {showEdgePlaceholders && clickableEdges.map(({ id, keys, v1, v2 }) => {
+          const legalAction = legalActions.find(action => (
+            action.type === 'placeRoad' && keys.includes(action.payload.edgeKey)
+          ));
+          if (!legalAction) return null;
+          const legalKey = legalAction.payload.edgeKey;
+          return (
+            <g
+              key={`click-${id}`}
+              className="edge-placeholder"
+              role="button"
+              tabIndex={0}
+              aria-label="Place road here"
+              onClick={() => onPlaceRoad(legalKey)}
+              onKeyDown={event => activateWithKeyboard(event, () => onPlaceRoad(legalKey))}
+            >
+              <rect className="edge-placeholder-hit" x="-10" y="-10"
+                width={Math.hypot(v2.x - v1.x, v2.y - v1.y) + 20} height="20" rx="10"
+                transform={`translate(${v1.x} ${v1.y}) rotate(${Math.atan2(v2.y - v1.y, v2.x - v1.x) * 180 / Math.PI})`} />
+              <line className="edge-choice-aura" x1={v1.x} y1={v1.y} x2={v2.x} y2={v2.y} />
+              <line className="edge-placeholder-halo" x1={v1.x} y1={v1.y} x2={v2.x} y2={v2.y} />
+              <line className="edge-placeholder-piece" x1={v1.x} y1={v1.y} x2={v2.x} y2={v2.y} />
+            </g>
+          );
+        })}
 
         {/* Roads - rendered separately from clickable areas */}
-        {roads.map(({ key, owner, v1, v2 }) => (
-          <g key={`road-${key}`} className="road" filter="url(#building-shadow)">
+        {roads.map(({ id, owner, v1, v2 }) => (
+          <g key={`road-${id}`} className={`road ${transitions.roads.has(id) || activeMotion.roads.has(id) ? 'is-new' : ''}`}>
             <line
+              className="piece-contact-shadow"
+              x1={v1.x + 1.5}
+              y1={v1.y + 3.5}
+              x2={v2.x + 1.5}
+              y2={v2.y + 3.5}
+              stroke="#061217"
+              strokeOpacity=".52"
+              strokeWidth="10.5"
+              strokeLinecap="round"
+              filter="url(#piece-contact-shadow)"
+            />
+            <line
+              className="road-edge"
               x1={v1.x}
               y1={v1.y}
               x2={v2.x}
               y2={v2.y}
-              stroke="#241b18"
-              strokeWidth="10.5"
-              strokeLinecap="round"
             />
             <line
+              className="road-face"
               x1={v1.x}
               y1={v1.y}
               x2={v2.x}
               y2={v2.y}
               stroke={players[owner]?.color || '#ff0000'}
-              strokeWidth="7.2"
-              strokeLinecap="round"
             />
             <line
+              className="road-highlight"
               x1={v1.x}
               y1={v1.y - .8}
               x2={v2.x}
               y2={v2.y - .8}
-              stroke="#fff"
-              strokeOpacity=".34"
-              strokeWidth="1.35"
-              strokeLinecap="round"
             />
+            <title>{`${players[owner]?.name || `Player ${owner + 1}`} road`}</title>
           </g>
         ))}
 
         {/* Vertices (settlements/cities) */}
-        {uniqueVertices.map(({ key, vertex, pos }) => {
+        {uniqueVertices.map(({ id, key, keys, vertex, pos }) => {
           const canPlace = canPlaceAtVertex(key) && !vertex.building;
-          const canUpgrade = canUpgradeVertex(key, vertex);
+          const settlementAction = canPlace && legalActions.find(action => (
+            action.type === 'placeSettlement' && keys.includes(action.payload.vertexKey)
+          ));
+          const cityAction = canUpgradeVertex(key, vertex) && legalActions.find(action => (
+            action.type === 'upgradeToCity' && keys.includes(action.payload.vertexKey)
+          ));
+          const canUpgrade = Boolean(cityAction);
+          const owner = players[vertex.owner];
           
           return (
-            <g key={key} className="vertex-group">
+            <g key={id} className="vertex-group">
               {/* Settlement */}
               {vertex.building === 'settlement' && (
                 <g 
-                  className={`settlement ${canUpgrade ? 'upgradeable' : ''}`}
-                  onClick={() => canUpgrade && onUpgradeToCity(key)}
+                  className={`settlement ${canUpgrade ? 'upgradeable' : ''} ${transitions.settlements.has(id) || activeMotion.settlements.has(id) ? 'is-new' : ''}`}
+                  role={canUpgrade ? 'button' : undefined}
+                  tabIndex={canUpgrade ? 0 : undefined}
+                  aria-label={canUpgrade ? `Upgrade ${owner?.name || 'your'} settlement to a city` : undefined}
+                  onClick={() => canUpgrade && onUpgradeToCity(cityAction.payload.vertexKey)}
+                  onKeyDown={event => canUpgrade && activateWithKeyboard(event, () => onUpgradeToCity(cityAction.payload.vertexKey))}
                 >
+                  {canUpgrade && <>
+                    <circle className="vertex-placeholder-hit" cx={pos.x} cy={pos.y} r="20" />
+                    <circle className="choice-aura" cx={pos.x} cy={pos.y} r="21" />
+                    <circle className="upgrade-choice-ring" cx={pos.x} cy={pos.y} r="17" />
+                    <path className="upgrade-chevron" d={`M${pos.x - 5} ${pos.y - 22} L${pos.x} ${pos.y - 27} L${pos.x + 5} ${pos.y - 22}`} />
+                  </>}
+                  <ellipse className="building-contact-shadow" cx={pos.x + 1.5} cy={pos.y + 10} rx="12" ry="4" />
                   <path
-                    d={`M${pos.x - 10} ${pos.y - 2} L${pos.x} ${pos.y - 12} L${pos.x + 10} ${pos.y - 2} L${pos.x + 8} ${pos.y - 2} L${pos.x + 8} ${pos.y + 8} L${pos.x - 8} ${pos.y + 8} L${pos.x - 8} ${pos.y - 2} Z`}
-                    fill={players[vertex.owner].color}
-                    stroke="#2b211d"
-                    strokeWidth="1.8"
-                    filter="url(#building-shadow)"
+                    className="building-side"
+                    d={`M${pos.x - 9} ${pos.y + 4} L${pos.x + 9} ${pos.y + 4} L${pos.x + 7} ${pos.y + 10} L${pos.x - 7} ${pos.y + 10}Z`}
+                    fill={owner?.color || '#c44'}
                   />
-                  <path d={`M${pos.x - 7} ${pos.y - 1} L${pos.x} ${pos.y - 8} L${pos.x + 7} ${pos.y - 1}`} fill="none" stroke="#fff" strokeOpacity=".38" strokeWidth="1.2" strokeLinecap="round" />
-                  <rect x={pos.x - 2} y={pos.y + 2} width="4" height="6" rx=".7" fill="#2b211d" opacity=".58" />
+                  <path
+                    className="building-face"
+                    d={`M${pos.x - 10} ${pos.y - 2} L${pos.x} ${pos.y - 12} L${pos.x + 10} ${pos.y - 2} L${pos.x + 8} ${pos.y - 2} L${pos.x + 8} ${pos.y + 8} L${pos.x - 8} ${pos.y + 8} L${pos.x - 8} ${pos.y - 2} Z`}
+                    fill={owner?.color || '#c44'}
+                  />
+                  <path className="building-highlight" d={`M${pos.x - 7} ${pos.y - 1} L${pos.x} ${pos.y - 8} L${pos.x + 7} ${pos.y - 1} M${pos.x - 6} ${pos.y + 1} V${pos.y + 5}`} />
+                  <rect className="building-door" x={pos.x - 2} y={pos.y + 2} width="4" height="6" rx=".7" />
+                  {canUpgrade && <g className="upgrade-preview" transform={`translate(${pos.x} ${pos.y - 7})`}>
+                    <path d="M-13 9V-3L-7-9L-1-3V-14H7V-7H12V9Z" fill={owner?.color || '#c44'} />
+                    <path d="M-9 0L-7-3L-4 0M2-10H5M9-3V4" className="upgrade-preview-detail" />
+                  </g>}
+                  <title>{`${owner?.name || `Player ${vertex.owner + 1}`} settlement${canUpgrade ? '; upgrade available' : ''}`}</title>
                 </g>
               )}
               
               {/* City */}
               {vertex.building === 'city' && (
-                <g className="city">
+                <g className={`city ${transitions.cities.has(id) || activeMotion.cities.has(id) ? 'is-new' : ''}`}>
+                  <ellipse className="building-contact-shadow" cx={pos.x + 1.5} cy={pos.y + 11} rx="15" ry="4.5" />
                   <path
-                    d={`M${pos.x - 13} ${pos.y + 9} V${pos.y - 3} L${pos.x - 7} ${pos.y - 9} L${pos.x - 1} ${pos.y - 3} V${pos.y - 14} H${pos.x + 7} V${pos.y - 7} H${pos.x + 12} V${pos.y + 9}Z`}
-                    fill={players[vertex.owner].color}
-                    stroke="#2b211d"
-                    strokeWidth="1.8"
-                    filter="url(#building-shadow)"
+                    className="building-side"
+                    d={`M${pos.x - 13} ${pos.y + 5} H${pos.x + 12} L${pos.x + 9} ${pos.y + 11} H${pos.x - 10}Z`}
+                    fill={owner?.color || '#c44'}
                   />
-                  <path d={`M${pos.x - 10} ${pos.y - 2} L${pos.x - 7} ${pos.y - 5} L${pos.x - 3} ${pos.y - 1} M${pos.x + 2} ${pos.y - 11} H${pos.x + 5}`} fill="none" stroke="#fff" strokeOpacity=".4" strokeWidth="1.2" strokeLinecap="round" />
-                  <g fill="#2b211d" opacity=".55">
+                  <path
+                    className="building-face"
+                    d={`M${pos.x - 13} ${pos.y + 9} V${pos.y - 3} L${pos.x - 7} ${pos.y - 9} L${pos.x - 1} ${pos.y - 3} V${pos.y - 14} H${pos.x + 7} V${pos.y - 7} H${pos.x + 12} V${pos.y + 9}Z`}
+                    fill={owner?.color || '#c44'}
+                  />
+                  <path className="building-highlight" d={`M${pos.x - 10} ${pos.y - 2} L${pos.x - 7} ${pos.y - 5} L${pos.x - 3} ${pos.y - 1} M${pos.x + 2} ${pos.y - 11} H${pos.x + 5} M${pos.x + 9} ${pos.y - 4} V${pos.y + 4}`} />
+                  <g className="building-windows">
                     <rect x={pos.x - 9} y={pos.y + 3} width="3" height="6" rx=".5" />
                     <rect x={pos.x + 3} y={pos.y - 4} width="3" height="4" rx=".5" />
                     <rect x={pos.x + 7} y={pos.y + 3} width="3" height="4" rx=".5" />
                   </g>
+                  <title>{`${owner?.name || `Player ${vertex.owner + 1}`} city`}</title>
                 </g>
               )}
               
               {/* Clickable placeholder for placing settlements */}
-              {canPlace && legalActions.some(action => action.type === 'placeSettlement' && action.payload.vertexKey === key) && (
-                <circle
-                  cx={pos.x}
-                  cy={pos.y}
-                  r="10"
+              {settlementAction && (
+                <g
                   className="vertex-placeholder"
-                  onClick={() => onPlaceSettlement(key)}
-                />
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Place settlement here"
+                  onClick={() => onPlaceSettlement(settlementAction.payload.vertexKey)}
+                  onKeyDown={event => activateWithKeyboard(event, () => onPlaceSettlement(settlementAction.payload.vertexKey))}
+                >
+                  <circle className="vertex-placeholder-hit" cx={pos.x} cy={pos.y} r="18" />
+                  <circle className="choice-aura" cx={pos.x} cy={pos.y} r="20" />
+                  <circle className="vertex-placeholder-halo" cx={pos.x} cy={pos.y} r="11" />
+                  <path className="vertex-placeholder-piece" d={`M${pos.x - 8} ${pos.y + 7} V${pos.y - 1} L${pos.x} ${pos.y - 9} L${pos.x + 8} ${pos.y - 1} V${pos.y + 7}Z`} />
+                </g>
               )}
             </g>
           );
@@ -774,11 +789,10 @@ function HexBoard({
               />
               
               <g transform={`translate(${portX}, ${portY})`} filter="url(#token-shadow)">
-                <circle r="15" fill="url(#wood-gradient)" stroke="#e0b46d" strokeWidth="1.3" />
-                <circle r="11.8" fill="#f3dfb1" stroke="#5a3720" strokeWidth=".8" />
-                <GameIconSymbol name={getPortIcon(port)} x={0} y={0} size={15} />
+                <rect x="-13" y="-13" width="26" height="27" rx="2" fill="#eee4c9" stroke="#b1a686" strokeWidth="1" />
+                {port.resource ? <image href={CARD_ARTWORK[port.resource]} x="-10.5" y="-10.5" width="21" height="22" preserveAspectRatio="xMidYMid slice" /> : <path d="M-8 5h16L5 9H-5ZM0-9V4M-1-8-8 2h7ZM2-6l6 8H2Z" fill="#345360" stroke="#345360" strokeWidth=".7" />}
                 <g className="port-ratio">
-                  <rect x="-11" y="16" width="22" height="11" rx="5.5" />
+                  <rect x="-11" y="16" width="22" height="11" rx="2" />
                   <text textAnchor="middle" y="24" fontSize="8" fontWeight="800">{port.ratio}:1</text>
                 </g>
               </g>
@@ -787,6 +801,7 @@ function HexBoard({
         })}
       </g>
     </svg>
+    </BoardViewport>
   );
 }
 

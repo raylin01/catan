@@ -1,195 +1,171 @@
 .hex-board {
   display: block;
-  width: min(100%, 760px);
+  width: min(100%, 780px);
   height: auto;
   margin: 0 auto;
   overflow: visible;
-  filter: saturate(1.04) contrast(1.02);
   isolation: isolate;
+  filter: none;
 }
 
-.ocean-frame {
-  stroke: rgba(6, 31, 43, 0.9);
-  stroke-width: 5;
-}
+.ocean-frame { stroke: #8caaa9; stroke-width: 2; }
 
-.ocean-light {
-  pointer-events: none;
-}
-
-.island-shelf {
-  fill: #d3ad73;
-  stroke: #795437;
-  stroke-width: 1.6;
-  filter: drop-shadow(0 5px 4px rgba(2, 27, 36, 0.55));
-  pointer-events: none;
-}
-
-.hex {
-  transition: filter 180ms ease, transform 180ms ease;
-}
-
-.hex.clickable {
-  cursor: pointer;
-}
-
-.hex.clickable:hover .terrain-tile {
-  filter: url(#hex-shadow) brightness(1.11) saturate(1.08);
-}
-
-.hex.clickable:hover .tile-bevel {
-  stroke: rgba(255, 241, 174, 0.92);
-  stroke-width: 2.3;
-}
-
-.hex.has-robber .terrain-tile {
-  filter: url(#hex-shadow) brightness(0.76) saturate(0.72);
-}
-
-.terrain-tile { pointer-events: visiblePainted; }
-
+.ocean-light,
+.island-shelf,
+.coastline,
+.tile-sunwash,
+.tile-grain,
 .tile-bevel,
 .terrain-art,
-.terrain-badge {
-  pointer-events: none;
+.terrain-badge,
+.number-token,
+.robber,
+.road,
+.port { pointer-events: none; }
+
+.island-shelf {
+  fill: #c8bc97;
+  stroke: #807863;
+  stroke-width: 2.2;
+  filter: drop-shadow(0 2px 2px rgba(1, 24, 31, 0.4));
 }
 
-.tile-sunwash {
-  fill: rgba(255, 255, 255, 0.11);
-  pointer-events: none;
-}
+.coastline-sand { stroke: #e0d2ae; stroke-width: 5; stroke-linecap: round; }
+.coastline-foam { stroke: rgba(239, 250, 231, 0.82); stroke-width: 1; stroke-linecap: round; stroke-dasharray: 12 5 2 5; }
 
-.tile-bevel {
-  transition: stroke 180ms ease, stroke-width 180ms ease;
-}
+.hex { transform-box: fill-box; transform-origin: center; }
+.hex.clickable { cursor: pointer; }
+.terrain-tile { pointer-events: visiblePainted; transition: filter 150ms ease; }
+.tile-bevel { transition: stroke 150ms ease, stroke-width 150ms ease; }
 
-.terrain-art {
-  shape-rendering: geometricPrecision;
-}
+.hex.clickable:hover .terrain-tile,
+.hex.clickable:focus-visible .terrain-tile { filter: url(#hex-shadow) brightness(1.12) saturate(1.08); }
 
-.terrain-badge > circle {
-  fill: rgba(29, 29, 24, 0.56);
-  stroke: rgba(255, 247, 208, 0.64);
-  stroke-width: 0.8;
-}
+.hex.clickable:hover .tile-bevel,
+.hex.clickable:focus-visible .tile-bevel { stroke: #fff0ad; stroke-width: 2.8; }
 
-.number-token {
-  pointer-events: none;
-}
+.hex.clickable:focus-visible { outline: none; }
+.hex.legal-robber-target .terrain-tile { stroke: #e9d284; }
+.hex.has-robber .terrain-tile { filter: url(#hex-shadow) brightness(0.76) saturate(0.74); }
+.terrain-art { shape-rendering: geometricPrecision; }
+.tile-sunwash { fill: rgba(255, 255, 255, 0.13); }
+.tile-grain { mix-blend-mode: soft-light; }
 
-.number-token text {
-  paint-order: stroke;
-  stroke: rgba(255, 250, 224, 0.3);
-  stroke-width: 0.45;
-}
+.terrain-badge > circle { fill: rgba(25, 28, 23, 0.68); stroke: rgba(255, 247, 208, 0.72); stroke-width: 0.9; }
+.number-token text { paint-order: stroke; stroke: rgba(255, 250, 224, 0.38); stroke-width: 0.5; }
+.number-token--hot > circle:nth-child(2) { stroke: #b9ab8b; stroke-width: .6; }
 
-.number-token--hot > circle:first-child {
-  fill: #b9563c;
-}
+.robber { transform-box: fill-box; transform-origin: center bottom; }
+.robber.is-new { animation: robber-land var(--robber-motion-duration, 440ms) cubic-bezier(.2, .85, .32, 1.22) both; }
 
-.robber {
-  animation: robberBob 2.4s ease-in-out infinite;
-  transform-box: fill-box;
-  transform-origin: center bottom;
-  pointer-events: none;
-}
+.edge-placeholder,
+.vertex-placeholder,
+.settlement.upgradeable { cursor: pointer; outline: none; }
 
-@keyframes robberBob {
-  0%, 100% { translate: 0 0; }
-  50% { translate: 0 -2px; }
-}
+.edge-placeholder-hit { fill: transparent; stroke: none; pointer-events: all; }
+.edge-placeholder-halo { stroke: rgba(255, 239, 170, 0.42); stroke-width: 13; stroke-linecap: round; transition: stroke 140ms ease, stroke-width 140ms ease; }
+.edge-placeholder-piece { stroke: rgba(255, 248, 216, 0.76); stroke-width: 6.5; stroke-linecap: round; stroke-dasharray: 7 3; filter: drop-shadow(0 2px 2px rgba(3, 23, 29, 0.55)); transition: stroke 140ms ease, stroke-width 140ms ease; }
 
-.vertex-placeholder {
-  fill: rgba(255, 250, 220, 0.32);
-  stroke: rgba(255, 247, 196, 0.92);
-  stroke-width: 2;
-  stroke-dasharray: 3 2;
-  cursor: pointer;
-  transition: fill 160ms ease, stroke 160ms ease, r 160ms ease;
-  filter: drop-shadow(0 1px 2px rgba(3, 23, 29, 0.48));
-}
+.edge-placeholder:hover .edge-placeholder-halo,
+.edge-placeholder:focus-visible .edge-placeholder-halo { stroke: rgba(247, 194, 74, 0.78); stroke-width: 15; }
 
-.vertex-placeholder:hover {
-  fill: rgba(240, 191, 77, 0.72);
-  stroke: #fff0a8;
-  stroke-width: 2.6;
-  r: 11px;
-}
+.edge-placeholder:hover .edge-placeholder-piece,
+.edge-placeholder:focus-visible .edge-placeholder-piece { stroke: #fff8cf; stroke-width: 7.6; stroke-dasharray: none; }
 
-.edge-placeholder {
-  cursor: pointer;
-  transition: stroke 160ms ease, stroke-width 160ms ease;
-}
-
-.edge-placeholder:hover {
-  stroke: rgba(249, 208, 108, 0.85) !important;
-  stroke-width: 11px;
-}
-
-.road {
-  pointer-events: none;
-}
+.road { transform-box: fill-box; transform-origin: center; }
+.road.is-new { animation: road-place var(--piece-motion-duration, 520ms) cubic-bezier(.18, .82, .3, 1.18) both; }
+.road-edge, .road-face, .road-highlight { stroke-linecap: round; }
+.road-edge { stroke: #241b18; stroke-width: 11; }
+.road-face { stroke-width: 7.6; }
+.road-highlight { stroke: #fff; stroke-opacity: .4; stroke-width: 1.45; }
+.piece-contact-shadow { pointer-events: none; }
 
 .settlement,
 .city {
-  transition: filter 180ms ease, transform 180ms ease;
   transform-box: fill-box;
   transform-origin: center bottom;
+  filter: drop-shadow(1px 2.4px 1.4px rgba(7, 20, 26, 0.75));
+  transition: filter 150ms ease, translate 150ms ease, scale 150ms ease;
 }
 
-.settlement.upgradeable {
-  cursor: pointer;
+.settlement.is-new,
+.city.is-new { animation: building-place var(--piece-motion-duration, 520ms) cubic-bezier(.2, .88, .3, 1.2) both; }
+
+.settlement.upgradeable:hover,
+.settlement.upgradeable:focus-visible { filter: brightness(1.16) drop-shadow(0 0 6px rgba(255, 222, 125, 0.95)); translate: 0 -1px; scale: 1.06; }
+.settlement.upgradeable:focus-visible { outline: none; }
+.building-contact-shadow { fill: rgba(4, 17, 21, 0.48); filter: blur(1.4px); }
+.building-side { filter: brightness(.68) saturate(.9); stroke: #291e1a; stroke-width: 1.5; }
+.building-face { stroke: #2b211d; stroke-width: 1.9; paint-order: stroke fill; }
+.building-highlight { fill: none; stroke: #fff; stroke-opacity: .44; stroke-width: 1.25; stroke-linecap: round; }
+.building-door, .building-windows { fill: #291e1a; opacity: .62; }
+
+.vertex-placeholder-hit { fill: transparent; pointer-events: fill; }
+.vertex-placeholder-halo { fill: rgba(255, 244, 202, 0.2); stroke: rgba(255, 239, 168, 0.82); stroke-width: 1.8; stroke-dasharray: 3 2; filter: drop-shadow(0 2px 2px rgba(3, 23, 29, 0.48)); transition: fill 140ms ease, stroke 140ms ease, scale 140ms ease; transform-box: fill-box; transform-origin: center; }
+.vertex-placeholder-piece { fill: rgba(255, 248, 216, 0.76); stroke: rgba(74, 52, 33, 0.8); stroke-width: 1.5; transition: fill 140ms ease, translate 140ms ease; }
+
+.vertex-placeholder:hover .vertex-placeholder-halo,
+.vertex-placeholder:focus-visible .vertex-placeholder-halo { fill: rgba(241, 187, 60, 0.5); stroke: #fff0a8; scale: 1.14; }
+
+.vertex-placeholder:hover .vertex-placeholder-piece,
+.vertex-placeholder:focus-visible .vertex-placeholder-piece { fill: #fff4c5; translate: 0 -1px; }
+
+.port-ratio rect { fill: rgba(24, 29, 29, 0.92); stroke: rgba(250, 222, 160, 0.76); stroke-width: 0.7; }
+.port-ratio text { fill: #fff4d2; font-family: ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.2px; }
+
+@keyframes road-place {
+  0% { opacity: 0; translate: 0 -10px; scale: .78 1.14; }
+  58% { opacity: 1; translate: 0 1px; scale: 1.04 .94; }
+  100% { opacity: 1; translate: 0 0; scale: 1; }
 }
 
-.settlement.upgradeable:hover {
-  filter: brightness(1.15) drop-shadow(0 0 6px rgba(255, 222, 125, 0.92));
-  transform: translateY(-1px) scale(1.06);
+@keyframes building-place {
+  0% { opacity: 0; translate: 0 -16px; scale: .72 1.12; }
+  62% { opacity: 1; translate: 0 1px; scale: 1.06 .94; }
+  100% { opacity: 1; translate: 0 0; scale: 1; }
 }
 
-.city {
-  animation: cityGlow 3.2s ease-in-out infinite;
-}
-
-@keyframes cityGlow {
-  0%, 100% { filter: drop-shadow(0 2px 2px rgba(3, 19, 24, 0.58)); }
-  50% { filter: drop-shadow(0 2px 3px rgba(255, 238, 187, 0.45)); }
-}
-
-.port {
-  pointer-events: none;
-}
-
-.port-ratio rect {
-  fill: rgba(24, 29, 29, 0.9);
-  stroke: rgba(250, 222, 160, 0.72);
-  stroke-width: 0.7;
-}
-
-.port-ratio text {
-  fill: #fff4d2;
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: 0.2px;
+@keyframes robber-land {
+  0% { opacity: .2; translate: 0 -18px; scale: .82 1.12; }
+  65% { opacity: 1; translate: 0 1px; scale: 1.05 .94; }
+  100% { opacity: 1; translate: 0 0; scale: 1; }
 }
 
 @media (max-width: 720px) {
-  .hex-board {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .terrain-art {
-    opacity: 0.92;
-  }
+  .hex-board { width: 100%; min-width: 0; }
+  .terrain-art { opacity: .95; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hex,
-  .vertex-placeholder,
-  .edge-placeholder,
+  .hex *,
+  .edge-placeholder *,
+  .vertex-placeholder *,
   .settlement,
   .city,
-  .robber {
-    animation: none;
-    transition: none;
-  }
+  .road,
+  .robber { animation: none !important; transition: none !important; }
 }
+
+/* Legal choices are lit before hover, so the player can find every target. */
+.choice-aura { fill:#f6c96a30; stroke:#ffdf9170; stroke-width:1; pointer-events:none; transform-box:fill-box; transform-origin:center; animation:choice-breathe 2.6s ease-in-out infinite; }
+.vertex-placeholder-halo { fill:#183138ef; stroke:#ffe5a1; stroke-width:1.8; stroke-dasharray:none; filter:drop-shadow(0 0 3px #fbd379a6); }
+.vertex-placeholder-piece { fill:#f6e5b2; stroke:#785c30; stroke-width:1; }
+.edge-choice-aura { stroke:#e6b957; stroke-width:15; stroke-linecap:round; opacity:.25; pointer-events:none; animation:choice-light 2.6s ease-in-out infinite; }
+.edge-placeholder-halo { stroke:#23352de6; stroke-width:11; }
+.edge-placeholder-piece { stroke:#fbe4ab; stroke-width:6; stroke-dasharray:5 3; filter:drop-shadow(0 0 2px #f4c665aa); }
+.upgrade-choice-ring { fill:#e9bc5115; stroke:#ffe1a0; stroke-width:1.6; stroke-dasharray:26 5; pointer-events:none; filter:drop-shadow(0 0 3px #fbd379a6); }
+.upgrade-chevron { fill:none; stroke:#ffdf91; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; pointer-events:none; filter:drop-shadow(0 1px 2px #16262b); }
+.upgrade-preview { opacity:0; pointer-events:none; transition:opacity .16s ease; filter:drop-shadow(0 2px 2px #0b2426); }
+.upgrade-preview>path:first-child { stroke:#fff0b8; stroke-width:1.8; paint-order:stroke fill; }
+.upgrade-preview-detail { fill:none; stroke:#fff4cc; stroke-width:1.2; }
+.settlement.upgradeable { filter:drop-shadow(0 2px 2px #071a23a6); }
+.settlement.upgradeable:is(:hover,:focus-visible) { translate:none; scale:1; filter:none; }
+.settlement.upgradeable:is(:hover,:focus-visible) .upgrade-preview { opacity:1; }
+.settlement.upgradeable:is(:hover,:focus-visible) :is(.building-face,.building-side,.building-door,.building-highlight,.upgrade-chevron) { opacity:.14; }
+:is(.vertex-placeholder,.settlement.upgradeable):is(:hover,:focus-visible) .choice-aura { animation:none; opacity:1; scale:1.12; fill:#f6c96a55; stroke:#fff0c5; }
+.edge-placeholder:is(:hover,:focus-visible) .edge-choice-aura { animation:none; opacity:.65; }
+.robber-choice-ring { fill:#ffe5a10d; stroke:#f6d996; stroke-width:2.4; pointer-events:none; opacity:.9; filter:drop-shadow(0 0 2px #edc46080); }
+.hex.legal-robber-target:is(:hover,:focus-visible) .robber-choice-ring { stroke:#fff0b5; stroke-width:3.5; opacity:1; filter:drop-shadow(0 0 4px #edc460); }
+@keyframes choice-breathe { 0%,100% { opacity:.6; scale:.95; } 50% { opacity:1; scale:1.08; } }
+@keyframes choice-light { 0%,100% { opacity:.2; } 50% { opacity:.48; } }
+@media(prefers-reduced-motion:reduce) { .choice-aura,.edge-choice-aura { animation:none; opacity:.8; }.upgrade-preview { transition:none; } }

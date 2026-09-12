@@ -284,3 +284,21 @@ test('replacement AI lease journals sanitized status transitions without recordi
   for(const value of [oldRun,newRun,'private failure one','private failure two'])assert.equal(exported.includes(value),false);
   store.close();
 });
+
+
+test('development delivery survives public replay projection without its private identity',()=>{
+  const {store,service,created,players}=fixture();
+  try {
+    const room=service.roomFor(created.code),game=room.game;
+    game.phase='playing';game.turnPhase='main';game.currentPlayerIndex=0;
+    const buyer=game.players[0],actor=players.find(player=>player.seatId===buyer.id);
+    buyer.resources={brick:0,lumber:0,wool:1,grain:1,ore:1};
+    game.devCardDeck=['victoryPoint'];
+    assert.equal(envelope(service,created.code,actor,'buyDevCard').success,true);
+    const frame=service.replay(created.replayId,{perspective:'public'});
+    const event=frame.state.cardEvents.at(-1);
+    assert.equal(event.type,'buyDevCard');
+    assert.deepEqual(event.transfers.at(-1),{from:'bank',to:buyer.id,count:1,resource:'development'});
+    assert.equal(JSON.stringify(event).includes('victoryPoint'),false);
+  } finally {store.close();}
+});

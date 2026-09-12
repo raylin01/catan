@@ -1,3 +1,4 @@
+import {PresentationControls} from './presentation/GamePresentation';
 import {AiControls, ChatModelFields, AiStatus} from './components/AiControls';
 import { useEffect, useMemo, useState } from 'react';
 import './room.css';
@@ -166,6 +167,7 @@ function RoomLobby({
               {snapshot.replayId && <a className="room-link-button" href={`/replay/${encodeURIComponent(snapshot.replayId)}`}>View recording</a>}
             </div>
             <div className="room-code-block">
+              <PresentationControls/>
               <span className="room-label">Room code</span>
               <strong>{code}</strong>
               <button type="button" className="room-secondary-button" onClick={copyInvite}>
@@ -379,7 +381,7 @@ function RoomLobby({
             <h1>CATAN</h1>
             <p className="room-subtitle">Play Catan with friends and AI players.</p>
           </div>
-          <a className="room-link-button" href="/replays">Recordings</a>
+          <div className="room-home-tools"><PresentationControls/><a className="room-link-button" href="/replays">Recordings</a></div>
         </header>
 
         {error && <div className="room-error" role="alert">{error}</div>}

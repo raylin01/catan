@@ -50,6 +50,7 @@ function PlayerPanel({
     <Root
       className={`player-panel ${isCurrentTurn ? 'current-turn' : ''} ${isMe ? 'is-me' : ''} ${onSelect ? 'is-selectable' : ''} ${viewSelected ? 'is-viewing' : ''}`}
       {...rootProps}
+      style={{'--seat-color': player.color}}
     >
       <div className="player-header">
         {player.turnOrder && (
@@ -69,6 +70,7 @@ function PlayerPanel({
           {player.name}
           {isMe && <span className="you-badge">YOU</span>}
           {viewSelected && <span className="you-badge viewing-badge">VIEWING</span>}
+          {isCurrentTurn && !gameOver && <span className="turn-label">Turn</span>}
         </div>
         <div 
           className="victory-points has-info"
@@ -93,6 +95,7 @@ function PlayerPanel({
       </div>
       
       <AiStatus slot={slot}/>
+      <div className="player-inventory">
       <div className="player-stats">
         <div 
           className="stat has-info"
@@ -108,7 +111,7 @@ function PlayerPanel({
               });
             }
           }}
-          title="Right-click for info"
+          title="Resource cards in hand"
         >
           <GameIcon className="stat-icon" name="cards" size={15} />
           <span className="stat-value">{totalCards}</span>
@@ -116,7 +119,7 @@ function PlayerPanel({
         <div 
           className="stat has-info"
           onContextMenu={(e) => handleRightClick(e, 'devCards')}
-          title="Right-click for info"
+          title="Development cards"
         >
           <GameIcon className="stat-icon" name="devCard" size={15} />
           <span className="stat-value">{devCardCount}</span>
@@ -124,7 +127,7 @@ function PlayerPanel({
         <div 
           className="stat has-info"
           onContextMenu={(e) => handleRightClick(e, 'knights')}
-          title="Right-click for info"
+          title="Knights played"
         >
           <GameIcon className="stat-icon" name="knight" size={15} />
           <span className="stat-value">{player.knightsPlayed}</span>
@@ -135,7 +138,7 @@ function PlayerPanel({
         <div 
           className="piece-count has-info"
           onContextMenu={(e) => handleRightClick(e, 'settlements')}
-          title="Right-click for info"
+          title="Settlements remaining"
         >
           <GameIcon className="piece-icon" name="settlement" size={15} />
           <span>{player.settlements}</span>
@@ -143,7 +146,7 @@ function PlayerPanel({
         <div 
           className="piece-count has-info"
           onContextMenu={(e) => handleRightClick(e, 'cities')}
-          title="Right-click for info"
+          title="Cities remaining"
         >
           <GameIcon className="piece-icon" name="city" size={15} />
           <span>{player.cities}</span>
@@ -151,13 +154,14 @@ function PlayerPanel({
         <div 
           className="piece-count has-info"
           onContextMenu={(e) => handleRightClick(e, 'roads')}
-          title="Right-click for info"
+          title="Roads remaining"
         >
           <GameIcon className="piece-icon" name="road" size={15} />
           <span>{player.roads}</span>
         </div>
       </div>
       
+      </div>
       <div className="player-achievements">
         {longestRoad && (
           <div 
