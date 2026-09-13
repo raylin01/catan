@@ -104,3 +104,24 @@ test('closing before context resume completes does not start any sample requests
   const sound=createGameAudio(()=>fake.context,fake.fetchAudio),pending=sound.enable();
   sound.close();release();assert.equal(await pending,false);assert.equal(fake.fetched.length,0);
 });
+
+
+test('a later gesture can recover externally suspended audio without reloading samples', async () => {
+  const fake=fakeAudio(), sound=createGameAudio(()=>fake.context,fake.fetchAudio);
+  assert.equal(sound.isRunning(),false);
+  await sound.enable();
+  assert.equal(sound.isRunning(),true);
+  const count=fake.fetched.length;
+  fake.context.state='suspended';
+  assert.equal(sound.isRunning(),false);
+  sound.play('dice');
+  assert.equal(fake.played.length,0);
+  await sound.enable();
+  assert.equal(sound.isRunning(),true);
+  assert.equal(fake.fetched.length,count);
+  sound.play('dice');
+  assert.equal(fake.played.length,1);
+  sound.mute();
+  assert.equal(sound.isRunning(),false);
+  sound.close();
+});
