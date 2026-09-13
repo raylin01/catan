@@ -139,26 +139,42 @@
 .replay-facts dt { color: var(--text-muted); font-size: 10px; }
 .replay-facts dd { margin: 0; color: var(--text-primary); font-size: 11px; text-align: right; overflow-wrap: anywhere; }
 
-.replay-analysis { padding: 22px; background: #13252a; border-top: 1px solid var(--replay-line); }
-.replay-analysis > header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 12px; }
-.replay-analysis h2 { margin: 0; font-size: 21px; font-weight: 400; }
-.replay-analysis header span { color: var(--text-muted); font-size: 11px; }
-.replay-analysis header [role="tablist"] { display: flex; border-bottom: 1px solid var(--replay-line); }
-.replay-analysis header [role="tablist"] button { padding: 8px 12px; }
+.replay-analysis { padding: 24px; background: #13252a; border: 1px solid var(--replay-line); }
+.replay-analysis > header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--replay-line); }
+.replay-analysis h2 { flex: 1; margin: 0; font: 400 25px/1.2 Georgia, serif; color: var(--ui-paper); }
+.replay-chart-tabs { display: flex; gap: 6px; }
+.replay-chart-tabs button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 9px 16px; color: #bbc9c2; background: #ffffff03; border: 1px solid transparent; border-radius: 3px; font-size: 13px; }
+.replay-chart-tabs button[aria-pressed="true"] { color: #f1dbaf; background: #d8bd8312; border-color: #d8bd8360; box-shadow: inset 0 1px #fff4d00b; }
+.replay-chart-tabs button:hover { background: #ffffff09; }
 .replay-chart-wrap { max-width: 960px; margin: 0 auto; }
-.replay-chart-legend { display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; margin-bottom: 6px; color: var(--text-secondary); font-size: 10px; }
-.replay-chart-legend span { display: flex; align-items: center; gap: 5px; }
-.replay-chart-legend i { width: 14px; height: 3px; border-radius: 2px; }
+.replay-chart-readout { display: flex; justify-content: space-between; gap: 10px; color: #b3c0b8; font-size: 12px; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
+.replay-chart-readout strong { color: #eee6d2; font-size: 14px; font-weight: 500; margin-left: 8px; }
+.replay-chart-legend { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin-bottom: 12px; }
+.replay-chart-legend button { min-width: 0; text-align: left; padding: 8px 12px 7px; border: 1px solid #bcc4b81c; border-top: 2px solid var(--chart-player); border-radius: 3px; background: #ffffff03; color: #e5e7da; transition: opacity .15s, background .15s; }
+.replay-chart-legend button:hover, .replay-chart-legend button[aria-pressed="true"] { background: #ffffff09; border-bottom-color: var(--chart-player); }
+.replay-chart-legend button.is-dimmed { opacity: .5; }
+.replay-chart-player { display: flex; align-items: center; gap: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.replay-chart-player i { flex: 0 0 6px; height: 6px; border-radius: 50%; background: var(--chart-player); }
+.replay-chart-value { display: block; margin-top: 5px; font: 400 28px/1.15 Georgia,serif; font-variant-numeric: tabular-nums; }
+.replay-chart-value small { color: #afbbb1; font: 11px system-ui,sans-serif; }
+.replay-chart-surface { position: relative; }
 .replay-chart { display: block; width: 100%; overflow: visible; }
-.replay-chart-grid { stroke: rgba(220, 232, 227, .09); stroke-width: 1; }
-.replay-chart-baseline { stroke: #657573; stroke-width: 1; }
-.replay-chart-axis { fill: #8fa3a2; font: 10px system-ui, sans-serif; }
-.replay-chart-line { stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
-.replay-chart-point { stroke: #13252a; stroke-width: 2; cursor: pointer; }
-.replay-chart-point:hover,
-.replay-chart-point:focus { stroke: #f1d497; stroke-width: 3; outline: none; }
-.replay-chart-table { margin-top: 6px; color: var(--text-muted); font-size: 10px; }
-.replay-chart-table summary { width: max-content; cursor: pointer; }
+.replay-chart-hit-area { position: absolute; cursor: crosshair; }
+.replay-chart-grid { stroke: #b3c1b31c; stroke-width: 1; }
+.replay-chart-axis { fill: #acbab2; font: 11px system-ui,sans-serif; font-variant-numeric: tabular-nums; }
+.replay-chart-line { stroke-width: 2.4; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.replay-chart-playhead { stroke: #e3c38a; stroke-width: 1; }
+.replay-chart-playhead-cap { fill: #e3c38a; }
+.replay-chart-cursor { stroke: #e8eee2; stroke-dasharray: 3 4; stroke-width: 1; }
+.replay-chart-scrub { display: flex; align-items: center; gap: 12px; margin-top: 12px; color: #bac8bf; font-size: 11px; }
+.replay-chart-scrub label { white-space: nowrap; }
+.replay-chart-scrub input { flex: 1; min-width: 0; accent-color: #dfc18a; cursor: pointer; }
+.replay-chart-scrub button { flex-shrink: 0; min-height: 36px; padding: 7px 12px; border: 1px solid #d8bd8360; border-radius: 3px; color: #efd7a5; background: #d8bd830c; font-size: 12px; }
+.replay-chart-hint { margin: 12px 0 18px; color: #a6b6ac; font-size: 11px; line-height: 1.5; }
+.replay-chart-table { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--replay-line); color: #c7d0c4; font-size: 12px; }
+.replay-chart-table summary { cursor: pointer; min-height: 24px; }
+.replay-chart-table summary span { float: right; font-size: 11px; color: #a6b6ac; }
+.replay-chart-wrap :is(button,input,summary):focus-visible, .replay-analysis > header button:focus-visible, .replay-chart-tabs button:focus-visible { outline: 2px solid #e5c792; outline-offset: 3px; }
 .replay-table-scroll { max-height: 260px; overflow: auto; margin-top: 8px; border: 1px solid var(--replay-line); }
 .replay-table-scroll table { width: 100%; border-collapse: collapse; color: var(--text-secondary); }
 .replay-table-scroll th,
@@ -275,10 +291,10 @@
 .replay-opening > span { font-size: 12px; }
 .replay-opening button { min-height: 35px; padding: 7px 12px; border: 1px solid var(--accent-gold); border-radius: 5px; color: var(--accent-gold); background: var(--bg-tertiary); }
 .replay-player-page > .replay-timeline { flex-shrink: 0; }
-.replay-analysis-overlay { position: absolute; z-index: 25; top: 62px; right: 16px; width: min(780px, calc(100% - 32px)); max-height: calc(100dvh - 200px); overflow-y: auto; overscroll-behavior: contain; padding: 16px; border: 1px solid var(--replay-line); border-radius: 8px; background: var(--bg-secondary); box-shadow: 0 16px 50px #0008; }
+.replay-analysis-overlay { position: absolute; z-index: 25; top: 62px; right: 16px; width: min(880px, calc(100% - 32px)); max-height: calc(100dvh - 200px); overflow-y: auto; overscroll-behavior: contain; padding: 16px; border: 1px solid var(--replay-line); border-radius: 4px; background: var(--bg-secondary); box-shadow: 0 16px 50px #0008; }
 .replay-analysis-overlay > header { display: flex; flex-direction: row; align-items: center; gap: 14px; }
-.replay-analysis-overlay > header h2 { flex: 1; font-size: 18px; }
-.replay-analysis-overlay > header > button { display: grid; place-items: center; padding: 6px; border: 0; background: transparent; }
+
+.replay-analysis-overlay > header > button { display: grid; place-items: center; width: 36px; height: 36px; padding: 6px; border: 1px solid var(--replay-line); border-radius: 3px; background: transparent; }
 @media (max-width: 1080px) {
   .replay-viewer-title { flex-direction: column; gap: 1px; }
 }
@@ -297,7 +313,14 @@
   .replay-game-inspector { width: 100%; }
   .replay-analysis-overlay { position: fixed; top: 12px; left: 10px; right: 10px; width: auto; max-height: calc(100dvh - 175px); padding: 12px; }
   .replay-analysis-overlay > header { gap: 5px; flex-wrap: wrap; }
-  .replay-analysis-overlay > header h2 { font-size: 15px; }
+  .replay-analysis-overlay > header h2 { font-size: 23px; }
+  .replay-chart-legend { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; margin-bottom: 12px; }
+  .replay-chart-legend button { padding: 8px 10px; }
+  .replay-chart-value { font-size: 24px; }
+  .replay-chart-tabs { order: 3; flex-basis: 100%; margin-top: 10px; }
+  .replay-chart-tabs button { flex: 1; }
+  .replay-chart-scrub { gap: 8px; }
+  .replay-chart-hint { margin-bottom: 12px; }
   .replay-analysis-overlay header [role="tablist"] button { padding: 7px; }
 }
 @media (min-width: 561px) and (max-width: 760px) {

@@ -339,8 +339,13 @@ export default function ReplayPage({ replayId, onBack, token, getToken }) {
       {frameLoading && <span className="replay-frame-status" role="status">Loading moment…</span>}
     </div>
     {showAnalysis && <section className="replay-analysis replay-analysis-overlay" aria-label="Match charts">
-      <header><h2>Match progress</h2><div role="tablist" aria-label="Match chart"><button type="button" role="tab" aria-selected={chartTab === 'vp'} onClick={() => setChartTab('vp')}>Victory points</button><button type="button" role="tab" aria-selected={chartTab === 'roads'} onClick={() => setChartTab('roads')}>Roads</button></div><button type="button" aria-label="Close charts" onClick={() => setShowAnalysis(false)}><GameIcon name="close" size={18}/></button></header>
-      <RecordedChart points={metrics} players={players} chart={chartTab} onSeek={seekEvent}/>
+      <header><h2>Match progress</h2>
+      <div className="replay-chart-tabs" role="group" aria-label="Match chart">
+        <button type="button" aria-pressed={chartTab === 'vp'} onClick={() => setChartTab('vp')}><GameIcon name="trophy" size={17}/>Victory points</button>
+        <button type="button" aria-pressed={chartTab === 'roads'} onClick={() => setChartTab('roads')}><GameIcon name="road" size={17}/>Roads</button>
+      </div>
+      <button type="button" aria-label="Close charts" onClick={() => {setShowAnalysis(false);chartsButton.current?.focus();}}><GameIcon name="close" size={18}/></button></header>
+      <RecordedChart key={chartTab} points={metrics} players={players} chart={chartTab} timeMs={timeMs} seq={seq} onSeek={seekEvent}/>
     </section>}
     <ReplayTimeline events={events} metrics={metrics} players={players} durationMs={durationMs} timeMs={timeMs} playing={playing} speed={speed} skipIdle={skipIdle}
       disabled={supplementLoading || !events.length} onSeekTime={seekTime} onSeekEvent={seekEvent} onTogglePlay={togglePlayback} onSpeedChange={setSpeed} onSkipIdleChange={setSkipIdle}/>
