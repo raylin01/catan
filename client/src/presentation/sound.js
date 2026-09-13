@@ -42,7 +42,7 @@ export function createGameAudio(getContext, fetchAudio = (url, options) => fetch
       if (!master) { master = context.createGain(); master.gain.value = .75; master.connect(context.destination); }
       await context.resume();
       if (ticket !== generation || closed) return false;
-      // Load only on opt-in. Playback itself stays synchronous: a delayed
+      // Load only after gesture activation. Playback itself stays synchronous: a delayed
       // download must never make an old action sound after it has passed.
       await Promise.allSettled([...new Set(Object.values(SOUND_CLIPS).flat())].map(load));
       if (ticket !== generation || closed) return false;
@@ -74,5 +74,5 @@ export function createGameAudio(getContext, fetchAudio = (url, options) => fetch
       source.start(now);
     } catch { /* Optional audio must never interrupt a game action. */ }
   };
-  return {enable, mute, play, close: () => { closed = true; mute(); for (const controller of requests) controller.abort(); buffers.clear(); master?.disconnect(); context?.close?.().catch(() => {}); }};
+  return {enable, mute, play, isRunning: () => enabled && context?.state === 'running', close: () => { closed = true; mute(); for (const controller of requests) controller.abort(); buffers.clear(); master?.disconnect(); context?.close?.().catch(() => {}); }};
 }

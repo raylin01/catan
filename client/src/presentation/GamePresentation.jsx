@@ -4,33 +4,60 @@ import './presentation.css';
 import coastArtwork from '../assets/painted/coast.webp';
 
 const noop = () => {};
-const PresentationContext = createContext({soundEnabled:false, ambientEnabled:true, toggleSound:noop, toggleAmbient:noop, playSound:noop});
+const PresentationContext = createContext({soundEnabled:true, ambientEnabled:true, toggleSound:noop, toggleAmbient:noop, playSound:noop});
 export const useGamePresentation = () => useContext(PresentationContext);
 
 export function GamePresentation({children}) {
-  // Sound always starts muted, even if another visit had it enabled.
-  const [soundEnabled,setSoundEnabled] = useState(false);
+  const [soundEnabled,setSoundEnabled] = useState(() => {
+    try { return localStorage.getItem('catanSoundEffects') !== 'off'; } catch { return true; }
+  });
   const [audioUnavailable,setAudioUnavailable] = useState(false);
   const [ambientEnabled,setAmbientEnabled] = useState(() => {
     try { return localStorage.getItem('catanAmbientMotion') !== 'off'; } catch { return true; }
   });
-  const audio = useRef(null), request = useRef(0), soundWanted = useRef(false);
-  const toggleSound = useCallback(async () => {
+  const audio = useRef(null), request = useRef(0), soundWanted = useRef(soundEnabled);
+  const enabling = useRef(false);
+  const enableSound = useCallback(async () => {
+    if (!soundWanted.current || audio.current?.isRunning() || enabling.current) return;
     const ticket = ++request.current;
-    soundWanted.current = !soundWanted.current;
-    if (!soundWanted.current) { audio.current?.mute(); setSoundEnabled(false); return; }
+    enabling.current = true;
     audio.current ||= createGameAudio(() => new (window.AudioContext || window.webkitAudioContext)());
     const enabled = await audio.current.enable();
-    if (ticket !== request.current) { if (!soundWanted.current) audio.current?.mute(); return; }
-    setSoundEnabled(enabled); setAudioUnavailable(!enabled);
-    soundWanted.current = enabled;
+    if (ticket !== request.current) return;
+    enabling.current = false;
+    setAudioUnavailable(!enabled);
   }, []);
+  const toggleSound = useCallback(() => {
+    const wanted = !soundWanted.current;
+    soundWanted.current = wanted;
+    setSoundEnabled(wanted);
+    setAudioUnavailable(false);
+    try { localStorage.setItem('catanSoundEffects',wanted?'on':'off'); } catch { /* Storage may be unavailable. */ }
+    if (wanted) { void enableSound(); return; }
+    ++request.current;
+    enabling.current = false;
+    audio.current?.mute();
+  }, [enableSound]);
+  // Browsers require a gesture before audio can start. Keep listening so a
+  // failed activation can retry; repeated gestures never duplicate loading.
+  useEffect(() => {
+    const activate = event => { if (event.isTrusted) void enableSound(); };
+    document.addEventListener('pointerdown',activate);
+    document.addEventListener('keydown',activate);
+    return () => {
+      document.removeEventListener('pointerdown',activate);
+      document.removeEventListener('keydown',activate);
+      ++request.current;
+      enabling.current = false;
+        audio.current?.close();
+      audio.current = null;
+    };
+  }, [enableSound]);
   const toggleAmbient = useCallback(() => setAmbientEnabled(value => {
     try { localStorage.setItem('catanAmbientMotion',value?'off':'on'); } catch { /* Private browsing may deny storage. */ }
     return !value;
   }), []);
   const playSound = useCallback(kind => audio.current?.play(kind,document.visibilityState === 'visible'), []);
-  useEffect(() => () => { ++request.current; audio.current?.close(); audio.current=null; }, []);
   return <PresentationContext.Provider value={{soundEnabled,ambientEnabled,toggleSound,toggleAmbient,playSound}}>
     <IslandAtmosphere animated={ambientEnabled}/>
     {children}
