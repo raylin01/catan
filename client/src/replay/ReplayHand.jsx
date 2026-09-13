@@ -1,6 +1,7 @@
 import GameIcon from '../components/GameIcon';
 import ResourceCards from '../components/ResourceCards';
 import CardArtwork from '../components/CardArtwork';
+import { playerColor } from './replayUtils';
 import './ReplayHand.css';
 
 const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
@@ -25,10 +26,6 @@ function resourceCount(value) {
 
 function devCount(player) {
   return cardCount(player?.developmentCards) + cardCount(player?.newDevCards ?? player?.newDevelopmentCards);
-}
-
-function playerColor(player, index) {
-  return player?.color || ['#d96855', '#4f94b5', '#dc9b51', '#63a892'][index % 4];
 }
 
 function ConcealedCards({ kind, count }) {

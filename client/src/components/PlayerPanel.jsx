@@ -6,6 +6,7 @@ function PlayerPanel({
   slot,
   player,
   isCurrentTurn,
+  turnLabel = 'Turn',
   isMe,
   longestRoad,
   largestArmy,
@@ -70,7 +71,7 @@ function PlayerPanel({
           {player.name}
           {isMe && <span className="you-badge">YOU</span>}
           {viewSelected && <span className="you-badge viewing-badge">VIEWING</span>}
-          {isCurrentTurn && !gameOver && <span className="turn-label">Turn</span>}
+          {isCurrentTurn && !gameOver && <span className="turn-label">{turnLabel}</span>}
         </div>
         <div 
           className="victory-points has-info"

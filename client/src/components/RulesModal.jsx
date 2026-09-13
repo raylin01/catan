@@ -20,7 +20,7 @@ function RulesModal({ onClose }) {
       content: `
 **Objective:** Be the first player to reach **10 Victory Points** by building settlements, cities, and earning special achievements.
 
-**Players:** 2-6 players (5-6 player mode uses the extension rules)
+**Players:** 3–4 in the base game, or 5–6 with the optional extension
 
 **Victory Points are earned from:**
 • Settlements: 1 VP each
@@ -68,6 +68,7 @@ function RulesModal({ onClose }) {
 
 **4. End Turn**
 • Click "End Turn" to pass to the next player
+• In a 5–6 player game, the extra player takes an action phase before the markers advance
       `
     },
     building: {
@@ -187,20 +188,16 @@ function RulesModal({ onClose }) {
       content: `
 **What's Different:**
 • Larger board with more hexes and ports
-• 2 additional player colors: Green and Brown
+• 2 additional player colors
 • More resource cards in the supply
 • Additional development cards
 
-**Special Building Phase:**
-After each player's turn ends, there is a Special Building Phase where ALL other players may:
-• Build roads, settlements, or cities
-• Buy development cards (but not play them)
-• **Cannot trade** during this phase
-
-This ensures players don't accumulate too many cards between turns.
-
-**Strategy Tip:**
-With more players, resources become more scarce. Focus on building efficiently and getting good port access early!
+**Paired action phases:**
+• The production player rolls and takes a normal turn
+• The third player to their left then takes an extra action phase without rolling
+• That player may build, buy or play a development card, and trade with the bank or ports
+• Player-to-player trading is unavailable during the extra action phase
+• Both markers then move one seat
       `
     }
   };
