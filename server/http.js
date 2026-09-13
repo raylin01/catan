@@ -1,4 +1,6 @@
 import express from 'express';
+import {readFileSync,existsSync} from 'node:fs';
+import {shareMetadata,renderShareHtml} from './shareMetadata.js';
 import {createServer} from 'node:http';
 import {timingSafeEqual} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
@@ -10,7 +12,7 @@ import {agentGuide} from './agentGuide.js';
 import {normalizePublicUrl,requestPublicUrl,requestLimits} from './publicHosting.js';
 
 const same=(a,b)=>typeof a==='string'&&typeof b==='string'&&Buffer.byteLength(a)===Buffer.byteLength(b)&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
-export function createAppServer({service,hostKey,publicUrl,siteName="Catan Online by rlin",bridgeRef="main",trustProxy=false,createLimit=5}) {
+export function createAppServer({service,hostKey,publicUrl,siteName="Catan Online by rlin",bridgeRef="main",trustProxy=false,createLimit=5,indexHtml}) {
   const canonicalOrigin=normalizePublicUrl(publicUrl);
   if(!hostKey || hostKey.length<16)throw Error('Host key must contain at least 16 characters');
   const app=express();app.disable('x-powered-by');app.use(express.json({limit:'24kb'}));
@@ -96,8 +98,23 @@ export function createAppServer({service,hostKey,publicUrl,siteName="Catan Onlin
   app.post('/api/rooms/:code/commands',(req,res)=>send(res,service.command(code(req),token(req),req.body)));
   app.use('/api',(_req,res)=>send(res,{success:false,statusCode:404,error:'Unknown endpoint'}));
   app.use('/socket.io',(_req,res)=>send(res,{success:false,statusCode:404,error:'Unknown endpoint'}));
-  app.use(express.static(fileURLToPath(new URL('../client/dist/',import.meta.url)),{setHeaders(res){res.setHeader('Referrer-Policy','no-referrer');}}));
-  app.get('*',(_req,res)=>res.sendFile(fileURLToPath(new URL('../client/dist/index.html',import.meta.url))));
+  const indexPath=fileURLToPath(new URL('../client/dist/index.html',import.meta.url));
+  const template=indexHtml??(existsSync(indexPath)?readFileSync(indexPath,'utf8'):null);
+  app.get('/robots.txt',(_req,res)=>res.type('text/plain').send('User-agent: *\nDisallow: /api/\nDisallow: /replays\n'));
+  app.use(express.static(fileURLToPath(new URL('../client/dist/',import.meta.url)),{index:false}));
+  app.get('*',(req,res)=>{
+    // Share pages perform the same room/archive lookups as the public API.
+    // Keep them in its anonymous budget, regardless of supplied credentials.
+    const limit=limits.request(req);
+    if(!limit.allowed)return res.set('Retry-After',String(limit.retryAfter)).status(429).type('text/plain').send('Request rate exceeded; wait and retry');
+    if(!template)return res.status(503).type('text/plain').send('Build the client before starting the game server.');
+    const origin=requestPublicUrl(req,canonicalOrigin);
+    const metadata=shareMetadata({path:req.path,query:req.query,origin,siteName,service});
+    res.set('Cache-Control','no-store');
+    if(metadata.unlisted)res.set('X-Robots-Tag','noindex, noarchive');
+    if(metadata.redirect)return res.redirect(302,metadata.redirect);
+    res.status(metadata.status).type('html').send(renderShareHtml(template,metadata,origin));
+  });
   app.use((err,_req,res,_next)=>res.status(err.status===413?413:400).json({success:false,error:err.status===413?'Request too large':'Invalid request'}));
   const server=createServer(app);
   const expiry=setInterval(()=>service.expireInactiveRooms(),60000);expiry.unref();
