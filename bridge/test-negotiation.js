@@ -28,6 +28,19 @@ test('AI negotiation projection drops prose, irrelevant, self, closed and stale 
   assert.equal(JSON.stringify(modelObservation({...view,negotiations:[valid]})).includes('PRIVATE_MEMORY'),false);
 });
 
+test('AI decision and negotiation projections include a second matching trade',()=>{
+  const view=state();
+  view.trades=[{id:'unrelated',from:'a',to:'b',status:'offered'},
+    {id:'matching',from:'b',to:'a',status:'offered'}];
+  view.trade=view.trades[0];
+  const offer={...interest(),intent:{kind:'offer',tradeId:'matching',replyToId:null}};
+  assert.equal(projectNegotiations(view,[offer]).length,1);
+  const schema=decisionSchemaFor(view).properties.trade.anyOf[0];
+  assert.ok(schema.properties.operation.enum.includes('tradeAccept'));
+  assert.ok(schema.properties.tradeId.enum.includes('matching'));
+  assert.equal(modelObservation(view).trades.length,2);
+});
+
 test('negotiation is a separate decision and unavailable outside permitted main-phase windows',()=>{
   const view=state();view.negotiation.canInitiate=true;
   const value={actionIndex:null,discard:null,trade:null,negotiation:{kind:'interest',wants:['wool'],offers:['brick'],to:null,replyToId:null},wait:false,memory:'private',publicReply:'silent'};
@@ -99,7 +112,7 @@ test('declined counterparts cannot be targeted by new trades or wake gameplay ag
   view.trade={id:'existing',from:'b',to:'a',status:'offered'};
   assert.deepEqual(decisionSchemaFor(view).properties.trade.anyOf[0].properties.operation.enum,['tradeAccept','tradeReject']);
   view.trade=null;view.negotiation.blockedTradeSeatIds=[];
-  assert.deepEqual(decisionSchemaFor(view).properties.trade.anyOf[0].properties.to,{type:'string',enum:['b']});
+  assert.deepEqual(decisionSchemaFor(view).properties.trade.anyOf[0].properties.operation.enum,['tradeOffer']);
 });
 
 

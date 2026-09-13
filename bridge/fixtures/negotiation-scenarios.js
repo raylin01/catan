@@ -74,6 +74,7 @@ function createMainTurn({now, actorResources, partnerResources = {}, thirdSeatKi
   room.game.yearOfPlentyPicks = 0;
   room.paused = false;
   room.trade = null;
+  room.trades = [];
   for (const player of room.game.players) player.resources = emptyResources();
   room.game.players[actorIndex].resources = emptyResources(actorResources);
   room.game.players[partnerIndex].resources = emptyResources(partnerResources);

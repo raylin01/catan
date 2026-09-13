@@ -85,7 +85,7 @@ test('chat suggestions cannot turn into acceptance of a nonexistent game offer',
   const view=base();
   assert.deepEqual(decisionSchemaFor(view).properties.trade.anyOf[0].properties.operation.enum,['tradeOffer']);
   view.trade={id:'real',from:'human',to:'ai',status:'offered'};
-  assert.deepEqual(decisionSchemaFor(view).properties.trade.anyOf[0].properties.operation.enum,['tradeCounter','tradeAccept','tradeReject']);
+  assert.deepEqual(decisionSchemaFor(view).properties.trade.anyOf[0].properties.operation.enum,['tradeOffer','tradeCounter','tradeAccept','tradeReject']);
   view.gameState.turnPhase='robber';assert.deepEqual(decisionSchemaFor(view).properties.trade,{type:'null'});
 });
 

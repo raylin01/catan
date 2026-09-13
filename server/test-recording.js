@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {RoomStore} from './store.js';
 import {RoomService} from './roomService.js';
-import {captureState} from './recording.js';
+import {captureState,projectState} from './recording.js';
 
 let request=0;
 const envelope=(service,code,actor,type,payload={})=>{
@@ -102,13 +102,22 @@ test('legacy saved rooms migrate to an explicit partial baseline',()=>{
     {id:'seat-1',name:'Alice',kind:'human',provider:null,model:null,generation:1,controller:null,ready:false},
     {id:'seat-2',name:'Seat 2',kind:'human',provider:null,model:null,generation:0,controller:null,ready:false},
     {id:'seat-3',name:'Seat 3',kind:'human',provider:null,model:null,generation:0,controller:null,ready:false}],
-    members:{},game:null,trade:null,chat:[],receipts:{},cardEvents:[],paused:false});
+    members:{},game:null,trade:{id:'legacy-offer',from:'seat-1',to:'seat-2',give:{brick:1},get:{wool:1},status:'offered',counterOf:null},chat:[],receipts:{},cardEvents:[],paused:false});
   const service=new RoomService({store,now:()=>9000}),room=service.rooms.get('LEGACY01');
   assert.ok(room.recordingId);
   const recording=service.replay(room.recordingId);
   assert.equal(recording.success,true);assert.equal(recording.recording.partial,true);
+  assert.equal(room.trades[0].id,'legacy-offer');
+  assert.equal(service.replay(room.recordingId).state.trades[0].id,'legacy-offer');
   assert.equal(service.replayEvents(room.recordingId).events[0].type,'partialBaseline');
   store.close();
+});
+
+test('older replay snapshots without trades retain their historical single offer',()=>{
+  const trade={id:'historical',from:'seat-1',to:'seat-2',give:{brick:1},get:{grain:1},status:'offered',counterOf:null};
+  const projected=projectState({slots:[],gameState:null,trade,cardEvents:[]},{perspective:'public'});
+  assert.deepEqual(projected.trades,[trade]);
+  assert.deepEqual(projected.trade,trade);
 });
 
 test('unfinished replay, events, metrics, and export share generation-aware privacy',()=>{

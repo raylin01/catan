@@ -249,6 +249,11 @@ function normalizeTrade(rawTrade, players) {
   return {id, from, to, status, give, get};
 }
 
+function normalizeTrades(source,players) {
+  const candidates=Array.isArray(source.trades)?source.trades:(source.trade?[source.trade]:[]);
+  return candidates.slice(0,12).map(trade=>normalizeTrade(trade,players)).filter(Boolean);
+}
+
 function sanitizeProjectedFacts(value) {
   const source = isRecord(value) ? value : {};
   const seats = normalizeSeatRecords(source.seats, []);
@@ -271,6 +276,7 @@ function sanitizeProjectedFacts(value) {
     ...(robberHexKey && hexKeys.has(robberHexKey) ? {robberHexKey} : {}),
     seats,
     board,
+    trades:normalizeTrades(source,players),
     trade: normalizeTrade(source.trade, players)
   };
 }
@@ -302,6 +308,7 @@ export function projectPublicState(value = {}) {
   const hexKeys = new Set(board.hexes.map(hex => hex.key));
   const rawTrade = root.trade ?? game.trade ?? game.tradeOffer;
   const tradePlayers = players.map(player => ({id: player?.id, name: player?.name}));
+  const trades=normalizeTrades({trades:root.trades??game.trades,trade:rawTrade},tradePlayers);
   return {
     phase: enumValue(game.phase, PHASES),
     turnPhase: enumValue(game.turnPhase, TURN_PHASES),
@@ -312,6 +319,7 @@ export function projectPublicState(value = {}) {
     ...(robber && hexKeys.has(robber) ? {robberHexKey: robber} : {}),
     seats,
     board,
+    trades,
     trade: normalizeTrade(rawTrade, tradePlayers)
   };
 }
@@ -413,10 +421,9 @@ function normalizeTradeProposal(candidate, base, facts, seats) {
     const get = normalizeCounts(candidate.get);
     if (!validTradeParties(base.authorSeatId, to, facts, seats) || !give || !get) return null;
     if (Object.keys(give).some(resource => get[resource] > 0)) return null;
-    if (type === 'tradeOffer' && facts.trade) return null;
     if (type === 'tradeCounter') {
       const tradeId = boundedString(candidate.tradeId, MAX_IDENTIFIER_LENGTH);
-      const trade = facts.trade;
+      const trade = facts.trades.find(trade=>trade.id===tradeId);
       if (!tradeId || !trade || trade.id !== tradeId || trade.status !== 'offered'
         || base.authorSeatId !== trade.to || to !== trade.from) return null;
       return {...base, tradeId, to, give, get};
@@ -425,7 +432,7 @@ function normalizeTradeProposal(candidate, base, facts, seats) {
   }
 
   const tradeId = boundedString(candidate.tradeId, MAX_IDENTIFIER_LENGTH);
-  const trade = facts.trade;
+  const trade = facts.trades.find(trade=>trade.id===tradeId);
   if (!tradeId || !trade || trade.id !== tradeId) return null;
   if (type === 'tradeAccept' || type === 'tradeReject') {
     if (base.authorSeatId !== trade.to || trade.status !== 'offered') return null;
@@ -562,7 +569,7 @@ function normalizeOutcomeLocation(event, facts) {
 
 function normalizeOutcomeTrade(event, facts, type) {
   if (!TRADE_PROPOSAL_TYPES.has(type) || type === 'tradeInterest') return {};
-  const trade = isRecord(event.trade) ? event.trade : event;
+  const trade = isRecord(event.details?.trade) ? event.details.trade : isRecord(event.trade) ? event.trade : event;
   const tradeId = boundedString(trade.tradeId ?? trade.id, MAX_IDENTIFIER_LENGTH);
   const to = normalizeSeatId(trade.to ?? trade.targetSeatId, facts.seats);
   const give = normalizeCounts(trade.give ?? trade.offer, {allowEmpty: true});
@@ -585,7 +592,7 @@ function normalizeOutcome(event, facts) {
   if (!id || !actorSeatId || !type) return null;
   const at = Number.isSafeInteger(event.at) ? event.at : Number.isSafeInteger(event.timestamp) ? event.timestamp : null;
   const location = normalizeOutcomeLocation(event, facts);
-  const rawRoll = isRecord(event.roll) ? event.roll : null;
+  const rawRoll = isRecord(event.details?.dice) ? event.details.dice : isRecord(event.roll) ? event.roll : null;
   const die1 = safeInteger(rawRoll?.die1, 1, 6);
   const die2 = safeInteger(rawRoll?.die2, 1, 6);
   const total = safeInteger(rawRoll?.total, 2, 12);

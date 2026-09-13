@@ -161,6 +161,25 @@ test('speaker projection includes only public facts, confirmed outcomes, and app
   assert.equal(context.publicFacts.seats.every(seat => seat.id), true);
 });
 
+test('public trade proposals and speaker outcomes select their exact offer ID',()=>{
+  const snapshot=publicState();
+  snapshot.trades=[
+    {id:'first',from:'seat-b',to:'seat-a',give:{ore:1},get:{brick:1},status:'offered',secret:'never'},
+    {id:'second',from:'seat-a',to:'seat-b',give:{brick:1},get:{ore:1},status:'accepted'}
+  ];
+  snapshot.trade=snapshot.trades[0];
+  const input=createChatReaderInput({publicState:snapshot,messages:[{id:'trade',playerId:'seat-a',message:'I accept the other one'}]});
+  const approved=validateChatProposals({proposals:[{type:'tradeConfirm',sourceMessageId:'trade',tradeId:'second'}]},input);
+  assert.equal(approved[0].tradeId,'second');
+  assert.equal(JSON.stringify(input.publicState).includes('never'),false);
+  const outcome=projectSpeakerContext({publicState:snapshot,confirmedOutcomes:[
+    {id:'event',actorSeatId:'seat-a',type:'tradeConfirm',details:{trade:{...snapshot.trades[1],status:'confirmed',privateReason:'never'}}}
+  ]}).confirmedOutcomes[0];
+  assert.equal(outcome.tradeId,'second');
+  assert.equal(outcome.status,'confirmed');
+  assert.equal(JSON.stringify(outcome).includes('never'),false);
+});
+
 test('reader schema has finite proposal types and explicit batch/quantity bounds', () => {
   assert.equal(chatReaderSchema.additionalProperties, false);
   assert.equal(chatReaderSchema.properties.proposals.maxItems, MAX_CHAT_PROPOSALS);

@@ -208,3 +208,11 @@ Production dependency audits were clear at implementation review. The inherited 
 Production HTML includes Open Graph and Twitter metadata for the home page, player invitations, live watch links and replays. Set `CATAN_PUBLIC_URL` to the public HTTPS origin; it supplies canonical and image URLs. Shared rooms and recordings use `noindex, noarchive`, while preview crawlers can read their public metadata. No credentials or private gameplay enter the page metadata.
 
 `npm run build` generates four 1200×630 PNGs with `client/scripts/generate-social-images.mjs`. The renderer runs only during the build; the deployed server serves static images. The bundled Cinzel font comes from [Google Fonts](https://github.com/google/fonts/tree/main/ofl/cinzel) under the included SIL Open Font License. Image artwork is generated entirely from repository code and contains no match data.
+
+### Multiple offers and the public game log
+
+During normal player trading, you can keep several offers open with **Trade with player → New offer**. **Open offers** shows the participants, proposed cards, and each offer’s response/confirmation controls. Counteroffers replace only the offer being answered. The room allows up to 12 open offers; existing AI negotiation limits still apply. Offers do not reserve cards: both sides must still afford the exchange when it is confirmed. Offers expire at the existing turn, controller-change, and game-end boundaries.
+
+The game log has **All**, **Trades**, and **Rolls** filters. Expand a trade entry to see its proposed exchange, including after rejection, cancellation, or completion. Dice entries include both numbers and their total; bank exchanges show what was given and received. These are public game facts, also available to spectators and in newly recorded replay events. Hands, discard identities, stolen-card identities, and private AI context are not added to the public log. The live log retains the most recent 200 game entries; replays retain the full recorded history. Older entries without recorded details remain readable summaries.
+
+API observations expose all open offers in `trades`. The existing `trade` field remains a single relevant offer for older clients; updated clients should enumerate `trades` and address each action by `tradeId`. Every action still uses the current room revision and request ID.

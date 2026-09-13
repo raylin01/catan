@@ -21,6 +21,11 @@ const pack=(value,game)=>value && typeof value==='object' && !Array.isArray(valu
 const affordable=(player,amounts)=>Object.entries(amounts).every(([card,count])=>(combinedHand(player)[card]||0)>=count);
 export const ROOM_CAPACITY=16;
 export const ROOM_INACTIVITY_MS=4*60*60*1000;
+export const MAX_OPEN_TRADES=12;
+// Persisted pre-migration rooms and older callers still carry one `trade`.
+export const roomTrades=room=>Array.isArray(room.trades)?room.trades:room.trade?[room.trade]:[];
+const setTrades=(room,trades)=>{room.trades=trades;room.trade=trades[0]||null;};
+const publicTrade=trade=>({id:trade.id,from:trade.from,to:trade.to,give:clone(trade.give),get:clone(trade.get),status:trade.status,counterOf:trade.counterOf||null});
 const terminal=room=>['won','ended','closed'].includes(recordingStatus(room));
 const meaningfulRecordingEvent=event=>!['aiLease','aiHeartbeat','crashgap','partialBaseline'].includes(event.type);
 const prepareLobbyRules=(gameOptions,count)=>gameOptions.scenario==='new_world'
@@ -34,6 +39,7 @@ export class RoomService {
     this.providers=providers;this.now=now;this.rooms=new Map();this.recordings=new Map();this.presence=new Map();this.aiToolActivity=new Map();this.legalCache=new Map();
     for(const room of store?.load()||[]) {
       if(terminal(room))continue;
+      setTrades(room,roomTrades(room));
       const recovered=room.game&&['setup','playing'].includes(room.game.phase);
       if(recovered){room.paused=true;room.interrupted=true;}
       for(const slot of room.slots)if(slot.kind==='ai')initializeAiSlot(slot);
@@ -98,7 +104,7 @@ export class RoomService {
   closeSnapshot(room,reason) {
     room.closed=true;room.closedAt=this.now();room.closeReason=reason;
     if(room.game){room.game.phase='finished';room.game.winner=null;room.game.pendingRobberPick=null;room.game.pendingChoice=null;room.game.discardingPlayers=[];}
-    room.trade=null;room.paused=false;room.interrupted=false;
+    setTrades(room,[]);room.paused=false;room.interrupted=false;
     for(const aiSlot of room.slots.filter(slot=>slot.kind==='ai')) {
       initializeAiSlot(aiSlot);aiSlot.controlEpoch++;aiSlot.runnerLease=null;
     }
@@ -209,7 +215,7 @@ export class RoomService {
     const prepared=prepareLobbyRules(configuration.gameOptions,seatCount);
     if(!prepared.success)return fail(prepared.error);
     const room={code,recordingId:secret(),revision:0,name:cleanName(name),gameOptions:prepared.gameOptions,
-      ...(prepared.boardPreview?{boardPreview:prepared.boardPreview}:{}),slots,members:{[hash(token)]:{role:'host',name:cleanName(name)}},game:null,trade:null,chat:[],chatSequence:0,receipts:{},cardEventSequence:0,cardEvents:[],paused:false,interrupted:false,lastActivityAt:this.now()};
+      ...(prepared.boardPreview?{boardPreview:prepared.boardPreview}:{}),slots,members:{[hash(token)]:{role:'host',name:cleanName(name)}},game:null,trades:[],trade:null,chat:[],chatSequence:0,receipts:{},cardEventSequence:0,cardEvents:[],paused:false,interrupted:false,lastActivityAt:this.now()};
     const recording=createRecording(room,{id:room.recordingId,now:this.now(),sample:sample===true,title:cleanName(title)||room.name});
     this.persistRecording(room,recording,{type:'lobbyCreated',actorName:room.name,summary:`${room.name} created the lobby`});
     return {success:true,code,token,role:'host',replayId:room.recordingId};
@@ -288,13 +294,17 @@ export class RoomService {
     const ownAi=member.role==='ai'&&ownSlot?{...projectAiStatus(ownSlot,now,this.toolActivity(room,ownSlot)),
       ...(ownSlot.runnerLease?.runId?{runnerRunId:ownSlot.runnerLease.runId}:{})}:null;
     const publicChat=(room.chat||[]).map((message,index)=>({...message,sequence:message.sequence??index+1,authorRole:message.authorRole||'human'}));
+    const trades=roomTrades(room).map(publicTrade);
+    const legacyTrade=trades.find(trade=>trade.to===member.seatId&&trade.status==='offered')
+      ||trades.find(trade=>trade.from===member.seatId&&trade.status==='accepted')
+      ||trades.find(trade=>trade.from===member.seatId&&trade.status==='offered')||trades[0]||null;
     return {success:true,code,...(!anonymous||terminal(room)?{replayId:room.recordingId}:{}),revision:room.revision,role:member.role,host:member.role==='host',seatId:member.seatId||null,generation:member.generation||0,
       name:room.name,status:recordingStatus(room),closed:!!room.closed,closeReason:room.closeReason||null,lastActivityAt:room.lastActivityAt||null,
       expiresAt:terminal(room)?null:(room.lastActivityAt||now)+this.inactivityMs,
       paused:room.paused,gameOptions:roomGameOptions(room),slots,ai:ownAi,controlEpoch:ownAi?.controlEpoch,
       ...(room.boardPreview?{boardPreview:clone(room.boardPreview)}:{}),
       negotiation:member.role==='ai'&&ownSlot?negotiationOpportunity(room,ownSlot,now):null,
-      gameState,legalActions:choices,decision,trade:clone(room.trade),events:clone(room.events||[]),chat:member.role==='ai'?[]:clone(publicChat),
+      gameState,legalActions:choices,decision,trades,trade:clone(legacyTrade),events:clone(room.events||[]),chat:member.role==='ai'?[]:clone(publicChat),
       rollEvent:room.lastRoll?{id:room.lastRoll.id,roll:clone(room.lastRoll.roll),gains:clone(room.lastRoll.audienceGenerations?.[member.seatId]===member.generation?room.lastRoll.gainsBySeat[member.seatId]||{}:{})}:null,
       robberPick,cardEvents:projectCardEvents(room,member),cardEventSequence:room.cardEventSequence||0};
   }
@@ -418,7 +428,7 @@ export class RoomService {
           } else {
             delete target.controlEpoch;delete target.aiPaused;delete target.chatEnabled;delete target.chatModel;delete target.chatReasoning;delete target.runnerLease;
           }
-          copy.trade=null;
+          setTrades(copy,[]);
         }
       } else if(type==='pause'||type==='resume') {
         if(!copy.game||!['setup','playing'].includes(copy.game.phase))return fail('Game is not active');
@@ -431,7 +441,7 @@ export class RoomService {
           if(aiSlot.runnerLease)aiSlot.runnerLease.controlEpoch=aiSlot.controlEpoch;
         }
       }
-      else if(type==='endGame') {if(!copy.game||!['setup','playing'].includes(copy.game.phase))return fail('Game is not active');copy.game.phase='finished';copy.game.pendingRobberPick=null;copy.game.pendingChoice=null;copy.game.discardingPlayers=[];copy.trade=null;copy.paused=false;copy.interrupted=false;}
+      else if(type==='endGame') {if(!copy.game||!['setup','playing'].includes(copy.game.phase))return fail('Game is not active');copy.game.phase='finished';copy.game.pendingRobberPick=null;copy.game.pendingChoice=null;copy.game.discardingPlayers=[];setTrades(copy,[]);copy.paused=false;copy.interrupted=false;}
       else if(type==='closeRoom') {if(terminal(copy))return fail('Room is already finished',409);this.closeSnapshot(copy,'manual');}
       else if(type==='chat') {
         if(member.role==='ai')return fail('AI connectors use structured trades');
@@ -445,12 +455,15 @@ export class RoomService {
         if(['proposeTrade','respondToTrade','cancelTrade'].includes(type))return fail('Use the structured room trade actions');
         if(type.startsWith('trade')) {
           result=this.tradeAction(copy,slot.id,type,payload);
-          if(result.success&&member.role==='ai'&&['tradeOffer','tradeCounter'].includes(type))result=recordAiTradeAction(copy,slot.id);
+          if(result.success&&member.role==='ai'&&['tradeOffer','tradeCounter'].includes(type)) {
+            const gate=recordAiTradeAction(copy,slot.id,result.trade.id);
+            if(!gate.success)result=gate;
+          }
         }
         else {
           result=executeAction(copy.game,slot.id,type,payload);
-          if(result.success&&(['endTurn','moveRobber','movePirate'].includes(type)||!canTradeWithPlayers(copy.game)))copy.trade=null;
-          if(result.success&&copy.game.phase==='finished')copy.trade=null;
+          if(result.success&&(['endTurn','attackFortress','moveRobber','movePirate'].includes(type)||!canTradeWithPlayers(copy.game)))setTrades(copy,[]);
+          if(result.success&&copy.game.phase==='finished')setTrades(copy,[]);
         }
       }
       if(!result.success)return result;
@@ -468,7 +481,18 @@ export class RoomService {
         promoteKnight:'promoted a knight',activateKnight:'activated a knight',moveKnight:'moved a knight',driveRobber:copy.game?.pirate!==beforeGame?.pirate?'drove away the pirate':'drove away the robber',
         playProgressCard:playedProgress?`played ${CITIES_KNIGHTS_CARDS[playedProgress.type]?.name||'a progress card'}`:'played a progress card',
         offerCommercialHarbor:'offered a harbor exchange',resolveCitiesKnightsChoice:'resolved a Cities & Knights choice'});
-      if(labels[type])copy.events=[...(copy.events||[]),{id:randomUUID(),at:this.now(),actor:member.name,type,summary:`${member.name} ${labels[type]}`}].slice(-200);
+      const details=result.trade?{trade:{...publicTrade(result.trade),
+        fromName:copy.slots.find(candidate=>candidate.id===result.trade.from)?.name||'Player',
+        toName:copy.slots.find(candidate=>candidate.id===result.trade.to)?.name||'Player'}}:
+        type==='rollDice'&&result.roll?{dice:{die1:result.roll.die1,die2:result.roll.die2,total:result.roll.total}}:
+        type==='bankTrade'?{bankTrade:{give:{[payload.giveResource]:payload.giveAmount},get:{[payload.getResource]:1}}}:null;
+      const trade=result.trade,partner=trade?copy.slots.find(candidate=>candidate.id===(trade.from===member.seatId?trade.to:trade.from))?.name||'another player':null;
+      const tradeSummary={tradeOffer:`${member.name} offered a trade to ${partner}`,tradeCounter:`${member.name} countered ${partner}'s trade`,
+        tradeAccept:`${member.name} accepted ${partner}'s trade`,tradeReject:`${member.name} rejected ${partner}'s trade`,
+        tradeConfirm:`${member.name} confirmed a trade with ${partner}`,tradeCancel:`${member.name} cancelled a trade with ${partner}`};
+      const summary=trade?tradeSummary[type]:type==='rollDice'&&result.roll?`${member.name} rolled ${result.roll.total} (${result.roll.die1} + ${result.roll.die2})`:
+        labels[type]?`${member.name} ${labels[type]}`:`${member.name} performed ${type}`;
+      if(labels[type])copy.events=[...(copy.events||[]),{id:randomUUID(),at:this.now(),actor:member.name,actorSeatId:member.seatId||null,type,summary,...(details?{details}: {})}].slice(-200);
       const response={success:true,revision:copy.revision};
       // Return private effects only to the authenticated actor, never the event stream.
       if(result.card)response.card=result.card;
@@ -478,8 +502,7 @@ export class RoomService {
       const keys=Object.keys(copy.receipts);for(const k of keys.slice(0,Math.max(0,keys.length-2000)))delete copy.receipts[k];
       copy.lastActivityAt=this.now();
       this.persist(copy,{type,actorSeatId:member.seatId||null,actorGeneration:member.generation||null,actorName:member.name,
-        summary:labels[type]?`${member.name} ${labels[type]}`:`${member.name} performed ${type}`,
-        payload:playedProgress?{cardType:playedProgress.type}:payload});
+        summary,payload:playedProgress?{cardType:playedProgress.type}:payload,details});
       if(member.role==='ai')this.markAiTool(copy,member);return clone(response);
     } catch(error) {
       const storage=error?.message==='Recording is unavailable'||error?.code?.startsWith?.('SQLITE_')||error?.code?.startsWith?.('ERR_SQLITE_');
@@ -686,8 +709,9 @@ export class RoomService {
     const resourceNames=cardTypesFor(game);
     if(!canTradeWithPlayers(game))return fail('Player trading is unavailable now');
     const active=game.players[game.currentPlayerIndex].id,player=game.players.find(x=>x.id===seatId);
+    const trades=roomTrades(room).slice();let eventTrade;
     if(type==='tradeOffer'||type==='tradeCounter') {
-      const previous=room.trade;
+      const previous=type==='tradeCounter'?trades.find(trade=>trade.id===p.tradeId):null;
       if(type==='tradeCounter'&&(!previous||previous.id!==p.tradeId||previous.status!=='offered'||seatId!==previous.to||p.to!==previous.from))return fail('Trade is no longer available');
       const targetSlot=room.slots.find(s=>s.id===p.to);
       const targetMember=targetSlot?.controller?room.members[targetSlot.controller]:null;
@@ -695,22 +719,28 @@ export class RoomService {
       if(seatId!==active&&p.to!==active)return fail('Trades must involve the active player');
       if(resourceNames.some(r=>p.give[r]>0&&p.get[r]>0))return fail('Do not offer and request the same resource');
       if(!affordable(player,p.give))return fail('You do not have the offered resources');
-      if(type==='tradeOffer'&&room.trade)return fail('Resolve or cancel the current offer first');
-      room.trade={id:randomUUID(),from:seatId,to:p.to,give:clone(p.give),get:clone(p.get),status:'offered',counterOf:previous?.id||null};
+      if(type==='tradeOffer'&&trades.length>=MAX_OPEN_TRADES)return fail('Too many open trade offers',429);
+      const next={id:randomUUID(),from:seatId,to:p.to,give:clone(p.give),get:clone(p.get),status:'offered',counterOf:previous?.id||null};
+      if(previous)trades.splice(trades.indexOf(previous),1,next);
+      else trades.push(next);
+      eventTrade=next;
     } else {
-      const t=room.trade;if(!t||t.id!==p.tradeId)return fail('Trade is no longer available',409);
+      const t=trades.find(trade=>trade.id===p.tradeId);if(!t)return fail('Trade is no longer available',409);
       if(type==='tradeAccept'&&seatId===t.to&&t.status==='offered') {
         const offerer=game.players.find(x=>x.id===t.from);
         if(!offerer||!affordable(offerer,t.give)||!affordable(player,t.get))return fail('The trade is no longer affordable');t.status='accepted';
-      } else if((type==='tradeReject'&&seatId===t.to)||(type==='tradeCancel'&&seatId===t.from))room.trade=null;
+      } else if((type==='tradeReject'&&seatId===t.to)||(type==='tradeCancel'&&seatId===t.from))trades.splice(trades.indexOf(t),1);
       else if(type==='tradeConfirm'&&seatId===t.from&&t.status==='accepted') {
         const from=game.players.find(x=>x.id===t.from),to=game.players.find(x=>x.id===t.to);
         if(!affordable(from,t.give)||!affordable(to,t.get))return fail('The trade is no longer affordable');
         CK.transferCards(game,from,to,t.give);
         CK.transferCards(game,to,from,t.get);
-        room.trade=null;
+        trades.splice(trades.indexOf(t),1);
       } else return fail('You cannot perform that trade action');
+      eventTrade={...t,...({tradeReject:'rejected',tradeCancel:'cancelled',tradeConfirm:'confirmed'}[type]
+        ? {status:{tradeReject:'rejected',tradeCancel:'cancelled',tradeConfirm:'confirmed'}[type]}:{})};
     }
-    return {success:true};
+    setTrades(room,trades);
+    return {success:true,trade:publicTrade(eventTrade)};
   }
 }

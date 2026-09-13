@@ -28,7 +28,7 @@ export default function RoomTradePanel({snapshot,gameState,seatId,onCommand,onCl
   const TYPES=cardTypesFor(gameState);
   const [partner,setPartner]=useState('');
   const [give,setGive]=useState(empty),[get,setGet]=useState(empty);
-  const [countering,setCountering]=useState(false);
+  const [countering,setCountering]=useState(null),[composing,setComposing]=useState(false);
   const [bankGive,setBankGive]=useState('brick'),[bankGet,setBankGet]=useState('ore');
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
   const dialog=useRef(null),closeRef=useRef(onClose);closeRef.current=onClose;
@@ -38,15 +38,17 @@ export default function RoomTradePanel({snapshot,gameState,seatId,onCommand,onCl
   const active=gameState.players[gameState.currentPlayerIndex];
   const occupied=new Set(snapshot.slots.filter(s=>s.occupied).map(s=>s.id));
   const partners=gameState.players.filter(p=>p.id!==seatId&&occupied.has(p.id)&&(active?.id===seatId||p.id===active?.id));
-  const trade=snapshot.trade,isOfferer=trade?.from===seatId,isRecipient=trade?.to===seatId;
-  const offererName=gameState.players.find(p=>p.id===trade?.from)?.name||'Offerer';
-  const recipientName=gameState.players.find(p=>p.id===trade?.to)?.name||'Recipient';
+  const trades=snapshot.trades??(snapshot.trade?[snapshot.trade]:[]);
+  const tradeListKey=trades.map(t=>`${t.id}:${t.status}`).join(',');
+  const trade=trades.find(t=>t.id===countering);
+  const playerName=id=>gameState.players.find(p=>p.id===id)?.name||'Player';
+  const showComposer=composing||!!countering||!trades.length;
   const canTrade=gameState.phase==='playing'&&gameState.turnPhase==='main'&&!snapshot.paused&&!gameState.freeRoads&&!gameState.yearOfPlentyPicks&&!gameState.pendingChoice;
   const canPlayerTrade=canTrade&&gameState.turnRole!=='paired'&&gameState.playerTradingAllowed!==false;
   const ratio=gameState.tradeRatios?.[bankGive]||4;
   const bankAllowed=canTrade&&active?.id===seatId&&hand[bankGive]>=ratio&&bankGive!==bankGet&&bankAvailable[bankGet];
   useEffect(()=>{if(!partners.some(p=>p.id===partner))setPartner(partners[0]?.id||'');},[partner,partners.map(p=>p.id).join(',')]);
-  useEffect(()=>{setCountering(false);setError('');},[trade?.id]);
+  useEffect(()=>{if(countering&&!trade){setCountering(null);setComposing(true);setError('That offer is no longer available. You can send a new offer.');}},[countering,trade]);
   useEffect(()=>{
     const previous=document.activeElement;dialog.current?.focus();
     const key=e=>{if(e.key==='Escape'){e.preventDefault();closeRef.current();}
@@ -54,7 +56,7 @@ export default function RoomTradePanel({snapshot,gameState,seatId,onCommand,onCl
         if(!first){e.preventDefault();return;}if(!dialog.current.contains(document.activeElement)){e.preventDefault();(e.shiftKey?last:first).focus();}else if(e.shiftKey&&(document.activeElement===first||document.activeElement===dialog.current)){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
     };document.addEventListener('keydown',key);return()=>{document.removeEventListener('keydown',key);previous?.isConnected&&previous.focus();};
   },[]);
-  useEffect(()=>{if(dialog.current&&!dialog.current.contains(document.activeElement))dialog.current.focus();},[trade?.id,trade?.status,countering]);
+  useEffect(()=>{if(dialog.current&&!dialog.current.contains(document.activeElement))dialog.current.focus();},[tradeListKey,countering,showComposer]);
   const send=async(type,payload,success,close=false)=>{
     if(busy)return;setBusy(true);setError('');
     try{const result=await onCommand(type,payload);if(!result?.success){setError(result?.error||'Trade could not be completed.');return false;}addNotification(success);if(close)onClose();return true;}
@@ -63,7 +65,7 @@ export default function RoomTradePanel({snapshot,gameState,seatId,onCommand,onCl
   const offer=async e=>{e.preventDefault();const g=positive(give),r=positive(get);
     if(!partner||!Object.keys(g).length||!Object.keys(r).length){setError('Choose at least one card on each side.');return;}
     if(TYPES.some(t=>g[t]&&r[t])){setError('Use different card types on the two sides.');return;}
-    if(await send(countering?'tradeCounter':'tradeOffer',{...(countering?{tradeId:trade?.id}:{}),to:partner,give:g,get:r},countering?'Counteroffer sent.':'Trade offer sent.'))setCountering(false);
+    if(await send(countering?'tradeCounter':'tradeOffer',{...(countering?{tradeId:trade?.id}:{}),to:partner,give:g,get:r},countering?'Counteroffer sent.':'Trade offer sent.')){setCountering(null);setComposing(false);setGive(empty());setGet(empty());}
   };
   const bank=mode==='bank';
   return <div className="modal-overlay exchange-overlay" onClick={onClose}><section ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="exchange-title" className="exchange-dialog" onClick={e=>e.stopPropagation()}>
@@ -77,14 +79,28 @@ export default function RoomTradePanel({snapshot,gameState,seatId,onCommand,onCl
       <footer className="exchange-footer"><p>{ratio} {name(bankGive)} <span aria-hidden="true">→</span> 1 {name(bankGet)}</p><button type="submit" className="room-primary-button" disabled={!bankAllowed||busy}>{busy?'Trading…':'Confirm bank trade'}</button></footer>
       {hand[bankGive]<ratio&&<p className="exchange-note">You need {ratio} {bankGive} for this exchange.</p>}
     </form>:<>
-      {trade&&<section className="pending-exchange"><p className="exchange-status">{trade.status==='accepted'?`${recipientName} accepted. ${offererName} must confirm.`:`${offererName} offers a trade to ${recipientName}.`}</p>
-        <div className="exchange-summary"><div><h3>{offererName} gives</h3><Bundle value={trade.give}/></div><div><h3>{recipientName} gives</h3><Bundle value={trade.get}/></div></div>
-        <div className="exchange-buttons">{isRecipient&&trade.status==='offered'&&<><button className="room-primary-button" disabled={!canPlayerTrade||busy} onClick={()=>send('tradeAccept',{tradeId:trade.id},'Trade accepted.')}>Accept offer</button><button className="room-secondary-button" disabled={!canPlayerTrade||busy} onClick={()=>{setPartner(trade.from);setGive({...empty(),...trade.get});setGet({...empty(),...trade.give});setCountering(true);}}>Counteroffer</button><button className="room-secondary-button" disabled={!canPlayerTrade||busy} onClick={()=>send('tradeReject',{tradeId:trade.id},'Trade rejected.',true)}>Reject</button></>}
-        {isOfferer&&<><button className="room-secondary-button" disabled={!canPlayerTrade||busy} onClick={()=>send('tradeCancel',{tradeId:trade.id},'Offer cancelled.',true)}>Cancel offer</button>{trade.status==='accepted'&&<button className="room-primary-button" disabled={!canPlayerTrade||busy} onClick={()=>send('tradeConfirm',{tradeId:trade.id},'Trade completed.',true)}>Confirm trade</button>}</>}</div>
-      </section>}
-      {(!trade||countering)&&player&&<form onSubmit={offer}><label className="exchange-partner">Trade with<select value={partner} onChange={e=>setPartner(e.target.value)} disabled={countering||busy}>{partners.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+      {player&&trades.length>0&&<nav className="exchange-tabs" aria-label="Player trades">
+        <button type="button" aria-pressed={!showComposer} onClick={()=>{setComposing(false);setCountering(null);setError('');}}>Open offers <span>{trades.length}</span></button>
+        <button type="button" aria-pressed={showComposer} onClick={()=>{setComposing(true);setCountering(null);setError('');}}>New offer</button>
+      </nav>}
+      {!showComposer&&<div className="exchange-offer-list">{trades.map(t=>{
+        const isOfferer=t.from===seatId,isRecipient=t.to===seatId;
+        const offererName=playerName(t.from),recipientName=playerName(t.to);
+        return <section className="pending-exchange" key={t.id} aria-label={`${offererName} to ${recipientName}`}>
+          <p className="exchange-status">{offererName} <span aria-hidden="true">→</span> {recipientName}<small>{t.status==='accepted'?'Accepted · awaiting confirmation':'Awaiting response'}</small></p>
+          <div className="exchange-summary"><div><h3>{offererName} gives</h3><Bundle value={t.give}/></div><div><h3>{recipientName} gives</h3><Bundle value={t.get}/></div></div>
+          <div className="exchange-buttons">{isRecipient&&t.status==='offered'&&<>
+            <button className="room-primary-button" disabled={!canPlayerTrade||busy} onClick={()=>send('tradeAccept',{tradeId:t.id},'Trade accepted.')}>Accept offer</button>
+            <button className="room-secondary-button" disabled={!canPlayerTrade||busy} onClick={()=>{setPartner(t.from);setGive({...empty(),...t.get});setGet({...empty(),...t.give});setCountering(t.id);setComposing(true);}}>Counteroffer</button>
+            <button className="room-secondary-button" disabled={!canPlayerTrade||busy} onClick={()=>send('tradeReject',{tradeId:t.id},'Trade rejected.')}>Reject</button></>}
+            {isOfferer&&<><button className="room-secondary-button" disabled={!canPlayerTrade||busy} onClick={()=>send('tradeCancel',{tradeId:t.id},'Offer cancelled.')}>Cancel offer</button>
+              {t.status==='accepted'&&<button className="room-primary-button" disabled={!canPlayerTrade||busy} onClick={()=>send('tradeConfirm',{tradeId:t.id},'Trade completed.')}>Confirm trade</button>}</>}
+          </div>
+        </section>;
+      })}</div>}
+      {showComposer&&player&&<form onSubmit={offer}><label className="exchange-partner">Trade with<select value={partner} onChange={e=>setPartner(e.target.value)} disabled={countering||busy}>{partners.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
         <div className="exchange-columns"><Quantities types={TYPES} label="You give" value={give} setValue={setGive} limits={hand} showHave/><Quantities types={TYPES} label="You receive" value={get} setValue={setGet} limits={{}}/></div>
-        <footer className="exchange-footer"><p>{countering?'Your counteroffer replaces the current offer.':'Cards move only after acceptance and confirmation.'}</p><button type="submit" className="room-primary-button" disabled={!canPlayerTrade||!partners.length||busy}>{busy?'Sending…':countering?'Send counteroffer':'Send offer'}</button></footer>
+        <footer className="exchange-footer"><p>{countering?'Your counteroffer replaces only this offer.':'You can keep several offers open. Cards move only after acceptance and confirmation.'}</p><button type="submit" className="room-primary-button" disabled={!canPlayerTrade||!partners.length||busy}>{busy?'Sending…':countering?'Send counteroffer':'Send offer'}</button></footer>
       </form>}
       {!player&&<p className="exchange-note">You can watch this trade as a spectator.</p>}
     </>}

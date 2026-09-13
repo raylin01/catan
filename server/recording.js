@@ -53,10 +53,11 @@ function sanitizeSlot(slot) {
 
 /** Full authoritative replay state, deliberately excluding auth and idempotency envelopes. */
 export function captureState(room) {
+  const trades=room.trades??(room.trade?[room.trade]:[]);
   return {
     gameOptions:roomGameOptions(room),
     ...(room.boardPreview?{boardPreview:clone(room.boardPreview)}:{}),
-    gameState:clone(room.game),slots:(room.slots||[]).map(sanitizeSlot),trade:clone(room.trade),paused:!!room.paused,
+    gameState:clone(room.game),slots:(room.slots||[]).map(sanitizeSlot),trades:clone(trades),trade:clone(trades[0]||null),paused:!!room.paused,
     closed:!!room.closed,chat:clone(room.chat||[]),cardEvents:clone(room.cardEvents||[]),lastRoll:clone(room.lastRoll||null)
   };
 }
@@ -117,14 +118,31 @@ const safeEventPayload=(type,payload,room)=> {
   return Object.keys(clean).length?clean:null;
 };
 
-export function advanceRecording(recording,room,{type,actorSeatId=null,actorGeneration=null,actorName=null,summary='',payload=null,at}={}) {
+const safeEventDetails=(type,details)=>{
+  if(!details||typeof details!=='object'||Array.isArray(details))return null;
+  if(['tradeOffer','tradeCounter','tradeAccept','tradeReject','tradeConfirm','tradeCancel'].includes(type)&&details.trade) {
+    const trade=details.trade;
+    return {trade:{id:trade.id,from:trade.from,to:trade.to,
+      fromName:trade.fromName,toName:trade.toName,
+      give:clone(trade.give),get:clone(trade.get),status:trade.status,counterOf:trade.counterOf??null}};
+  }
+  if(type==='rollDice'&&details.dice)return {dice:{die1:details.dice.die1,die2:details.dice.die2,total:details.dice.total}};
+  if(type==='bankTrade'&&details.bankTrade) {
+    const trade=details.bankTrade;
+    return {bankTrade:{give:clone(trade.give),get:clone(trade.get)}};
+  }
+  return null;
+};
+
+export function advanceRecording(recording,room,{type,actorSeatId=null,actorGeneration=null,actorName=null,summary='',payload=null,details=null,at}={}) {
   const state=captureState(room),seq=recording.lastSeq+1;
   const elapsedMs=Math.max(recording.lastElapsedMs,Number.isFinite(at)?Math.max(0,at-recording.createdAt):recording.lastElapsedMs);
   // Count production turns, not the extra action phase within a paired turn.
   const turn=recording.turn+(['endTurn','attackFortress'].includes(type)&&room.game?.turnRole!=='paired'?1:0);
   const cleanPayload=safeEventPayload(type,payload,room);
+  const cleanDetails=safeEventDetails(type,details);
   const event={seq,at,elapsedMs,turn,type,actorSeatId,actorGeneration,actorName,summary,
-    ...(cleanPayload?{payload:cleanPayload}:{}),patch:createPatch(recording.latestState,state)};
+    ...(cleanPayload?{payload:cleanPayload}:{}),...(cleanDetails?{details:cleanDetails}:{}),patch:createPatch(recording.latestState,state)};
   const status=recordingStatus(room),terminal=['won','ended','closed'].includes(status);
   const next={...recording,status,lastAt:at,lastSeq:seq,lastElapsedMs:elapsedMs,turn,winnerId:room.game?.winner||null,
     gameOptions:roomGameOptions(room),rulesVersion:rulesVersionFor(roomGameOptions(room)),
@@ -154,6 +172,8 @@ function projectCardEvents(events,access) {
 
 export function projectState(state,access={}) {
   const copy=clone(state),historicalSlot=copy.slots?.find(slot=>slot.id===access.seatId);
+  copy.trades=copy.trades??(copy.trade?[copy.trade]:[]);
+  copy.trade=copy.trades[0]||null;
   copy.gameOptions=copy.gameOptions??copy.gameState?.gameOptions??baseGameOptions();
   const ownsGeneration=access.seatId&&(access.ownsSeatHistory||historicalSlot?.generation===access.generation);
   if(copy.gameState&&!access.full)copy.gameState=playerView(copy.gameState,ownsGeneration?access.seatId:undefined);
@@ -166,6 +186,8 @@ export function projectState(state,access={}) {
 export function projectEvent(event,access={}) {
   const projected={seq:event.seq,at:event.at,elapsedMs:event.elapsedMs,turn:event.turn,type:event.type,
     actorSeatId:event.actorSeatId,actorName:event.actorName,summary:event.summary};
+  const details=safeEventDetails(event.type,event.details);
+  if(details)projected.details=details;
   if(!event.payload)return projected;
   if(access.full||(access.seatId===event.actorSeatId&&(access.ownsSeatHistory||access.generation===event.actorGeneration)))projected.payload=clone(event.payload);
   else if(event.type==='discardCards')projected.payload={count:Object.values(event.payload.resources||{}).reduce((sum,count)=>sum+count,0)};
