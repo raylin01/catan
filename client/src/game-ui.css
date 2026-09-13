@@ -1,0 +1,176 @@
+/* The game HUD's brass, ink and parchment materials extend to every route.
+   Component styles still own layout and behavior; these are shared surfaces. */
+:root {
+  --ui-ink: #13272d;
+  --ui-raised: #20343a;
+  --ui-line: #b9b39242;
+  --ui-brass: #d8bd83;
+  --ui-paper: #eee6d2;
+  --ui-shadow: 0 18px 50px #07191f66, inset 0 1px #fff3d40b;
+}
+.room-form, .room-seat, .room-host-seat, .room-saved-section,
+.replay-key-panel, .replay-game-inspector, .replay-analysis-overlay,
+.rules-modal, .info-popup, .steal-modal {
+  border: 1px solid var(--ui-line);
+  border-radius: 4px;
+  background: linear-gradient(145deg, #23373c, var(--ui-ink));
+  box-shadow: var(--ui-shadow);
+}
+.room-choice {
+  min-height: 146px;
+  border: 1px solid #c8b58670;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #283c40f5, #152a31f5);
+  box-shadow: var(--ui-shadow);
+  position: relative;
+  padding: 28px;
+}
+.room-choice::before { content: ''; position: absolute; top: 19px; bottom: 19px; left: 0; width: 3px; background: var(--ui-brass); }
+.room-choice strong { color: var(--ui-paper); font-size: 25px; }
+.room-choice span { color: #c3cbc3; font-size: 13px; }
+.room-choice:hover { background: linear-gradient(135deg, #344a4b, #1b3037); border-color: var(--ui-brass); transform: none; }
+.room-header h1 { text-shadow: 0 3px 16px #09202ab3; }
+.room-form-heading { padding-bottom: 14px; }
+.room-form-heading h2, .room-section-heading h2 { font-family: Georgia, serif; font-weight: 400; }
+.room-saved-section { padding: 18px 22px; }
+.room-seat { border-top: 2px solid #b7ac8266; }
+.room-seat-meta, .room-field-help { font-size: 12px; }
+.room-seat-config { gap: 10px; }
+.room-seat-config label, .room-host-seat-controls label { font-size: 12px; }
+.room-code-block strong { padding: 8px 12px; border: 1px solid var(--ui-line); background: #10252db8; border-radius: 3px; font-family: ui-monospace, monospace; }
+.room-ready-row, .room-claim-form { background: #132a31e8; border-left-color: var(--ui-brass); }
+.room-session-bar, .room-host-toolbar { background: #13252bec; border-color: var(--ui-line); }
+.room-host-toolbar summary { color: var(--ui-paper); }
+.room-lobby :is(input, select), .room-host-toolbar :is(input, select), .replay-key-panel input {
+  background: #0e232b; border-color: #98a39170; border-radius: 3px; color: var(--ui-paper); box-shadow: inset 0 2px 4px #0002;
+}
+.room-primary-button, .replay-primary-button {
+  border: 1px solid #e4cb96; border-radius: 3px; background: linear-gradient(#e5c995, #c4a16a); color: #25302c;
+  box-shadow: inset 0 1px #fff1c780, 0 2px 5px #0003;
+}
+.room-secondary-button, .replay-secondary-button, .replay-back-button { border-radius: 3px; border-color: var(--ui-line); background: #20353c; }
+.room-primary-button:hover:not(:disabled), .replay-primary-button:hover:not(:disabled) { background: linear-gradient(#f0d6a3, #d5b477); }
+.room-secondary-button:hover:not(:disabled), .replay-secondary-button:hover:not(:disabled), .replay-back-button:hover { background: #30464a; border-color: var(--ui-brass); }
+.room-danger-button { border-radius: 3px; }
+.ai-chat-settings { border-color: var(--ui-line); border-radius: 3px; background: #0d222833; }
+
+/* Reference panels use the same quiet frame as the game's action dialogs. */
+.rules-modal { overflow: hidden; }
+.rules-header { background: #ffffff03; padding: 20px 24px; }
+.rules-header h2 { color: var(--ui-paper); text-shadow: none; font: 400 26px Georgia, serif; }
+.rules-close-btn { border-width: 1px; border-radius: 3px; background: transparent; }
+.rules-close-btn:hover { transform: none; }
+.rules-nav { background: #0c20284d; }
+.rules-nav-btn.active { background: #d8bd8312; border-left-color: var(--ui-brass); }
+.info-popup { width: min(300px, calc(100vw - 16px)); min-width: 0; max-height: calc(100dvh - 16px); overflow-y: auto; color: var(--ui-paper); }
+.info-popup-header { background: #d8bd830a; border-bottom: 1px solid var(--ui-line); }
+.info-popup-title { color: var(--ui-paper); font-family: Georgia, serif; }
+.info-popup-description { color: #d0d4c9; }
+.info-popup-hint { color: #a7b6ae; border-top-color: var(--ui-line); }
+.steal-modal h2 { font-weight: 400; color: var(--ui-paper); }
+.dev-card-modal :is(.monopoly-picker, .year-of-plenty-picker) { border: 0; border-top: 1px solid var(--ui-line); border-radius: 0; background: transparent; padding: 16px 0 0; }
+.dev-card-modal .resource-buttons { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; }
+.dev-card-modal .resource-pick-btn { min-width: 0; padding: 4px; gap: 5px; background: #e9e0cb; color: #3b382b; border: 2px solid #b9a67e; border-radius: 3px; box-shadow: 0 4px 9px #0003; }
+.dev-card-modal .resource-pick-btn .resource-choice-art { width: 100%; height: 94px; object-fit: cover; border: 1px solid #877b60; border-radius: 1px; }
+.dev-card-modal .resource-pick-btn .name { color: #3b382b; font: 600 11px Georgia, serif; }
+.dev-card-modal .resource-pick-btn.selected { border-color: #efd496; outline: 2px solid #c49e55; outline-offset: 2px; background: #fff1d5; }
+.dev-card-modal .resource-pick-btn:hover { background: #fff1d5; }
+
+/* Replay controls frame the table without becoming another dashboard. */
+.replay-route { --replay-line: var(--ui-line); --replay-gold: var(--ui-brass); --replay-panel: var(--ui-ink); --replay-panel-raised: var(--ui-raised); }
+.replay-viewer-toolbar, .replay-topbar { background: #10252deb; border-color: var(--ui-line); }
+.replay-viewer-title strong { font: 400 15px/1.3 Georgia, serif; }
+.replay-viewer-title > span { color: #b1bdb5; }
+.replay-view-actions button { border-radius: 3px; background: #ffffff04; border-color: var(--ui-line); color: #d2d8ca; }
+.replay-view-actions button:hover:not(:disabled) { background: #ffffff0c; border-color: #c6b88c; }
+.replay-view-actions button[aria-pressed="true"], .replay-view-actions button[aria-expanded="true"] { background: #d8bd8312; color: #f1d9a9; border-color: #b7a377; }
+.replay-game-inspector { border-radius: 3px; box-shadow: 0 6px 20px #041a2633; }
+.replay-game-inspector .replay-event-list li button { border-bottom-color: #c5c9b816; padding: 11px 9px; }
+.replay-game-inspector .replay-event-list li.is-active button { background: #d8bd8317; box-shadow: inset 2px 0 var(--ui-brass); }
+.replay-event-symbol { color: #cdb37b; }
+.replay-inspector-tabs button[aria-selected="true"], .replay-analysis [role="tab"][aria-selected="true"] { color: #efdaa9; border-bottom-color: var(--ui-brass); background: #ffffff03; }
+.replay-analysis-overlay { border-top-color: #c9b987; border-radius: 4px; }
+.replay-analysis-overlay h2 { font-family: Georgia, serif; font-weight: 400; }
+.replay-analysis-overlay .replay-chart { background: #10242b; border-color: var(--ui-line); border-radius: 3px; }
+.replay-chart-grid { stroke: #b3c1b31c; }
+.replay-chart-axis { fill: #a9b8b0; }
+.replay-key-panel { padding: 26px; gap: 24px; }
+.replay-key-panel h1 { font-size: 30px; line-height: 1.2; }
+.replay-key-panel form { padding: 0; border: 0; background: transparent; box-shadow: none; }
+.replay-archive-row { border-color: var(--ui-line); }
+.replay-archive-row:hover { background: #d8bd8308; }
+.replay-timeline { padding: 10px 22px 12px; background: linear-gradient(#1a3038f5, #10242cfb); border-top-color: #c9b98760; box-shadow: 0 -8px 28px #07191f40; }
+.replay-marker-button, .replay-marker-popover, .replay-turn-controls button, .replay-timeline-options select, .replay-idle-toggle { border-radius: 3px; }
+.replay-marker-button { background: #1e333a; box-shadow: 0 2px 4px #0003; }
+.replay-marker-popover { border-color: #c9b98780; background: #152b32; }
+.replay-time-readout { font-size: 14px; color: #f1e2c0; }
+.replay-time-readout span { font-size: 11px; color: #acb9b1; }
+.replay-time-range input { accent-color: #ddbf83; }
+.replay-turn-controls button { min-height: 38px; }
+.replay-turn-controls .replay-timeline-play { min-width: 88px; box-shadow: inset 0 1px #fff1c780, 0 2px 6px #0003; }
+.replay-timeline-options label { color: #b9c3b9; }
+.replay-turn-bands { height: 6px; border-radius: 1px; }
+
+/* Player view uses the live hand; public counts already live in the roster. */
+.game-hud .replay-table-hands { padding: 8px 22px 10px; background: linear-gradient(0deg, #102630ee, #10263020); border-top: 0; }
+.game-hud .replay-table-hands--seat { display: block; }
+.game-hud .replay-visible-hand--primary { max-width: 950px; margin: 0 auto; background: transparent; border: 0; box-shadow: none; }
+.replay-visible-hand--primary > header { max-width: 620px; margin: auto; padding: 0 4px 3px; border: 0; }
+.replay-visible-hand--primary > header small { text-transform: none; letter-spacing: 0; }
+.replay-primary-hand-body { padding: 4px; gap: 22px; }
+.replay-table-hands-title { margin-bottom: 4px; }
+.replay-table-hands-title strong { font: 400 15px Georgia, serif; color: var(--ui-paper); }
+.replay-table-hands-title span { text-transform: none; letter-spacing: 0; }
+.game-hud .replay-visible-hand--compact { background: #12283099; border: 1px solid #b9b39230; border-top: 2px solid var(--replay-seat-color); box-shadow: 0 3px 12px #081b2520; }
+.replay-visible-hand--compact > header { border: 0; padding: 4px 7px 2px; }
+.replay-compact-hand-body { padding: 4px 7px 7px; gap: 7px; }
+.replay-compact-resource { border-radius: 2px; width: 38px; height: 50px; }
+.replay-development-card { border-radius: 3px; }
+.replay-development-art { border-radius: 1px; }
+.replay-no-dev-cards { color: #abb9b0; }
+.replay-card-back, .replay-card-back--development { border-radius: 3px; background: radial-gradient(ellipse, #b6976333 0 35%, transparent 36%), repeating-linear-gradient(45deg, #243b3d 0 2px, #2d4647 2px 4px); }
+@media (min-width: 761px) {
+  .replay-all-hands-grid { grid-template-columns: repeat(var(--replay-seat-count, 4), minmax(0, 1fr)); }
+  .replay-compact-hand-body { flex-direction: row; align-items: center; }
+  .replay-compact-resources { flex: 1; }
+  .replay-compact-resource { width: clamp(26px, 3vw, 42px); }
+  .replay-visible-hand--compact .replay-development-cards { gap: 3px; }
+  .replay-visible-hand--compact .replay-no-dev-cards { font-size: 10px; }
+  .replay-player-page:not(.show-replay-inspector) .game-hud .board-container { padding: 0; }
+}
+@media (max-width: 1100px) and (min-width: 761px) {
+  .replay-viewer-toolbar { gap: 8px; }
+  .replay-viewer-title strong { font-size: 13px; }
+}
+@media (max-width: 760px) {
+  .game-hud.replay-game-board .turn-indicator { flex-direction: row; align-items: center; gap: 8px; }
+  .game-hud.replay-game-board .status-message { max-width: none; }
+  .game-hud.replay-game-board .player-header { flex-wrap: nowrap; align-items: center; }
+  .game-hud.replay-game-board .player-name { min-width: 0; }
+  .game-hud.replay-game-board .victory-points { padding: 0; }
+  .game-hud .replay-table-hands { padding: 8px 10px 12px; }
+  .replay-primary-hand-body { gap: 10px; flex-wrap: wrap; }
+  .replay-viewer-toolbar { padding-inline: 10px; }
+  .replay-viewer-title strong { font-size: 13px; }
+  .replay-timeline { padding: 7px 10px max(9px, env(safe-area-inset-bottom)); }
+  .replay-time-readout { font-size: 12px; }
+  .replay-timeline-play { min-width: 70px; }
+  .replay-compact-resource { width: 29px; height: 42px; }
+  .replay-compact-hand-body { padding-inline: 4px; }
+  .dev-card-modal .resource-buttons { gap: 5px; }
+  .dev-card-modal .resource-pick-btn .resource-choice-art { height: 65px; }
+  .dev-card-modal .resource-pick-btn .name { font-size: 10px; }
+  .rules-header h2 { font-size: 22px; }
+}
+
+@media (min-width: 761px) and (max-height: 680px) {
+  .game-hud.replay-game-board .player-roster { position: absolute; left: 12px; top: 48px; width: 160px; display: flex; flex-direction: column; margin: 0; z-index: 1; }
+  .game-hud.replay-game-board .player-panel { border-right: 0; border-bottom: 1px solid var(--hud-line); padding: 8px; }
+  .game-hud.replay-game-board .player-panel:last-child { border-bottom: 0; }
+  .game-hud.replay-game-board .player-inventory { flex-wrap: wrap; gap: 5px; }
+  .game-hud.replay-game-board .player-pieces { padding-left: 0; border-left: 0; }
+  .game-hud.replay-game-board .game-main { padding-left: 190px; }
+  .game-hud.replay-game-board .board-container { padding: 0; }
+  .game-hud.replay-game-board .turn-order-badge { display: none; }
+  .replay-player-page:not(.show-replay-inspector) .game-hud .board-container { padding: 0; }
+}

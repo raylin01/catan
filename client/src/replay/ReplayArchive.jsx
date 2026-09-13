@@ -1,3 +1,4 @@
+import {PresentationControls} from '../presentation/GamePresentation';
 import { useEffect, useRef, useState } from 'react';
 import { formatDuration, formatReplayDate, isTerminalRecording, requestReplayJson, statusLabel } from './replayUtils';
 import './ReplayPage.css';
@@ -108,7 +109,7 @@ export default function ReplayArchive({ onOpen, onBack }) {
   };
 
   if (!authenticatedKey) return <main className="replay-route replay-archive-route">
-    <header className="replay-topbar">
+    <header className="replay-topbar"><PresentationControls/>
       <div className="replay-brand-row">{onBack && <button type="button" className="replay-back-button" onClick={onBack}>Back</button>}<span className="replay-wordmark">CATAN</span><span className="replay-mode">Match archive</span></div>
     </header>
     <section className="replay-key-panel">
@@ -124,7 +125,7 @@ export default function ReplayArchive({ onOpen, onBack }) {
   const first = total ? page * PAGE_SIZE + 1 : 0;
   const last = Math.min(total, (page + 1) * PAGE_SIZE);
   return <main className="replay-route replay-archive-route">
-    <header className="replay-topbar">
+    <header className="replay-topbar"><PresentationControls/>
       <div className="replay-brand-row">{onBack && <button type="button" className="replay-back-button" onClick={onBack}>Back</button>}<span className="replay-wordmark">CATAN</span><span className="replay-mode">Match archive</span></div>
       <button type="button" className="replay-secondary-button" onClick={lockArchive}>Lock archive</button>
     </header>

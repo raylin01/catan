@@ -44,3 +44,24 @@ test('player exchanges retain both directed legs for each participant',()=>{
     {from:'a',to:'b',count:2},{from:'b',to:'a',count:1}
   ]);
 });
+
+
+test('a development draw delivers a concealed card to every observer without leaking its identity',()=>{
+  const before={bank:pool(),players:[{id:'a',resources:pool({ore:1,wool:1,grain:1}),developmentCards:[],newDevCards:[]}]};
+  const room={revision:5,slots:[{id:'a',generation:2}],game:structuredClone(before)};
+  room.game.players[0].resources=pool();
+  room.game.bank=pool({ore:1,wool:1,grain:1});
+  room.game.players[0].newDevCards=['victoryPoint'];
+  appendCardEvent(room,before,'buyDevCard');
+  const draw={from:'bank',to:'a',count:1,resource:'development'};
+  for(const observer of [{role:'spectator'},{seatId:'a',generation:2},{seatId:'a',generation:3}]) {
+    const event=projectCardEvents(room,observer)[0];
+    assert.deepEqual(event.transfers.at(-1),draw);
+    assert.equal(JSON.stringify(event).includes('victoryPoint'),false);
+  }
+  assert.deepEqual(projectCardEvents(room,{role:'spectator'})[0].transfers[0],{from:'a',to:'bank',count:3});
+  const purchased=structuredClone(room.game);
+  room.game.players[0].developmentCards=['victoryPoint'];
+  room.game.players[0].newDevCards=[];
+  assert.equal(appendCardEvent(room,purchased,'endTurn'),null,'moving new cards to ready cards is not a draw');
+});

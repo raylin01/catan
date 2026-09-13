@@ -130,7 +130,7 @@ function projectCardEvents(events,access) {
     for(const transfer of event.transfers||[]) {
       const involved=access.seatId&&(transfer.from===access.seatId||transfer.to===access.seatId);
       const owns=involved&&(access.ownsSeatHistory||event.audienceGenerations?.[access.seatId]===access.generation);
-      if(owns)transfers.push(clone(transfer));
+      if(owns||transfer.resource==='development')transfers.push(clone(transfer));
       else {
         const key=`${transfer.from}:${transfer.to}`,prior=grouped.get(key);
         if(prior)prior.count+=transfer.count;

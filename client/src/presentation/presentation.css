@@ -1,0 +1,22 @@
+.island-atmosphere{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;background:#17282f;isolation:isolate}
+.island-landscape{width:100%;height:100%;object-fit:cover;object-position:center;opacity:.64;filter:saturate(.8)}
+.island-atmosphere::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,#0e1c2670,#15283228 45%,#0d202c91),radial-gradient(ellipse at center,transparent 25%,#101e294d)}
+.island-dawn{position:absolute;inset:0;background:linear-gradient(120deg,#d49c5855,transparent 55%,#24365055);opacity:.25;mix-blend-mode:soft-light}
+.island-dawn{animation:island-daylight 140s ease-in-out infinite alternate}
+@keyframes island-daylight{from{opacity:.12}to{opacity:.85}}
+.presentation-controls{display:flex;align-items:center;gap:5px;flex-shrink:0}.presentation-controls button{display:flex;align-items:center;justify-content:center;gap:6px;min-width:36px;min-height:36px;padding:7px 9px;border:1px solid #bdc6bd38;border-radius:6px;background:#162d34b8;color:#d8ded4;font:500 11px/1.2 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:nowrap}.presentation-controls button:hover{background:#2b464b}.presentation-controls button[aria-pressed=true]{color:#f5dba6;border-color:#c9b58a66}.presentation-controls svg{flex-shrink:0}.presentation-audio-notice{position:fixed;bottom:20px;right:20px;z-index:10001;background:#23383b;border:1px solid #bcaa7d;color:#fff4da;padding:12px;max-width:calc(100vw - 40px)}.presentation-audio-notice button{margin-left:8px;background:none;color:inherit;border:0;text-decoration:underline}
+@media(max-width:1100px){.game-header .presentation-controls span{display:none}.game-header .presentation-controls button{padding:8px}}
+@media(max-width:700px){.game-header .presentation-controls{margin-left:auto}.presentation-controls button{min-width:40px;min-height:40px}}
+@media(prefers-reduced-motion:reduce){.island-atmosphere *{animation:none!important}}
+
+.island-landscape{display:block}
+.island-cloud-drift{opacity:.75;animation:island-cloud-sail 64s ease-in-out infinite alternate}
+.island-water-surface{opacity:.82;transform-origin:50% 65%;animation:island-water-roll 7s ease-in-out infinite alternate}
+.island-sun-glow{mix-blend-mode:soft-light;animation:island-sun-breathe 24s ease-in-out infinite alternate}
+.island-ripple{opacity:.14;animation:island-ripple-drift var(--ripple-time) ease-in-out var(--ripple-delay) infinite}
+.island-atmosphere :is(.island-dawn,.island-cloud-drift,.island-water-surface,.island-sun-glow,.island-ripple){animation-play-state:paused}
+.island-atmosphere.is-animated :is(.island-dawn,.island-cloud-drift,.island-water-surface,.island-sun-glow,.island-ripple){animation-play-state:running}
+@keyframes island-cloud-sail{from{transform:translateX(-12px)}to{transform:translateX(15px)}}
+@keyframes island-water-roll{0%{transform:translate(-1.5px,-.8px) scaleX(1.002)}50%{transform:translate(1px,.6px) scaleX(1.001)}100%{transform:translate(2px,-.4px) scaleX(1.003)}}
+@keyframes island-ripple-drift{0%,100%{opacity:.04;transform:translateX(-5px);stroke-dashoffset:0}45%{opacity:.25}85%{opacity:.07;transform:translateX(8px);stroke-dashoffset:-13}}
+@keyframes island-sun-breathe{from{opacity:.5}to{opacity:1}}

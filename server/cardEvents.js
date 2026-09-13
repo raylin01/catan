@@ -3,6 +3,10 @@ import {randomUUID} from 'node:crypto';
 const RESOURCES=['brick','lumber','wool','grain','ore'];
 const BANK='bank';
 
+function cardsInHand(player) {
+  return (player?.developmentCards?.length||0)+(player?.newDevCards?.length||0);
+}
+
 function balances(game) {
   if(!game)return null;
   const result=new Map([[BANK,game.bank||{}]]);
@@ -10,7 +14,7 @@ function balances(game) {
   return result;
 }
 
-/** Build one conserved transfer ledger from the accepted command's resource deltas. */
+/** Build presentation receipts from an accepted command's resource deltas and deck draw. */
 export function appendCardEvent(room,beforeGame,type,rollId=null) {
   const before=balances(beforeGame),after=balances(room.game);
   if(!before||!after)return null;
@@ -30,6 +34,15 @@ export function appendCardEvent(room,beforeGame,type,rollId=null) {
       source.count-=count;sink.count-=count;
       if(source.count===0)sourceIndex++;
       if(sink.count===0)sinkIndex++;
+    }
+  }
+  // A deck draw is public; its identity remains in the actor's private hand.
+  // Compare total cards so the end-of-turn new/ready promotion is never a draw.
+  if(type==='buyDevCard') {
+    for(const player of room.game.players||[]) {
+      const previous=beforeGame.players?.find(candidate=>candidate.id===player.id);
+      const count=cardsInHand(player)-cardsInHand(previous);
+      if(count>0)transfers.push({from:BANK,to:player.id,count,resource:'development'});
     }
   }
   if(!transfers.length)return null;
@@ -57,7 +70,7 @@ export function projectCardEvents(room,member) {
       const involved=member.seatId&&(transfer.from===member.seatId||transfer.to===member.seatId);
       const ownsHistory=involved&&event.audienceGenerations?.[member.seatId]===member.generation;
       const projected={from:transfer.from,to:transfer.to,count:transfer.count};
-      if(ownsHistory) {
+      if(ownsHistory||transfer.resource==='development') {
         projected.resource=transfer.resource;
         transfers.push(projected);
       } else {

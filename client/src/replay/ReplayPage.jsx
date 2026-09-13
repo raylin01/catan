@@ -107,6 +107,19 @@ export default function ReplayPage({ replayId, onBack, token, getToken }) {
   const [chartTab, setChartTab] = useState('vp');
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [showInspector, setShowInspector] = useState(false);
+  const chartsButton = useRef(null);
+  // Retain only camera coordinates across intentional privacy/motion remounts.
+  const boardCamera = useRef(null);
+  useEffect(() => {
+    if (!showAnalysis) return undefined;
+    const closeOnEscape = event => {
+      if (event.key !== 'Escape') return;
+      setShowAnalysis(false);
+      chartsButton.current?.focus();
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [showAnalysis]);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
   const [seekGeneration, setSeekGeneration] = useState(0);
@@ -295,7 +308,7 @@ export default function ReplayPage({ replayId, onBack, token, getToken }) {
   </div>, [displayedEvent,events,metrics,frame,inspectorTab,seekEvent]);
   const allowedSeatIds = useMemo(() => perspectives.filter(option => !['public','omniscient'].includes(option.id)).map(option => option.id),[perspectives]);
   const resetKey = `${currentKey}:${seekGeneration}`;
-  const replay = useMemo(() => ({perspective,allowedSeatIds,onSelectPlayer:changePerspective,inspector,resetKey,playing,speed}),[perspective,allowedSeatIds,changePerspective,inspector,resetKey,playing,speed]);
+  const replay = useMemo(() => ({boardCamera,perspective,allowedSeatIds,onSelectPlayer:changePerspective,inspector:showInspector ? inspector : null,resetKey,playing,speed}),[perspective,allowedSeatIds,changePerspective,inspector,showInspector,resetKey,playing,speed]);
   const gameState = useMemo(() => frame?.state?.gameState ? {...frame.state.gameState,myIndex:perspective === 'omniscient' ? -1 : frame.state.gameState.myIndex ?? -1} : null,[frame?.state?.gameState,perspective]);
   const players = recording?.players || EMPTY;
   const activePerspective = perspectives.find(option => option.id === perspective);
@@ -310,8 +323,8 @@ export default function ReplayPage({ replayId, onBack, token, getToken }) {
       <div className="replay-view-actions">
         {perspectives.some(option => option.id === 'omniscient') && <button type="button" className="replay-view-button" aria-pressed={perspective === 'omniscient'} onClick={() => changePerspective('omniscient')}><GameIcon name="players" size={17}/><span>Omniscient</span></button>}
         {perspective !== 'omniscient' && <span className="replay-view-name">{perspective === 'public' ? 'Spectator' : `Viewing ${activePerspective?.label || 'player'}`}</span>}
-        <button type="button" className="replay-details-toggle" aria-expanded={showInspector} onClick={() => setShowInspector(value => !value)}>Events & chat</button>
-        <button type="button" aria-expanded={showAnalysis} onClick={() => setShowAnalysis(value => !value)}><GameIcon name="trophy" size={16}/><span>Charts</span></button>
+        <button type="button" className="replay-details-toggle" aria-expanded={showInspector} onClick={() => setShowInspector(value => !value)}><GameIcon name="chat" size={16}/><span>Events & chat</span></button>
+        <button ref={chartsButton} type="button" aria-expanded={showAnalysis} onClick={() => setShowAnalysis(value => !value)}><GameIcon name="trophy" size={16}/><span>Charts</span></button>
         <button type="button" onClick={exportReplay} disabled={exporting}>{exporting ? 'Exporting…' : 'Export'}</button>
       </div>
     </header>

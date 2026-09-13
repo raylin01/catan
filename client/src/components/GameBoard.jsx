@@ -1,11 +1,15 @@
+import {PresentationControls} from '../presentation/GamePresentation';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import HexBoard from './HexBoard';
 import GameIcon from './GameIcon';
+import BuildingPiece from './BuildingPiece';
 import PlayerPanel from './PlayerPanel';
 import ResourceCards from './ResourceCards';
 import ActionPanel from './ActionPanel';
 import DiceDisplay from './DiceDisplay';
 import Chat from './Chat';
+import GameLog from './GameLog';
+import {chatMessageKey, newChatMessages} from './chatMessages';
 import DevCardModal from './DevCardModal';
 import DiscardModal from './DiscardModal';
 import CardMovements from './CardMovements';
@@ -32,9 +36,12 @@ function GameBoard({
   robberPick = null,
   paused = false,
   tradePanel = null,
-  replay = null
+  replay = null,
+  playbackRate = 1,
+  presentationKey
 }) {
   const isReplay = Boolean(replay);
+  const motionRate = Math.max(.25, Math.min(8, Number(isReplay ? replay.speed : playbackRate) || 1));
   const [selectedAction, setSelectedAction] = useState(null); // 'settlement', 'road', 'city'
   const [lastPlacedSettlement, setLastPlacedSettlement] = useState(null);
   const [showTradeModal, setShowTradeModal] = useState(false);
@@ -44,7 +51,7 @@ function GameBoard({
   const [playersOnHex, setPlayersOnHex] = useState([]);
   const [showChat, setShowChat] = useState(false);
   const [freshRoll, setFreshRoll] = useState(null);
-  const rollIdentity = isReplay ? `replay:${replay.resetKey || replay.perspective || 'public'}` : `${gameCode}:${playerId}`;
+  const rollIdentity = isReplay ? `replay:${replay.resetKey || replay.perspective || 'public'}` : `${gameCode}:${playerId}:${presentationKey || ''}`;
   const rollSeen = useRef({identity: rollIdentity, id: rollEvent?.id});
   const [revealedCard, setRevealedCard] = useState(null);
   const [lastTradeOfferId, setLastTradeOfferId] = useState(null);
@@ -52,7 +59,8 @@ function GameBoard({
 
   const [lastNotifiedRoll, setLastNotifiedRoll] = useState(rollEvent?.id || (gameState.diceRoll ? `${gameState.diceRoll.die1}-${gameState.diceRoll.die2}-${gameState.currentPlayerIndex}` : null));
   const [unreadMessages, setUnreadMessages] = useState(0);
-  const [lastMessageCount, setLastMessageCount] = useState(0);
+  const chatIdentity = `${gameCode}:${playerId}`;
+  const chatCursor = useRef({identity: chatIdentity, key: null});
   
   // Info popup for right-click
   const { popup: infoPopup, showInfo, showHexInfo, closePopup: closeInfoPopup } = useInfoPopup();
@@ -86,7 +94,7 @@ function GameBoard({
   // Polls can repeat the same snapshot. Only a new authoritative receipt
   // animates; initial hydration and seat changes establish a baseline.
   useEffect(() => {
-    const identity = isReplay ? `replay:${replay.resetKey || replay.perspective || 'public'}` : `${gameCode}:${playerId}`;
+    const identity = isReplay ? `replay:${replay.resetKey || replay.perspective || 'public'}` : `${gameCode}:${playerId}:${presentationKey || ''}`;
     if (rollSeen.current.identity !== identity) {
       rollSeen.current = {identity, id: rollEvent?.id};
       setFreshRoll(null);
@@ -99,8 +107,8 @@ function GameBoard({
     }
     if (!rollEvent || rollSeen.current.id === rollEvent.id) return;
     rollSeen.current.id = rollEvent.id;
-    setFreshRoll(rollEvent);
-  }, [gameCode, isReplay, playerId, replay?.playing, replay?.perspective, replay?.resetKey, rollEvent?.id]);
+    setFreshRoll({...rollEvent, presentationIdentity: identity});
+  }, [gameCode, isReplay, playerId, presentationKey, replay?.playing, replay?.perspective, replay?.resetKey, rollEvent?.id]);
 
   // Listen for steal notifications
   useEffect(() => {
@@ -151,18 +159,23 @@ function GameBoard({
   // Track new chat messages for notification dot
   useEffect(() => {
     if (isReplay) return;
-    if (chatMessages.length > lastMessageCount) {
+    if (chatCursor.current.identity !== chatIdentity) {
+      chatCursor.current = {identity: chatIdentity, key: chatMessageKey(chatMessages.at(-1))};
+      setUnreadMessages(0);
+      return;
+    }
+    const incoming = newChatMessages(chatMessages, chatCursor.current.key);
+    if (incoming.length) {
       // Only increment unread if chat is closed and message is from another player
       if (!showChat) {
-        const newMessages = chatMessages.slice(lastMessageCount);
-        const otherPlayerMessages = newMessages.filter(msg => msg.playerId !== playerId);
+        const otherPlayerMessages = incoming.filter(msg => msg.playerId !== playerId);
         if (otherPlayerMessages.length > 0) {
           setUnreadMessages(prev => prev + otherPlayerMessages.length);
         }
       }
-      setLastMessageCount(chatMessages.length);
     }
-  }, [chatMessages, isReplay, lastMessageCount, showChat, playerId]);
+    chatCursor.current.key = chatMessageKey(chatMessages.at(-1));
+  }, [chatMessages, isReplay, chatIdentity, showChat, playerId]);
 
   // Reset unread count when chat is opened
   useEffect(() => {
@@ -411,6 +424,7 @@ function GameBoard({
       const winner = gameState.players.find(p => p.id === gameState.winner);
       return winner ? `${winner.name} wins!` : 'The host ended this game.';
     }
+    if (paused) return 'Game paused';
     if (needsToDiscard) {
       const discardInfo = gameState.discardingPlayers.find(
         d => d.playerIndex === gameState.myIndex
@@ -433,6 +447,11 @@ function GameBoard({
     if (!isMyTurn) {
       return `${currentPlayer?.name}'s turn`;
     }
+    if (gameState.turnPhase === 'main' && selectedAction) {
+      return selectedAction === 'road' ? 'Choose a highlighted path for your road'
+        : selectedAction === 'city' ? 'Choose a highlighted settlement to upgrade'
+        : 'Choose a highlighted intersection for your settlement';
+    }
     switch (gameState.turnPhase) {
       case 'roll': return 'Roll the dice';
       case 'robber': return 'Move the robber';
@@ -453,7 +472,12 @@ function GameBoard({
   }, [socket, addNotification]);
 
   return (
-    <div className={`game-board ${isReplay ? 'replay-game-board' : ''}`}>
+    <div className={`game-board game-hud ${isReplay ? 'replay-game-board' : ''}`} onKeyDown={event => {
+      if (event.key === 'Escape' && selectedAction && !isSetup && !isReplay && !event.defaultPrevented &&
+        !event.target.closest('input,textarea,select,[role="dialog"],.game-chat-window')) {
+        event.preventDefault(); setSelectedAction(null);
+      }
+    }}>
       {/* Header */}
       <div className="game-header">
         <div className="game-code-display">
@@ -465,7 +489,7 @@ function GameBoard({
           {currentPlayer ? (
             <div 
               className="current-player-badge"
-              style={{ backgroundColor: currentPlayer.color }}
+              style={{ '--turn-color': currentPlayer.color }}
             >
               {currentPlayer.name}
             </div>
@@ -474,16 +498,15 @@ function GameBoard({
               Lobby
             </div>
           )}
-          <span className="status-message">{getStatusMessage()}</span>
+          <span className="status-message" role="status">{getStatusMessage()}</span>
+        </div>
+        <div className="game-header-tools"><PresentationControls />
+          {!isReplay && <GameLog key={`${gameCode}:${playerId}`} events={events} players={gameState.players}/>}
         </div>
 
       </div>
 
-      {/* Main game area */}
-      <div className="game-main">
-        {/* Left sidebar - Players */}
-        <div className="sidebar left-sidebar">
-          <h3>Players</h3>
+      <div className="player-roster" role="group" aria-label="Players and scores" style={{'--seat-count': gameState.players.length}}>
           {gameState.players.map((player, idx) => (
             <PlayerPanel
               slot={slots.find(slot=>slot.id===player.id)}
@@ -542,10 +565,16 @@ function GameBoard({
           )}
         </div>
 
-        {/* Center - Board */}
+      {/* The board and its contextual controls share the main playing field. */}
+      <div className="game-main">
         <div className="board-container">
           <div className="bank-anchor" data-card-bank><GameIcon name="bank" size={22}/><span>Bank</span></div>
-          <HexBoard 
+          <HexBoard
+            cameraKey={gameCode}
+            cameraState={replay?.boardCamera}
+            animate={isReplay ? replay.playing : !paused}
+            resetKey={isReplay ? replay.resetKey : presentationKey || `${gameCode}:${playerId}`}
+            playbackRate={motionRate}
             legalActions={isReplay ? [] : legalActions}
             hexes={gameState.hexes}
             vertices={gameState.vertices}
@@ -572,10 +601,11 @@ function GameBoard({
           {/* Dice display - auto-hides after 5 seconds */}
           {gameState.diceRoll && (
             <DiceDisplay 
+              key={rollIdentity}
               roll={gameState.diceRoll} 
               rollId={rollEvent?.id}
-              duration={isReplay ? 900 / (replay.speed || 1) : 900}
-              animate={Boolean(freshRoll && freshRoll.id === rollEvent?.id)}
+              duration={900 / motionRate}
+              animate={Boolean(freshRoll && freshRoll.presentationIdentity === rollIdentity && freshRoll.id === rollEvent?.id)}
               onRightClick={(e, key, extra) => showInfo(e, key, extra)}
             />
           )}
@@ -620,24 +650,6 @@ function GameBoard({
             </>
           )}
 
-          {events.length > 0 && (
-            <details className="room-event-log">
-              <summary>Game log ({events.length})</summary>
-              <div className="room-event-list">
-                {events.slice().reverse().map(event => {
-                  const actor = gameState.players.find(player => player.id === event.actor)?.name || event.actor || 'Game';
-                  const timestamp = event.at ? new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-                  return (
-                    <div className="room-event" key={event.id || `${event.at}-${event.type}`}>
-                      <span>{event.summary || `${actor} ${event.type}`}</span>
-                      {timestamp && <time dateTime={new Date(event.at).toISOString()}>{timestamp}</time>}
-                    </div>
-                  );
-                })}
-              </div>
-            </details>
-          )}
-          
           <button 
             className="chat-toggle"
             onClick={() => setShowChat(!showChat)}
@@ -653,34 +665,26 @@ function GameBoard({
 
       {/* Bottom - My Resources */}
       {isReplay ? (
-        <ReplayHand players={gameState.players} perspective={replay.perspective} />
+        <ReplayHand players={gameState.players} perspective={replay.perspective} onCardInfo={showInfo} />
       ) : myPlayer ? (
         <div className="my-resources-bar" data-own-hand>
+          <div className="hand-heading"><span>Your hand</span><strong>{Object.values(myPlayer.resources || {}).reduce((sum, count) => sum + count, 0)} <small>cards</small></strong></div>
           <ResourceCards
             resources={myPlayer.resources}
             onRightClick={(e, resourceKey) => showInfo(e, resourceKey)}
           />
 
-          <div className="dev-cards-summary" onClick={() => setShowDevCardModal(true)}>
-            <span className="label">Dev Cards:</span>
+          <button type="button" className="dev-cards-summary" onClick={() => setShowDevCardModal(true)}>
+            <BuildingPiece kind="development"/>
+            <span className="label">Development</span>
             <span className="count">{myPlayer.developmentCards?.length || 0}</span>
             {myPlayer.newDevCards?.length > 0 && (
               <span className="new-badge">+{myPlayer.newDevCards.length} new</span>
             )}
-          </div>
+          </button>
         </div>
       ) : (
         <div className="room-spectator-note">Spectator view: private cards and resources are hidden.</div>
-      )}
-
-      {/* Robber Phase Banner - shows when player needs to move the robber */}
-      {!isReplay && gameState.turnPhase === 'robber' && isMyTurn && (
-        <div className="robber-notification-banner">
-          <GameIcon name="robber" size={24}/>
-          <span className="robber-text">
-            <strong>Move the Robber!</strong> Click on a hex to place the robber there.
-          </span>
-        </div>
       )}
 
       {/* Discard Phase Banner - shows when waiting for others to discard */}
@@ -731,9 +735,9 @@ function GameBoard({
         </div>
       )}
 
-      {(!isReplay || replay.playing) && <CardMovements key={isReplay ? replay.resetKey : undefined} events={cardEvents}
+      {(!isReplay || replay.playing) && <CardMovements key={isReplay ? replay.resetKey : rollIdentity} events={cardEvents}
         seatId={isReplay ? (['public', 'omniscient'].includes(replay.perspective) ? undefined : replay.perspective) : playerId}
-        playbackRate={isReplay ? replay.speed : 1}/>}
+        playbackRate={motionRate}/>}
       {!isReplay && gameState.phase === 'playing' && robberPick?.cardIds && <RobberPickModal
         key={robberPick.id}
         pick={robberPick}
@@ -808,8 +812,10 @@ function GameBoard({
       )}
 
       {/* Chat panel */}
-      {!isReplay && showChat && (
+      {!isReplay && (
         <Chat 
+          key={chatIdentity}
+          open={showChat}
           messages={chatMessages}
           onSend={handleSendChat}
           onClose={() => setShowChat(false)}

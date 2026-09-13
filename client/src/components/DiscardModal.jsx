@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import './DiscardModal.css';
-import GameIcon from './GameIcon';
+import CardArtwork from './CardArtwork';
 
 const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
 
@@ -26,7 +26,6 @@ function DiscardModal({ socket, player, cardsToDiscard, addNotification, paused 
     }
   };
   const totalSelected = Object.values(selected).reduce((a, b) => a + b, 0);
-  const remaining = cardsToDiscard - totalSelected;
 
   const updateSelected = (resource, delta) => {
     const newAmount = Math.max(0, Math.min(player.resources[resource], selected[resource] + delta));
@@ -53,14 +52,14 @@ function DiscardModal({ socket, player, cardsToDiscard, addNotification, paused 
   return (
     <div className="modal-overlay">
       <div className="discard-modal" role="dialog" aria-modal="true" aria-labelledby="discard-title" ref={panel} tabIndex={-1} onKeyDown={trapFocus}>
-        <h2 id="discard-title"><GameIcon name="dice" size={24} /> Seven Rolled!</h2>
+        <h2 id="discard-title">Discard cards</h2>
         <p className="discard-info">
-          You have more than 7 cards. Discard <strong>{cardsToDiscard}</strong> cards.
+          A seven was rolled. Choose <strong>{cardsToDiscard}</strong> cards to return to the bank.
         </p>
         
         {paused && <p>The room is paused.</p>}
         {error && <p role="alert">{error}</p>}
-        <div className="discard-progress">
+        <div className="discard-progress" role="progressbar" aria-label="Cards selected for discard" aria-valuemin={0} aria-valuemax={cardsToDiscard} aria-valuenow={totalSelected}>
           <div 
             className="progress-bar"
             style={{ width: `${(totalSelected / cardsToDiscard) * 100}%` }}
@@ -76,10 +75,10 @@ function DiscardModal({ socket, player, cardsToDiscard, addNotification, paused 
             if (available === 0) return null;
             
             return (
-              <div key={r} className="resource-discard-row">
-                <GameIcon className="resource-icon" name={r} size={22} />
+              <div key={r} className={`resource-discard-row ${selected[r] ? 'is-selected' : ''}`}>
+                <div className="discard-card-art"><CardArtwork name={r}/></div>
                 <span className="resource-name">{r}</span>
-                <span className="resource-available">({available})</span>
+                <span className="resource-available">{available} in hand</span>
                 <div className="discard-controls">
                   <button 
                     onClick={() => updateSelected(r, -1)}

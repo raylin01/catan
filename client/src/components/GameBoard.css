@@ -684,7 +684,7 @@
 }
 
 .replay-game-board .board-container .hex-board * {
-  cursor: default !important;
+  cursor: inherit !important;
 }
 
 .replay-game-board .player-panel {

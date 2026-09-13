@@ -5,6 +5,14 @@ import './RobberPickModal.css';
 export default function RobberPickModal({pick,victimName,onPick,paused}) {
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
   const panel=useRef(null);
+  const [narrow,setNarrow]=useState(()=>window.matchMedia('(max-width:600px)').matches);
+  useEffect(()=>{
+    const media=window.matchMedia('(max-width:600px)'), update=()=>setNarrow(media.matches);
+    media.addEventListener('change',update);
+    return()=>media.removeEventListener('change',update);
+  },[]);
+  const rowSize=narrow?6:12;
+  const rows=Array.from({length:Math.ceil(pick.cardIds.length/rowSize)},(_,row)=>pick.cardIds.slice(row*rowSize,(row+1)*rowSize));
   useEffect(()=>{
     const previous=document.activeElement;
     panel.current?.focus();
@@ -29,7 +37,10 @@ export default function RobberPickModal({pick,victimName,onPick,paused}) {
     <p>The cards are shuffled and face down. Pick one to steal.</p>
     {paused&&<p className="robber-pick-message">The room is paused.</p>}
     {error&&<p className="robber-pick-message" role="alert">{error}</p>}
-    <div className="robber-card-fan">{pick.cardIds.map((id,index)=><button key={id} type="button" className="robber-hidden-card" aria-label={`Choose face-down card ${index+1} of ${pick.cardIds.length}`} disabled={busy||paused} onClick={()=>choose(id)}><GameIcon name="cards" size={30}/><span>{index+1}</span></button>)}</div>
+    <div className="robber-card-fan">{rows.map((cards,row)=><div className="robber-fan-row" key={row} style={{'--fan-count':cards.length}}>{cards.map((id,index)=>{
+      const distance=cards.length>1?Math.abs(index-(cards.length-1)/2)/((cards.length-1)/2):0;
+      return <button key={id} type="button" className="robber-hidden-card" style={{'--fan-drop':`${distance*distance*19}px`}} aria-label={`Choose face-down card ${row*rowSize+index+1} of ${pick.cardIds.length}`} disabled={busy||paused} onClick={()=>choose(id)}><svg viewBox="0 0 32 44" aria-hidden="true"><path d="M16 35V9m0 8c-7 0-9-5-9-8 6 0 9 4 9 8Zm0 7c7 0 9-5 9-8-6 0-9 4-9 8Zm0 6c-7 0-9-5-9-8 6 0 9 4 9 8Zm0-20c0-4 3-6 3-6 1 5 0 8-3 10"/></svg><span>{row*rowSize+index+1}</span></button>;
+    })}</div>)}</div>
     <p className="robber-pick-footnote">{busy?'Taking your card…':`${pick.cardIds.length} resource cards`}</p>
   </section></div>;
 }

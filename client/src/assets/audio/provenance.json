@@ -1,0 +1,132 @@
+{
+  "author": "Kenney Vleugels (Kenney.nl)",
+  "pack": "Casino Audio 1.1",
+  "license": "CC0-1.0",
+  "sourcePage": "https://kenney.nl/assets/casino-audio",
+  "download": "https://kenney.nl/media/pages/assets/casino-audio/2472606a04-1721639069/kenney_casino-audio.zip",
+  "sourceArchiveSha256": "f36250766ac5bc378c13708ddf12a23a8e54a3251f8d482c7536e51b5dbafa18",
+  "processing": "Mono 44.1 kHz; 80 Hz high pass; two-pole low pass; peak attenuation; 5 ms fade-in and 15 ms fade-out; 96 kbps MP3. Natural timing retained.",
+  "clips": [
+    {
+      "file": "dice-1.mp3",
+      "source": "dice-throw-1.ogg",
+      "lowPassHz": 3400,
+      "targetPeakDbFS": -9,
+      "durationSeconds": 0.632,
+      "decodedPeakDbFS": -9.36,
+      "decodedRmsDbFS": -38.35,
+      "bytes": 8507,
+      "sha256": "bd5e8c129e62d791afa14be2dd15ff908c69bdf988bfe224d5bcd9eb09afc94d"
+    },
+    {
+      "file": "dice-2.mp3",
+      "source": "dice-throw-2.ogg",
+      "lowPassHz": 3400,
+      "targetPeakDbFS": -9,
+      "durationSeconds": 0.4,
+      "decodedPeakDbFS": -9.43,
+      "decodedRmsDbFS": -35.93,
+      "bytes": 5686,
+      "sha256": "f8e6ad428670a964af0df24d83be331e95ca496f4fd15a5dd450fb2ddbdfe199"
+    },
+    {
+      "file": "dice-3.mp3",
+      "source": "dice-throw-3.ogg",
+      "lowPassHz": 3400,
+      "targetPeakDbFS": -9,
+      "durationSeconds": 0.576,
+      "decodedPeakDbFS": -9.46,
+      "decodedRmsDbFS": -33.88,
+      "bytes": 7880,
+      "sha256": "94ec9c3ebe70bf588c87fc2ba9f04cf63f36086d70724ef35f4f7788ea8b9afd"
+    },
+    {
+      "file": "card-1.mp3",
+      "source": "card-slide-2.ogg",
+      "lowPassHz": 4800,
+      "targetPeakDbFS": -12,
+      "durationSeconds": 0.584,
+      "decodedPeakDbFS": -12.5,
+      "decodedRmsDbFS": -35.63,
+      "bytes": 7880,
+      "sha256": "1f6c1eed16ea20af1254079a53a93857072cc2f62199aa1b26379d254f6883bc"
+    },
+    {
+      "file": "card-2.mp3",
+      "source": "card-slide-4.ogg",
+      "lowPassHz": 4800,
+      "targetPeakDbFS": -12,
+      "durationSeconds": 0.457,
+      "decodedPeakDbFS": -12.7,
+      "decodedRmsDbFS": -37.04,
+      "bytes": 6313,
+      "sha256": "ee67b7acf05f0ccbf287b86e30fc52745f181f05a7e9d2949512ab95c21d81a6"
+    },
+    {
+      "file": "card-3.mp3",
+      "source": "card-slide-6.ogg",
+      "lowPassHz": 4800,
+      "targetPeakDbFS": -12,
+      "durationSeconds": 0.601,
+      "decodedPeakDbFS": -12.57,
+      "decodedRmsDbFS": -39.85,
+      "bytes": 7880,
+      "sha256": "968aa29a9ce99a5cd8ea38181c349a57e4469688408f6536435aa2b4822f7fe9"
+    },
+    {
+      "file": "piece-1.mp3",
+      "source": "chip-lay-1.ogg",
+      "lowPassHz": 2600,
+      "targetPeakDbFS": -14,
+      "durationSeconds": 0.17,
+      "decodedPeakDbFS": -14.3,
+      "decodedRmsDbFS": -38.44,
+      "bytes": 2865,
+      "sha256": "dae10eb5052a391e631c462682b386618cd777ef69ee342a62a0806d4144d1bd"
+    },
+    {
+      "file": "piece-2.mp3",
+      "source": "chip-lay-2.ogg",
+      "lowPassHz": 2600,
+      "targetPeakDbFS": -14,
+      "durationSeconds": 0.227,
+      "decodedPeakDbFS": -14.56,
+      "decodedRmsDbFS": -42.91,
+      "bytes": 3492,
+      "sha256": "17f4059adf41dbfada12e9df0f4b421fad60e8e4dd6a7c6ad6b723ff12a444df"
+    },
+    {
+      "file": "card-group-1.mp3",
+      "source": "card-fan-1.ogg",
+      "lowPassHz": 4400,
+      "targetPeakDbFS": -12,
+      "durationSeconds": 0.721,
+      "decodedPeakDbFS": -12.47,
+      "decodedRmsDbFS": -30.9,
+      "bytes": 9448,
+      "sha256": "08f0cca9af536af273d089e70173966558ef84df4a187130cada9209af76df1b"
+    },
+    {
+      "file": "card-group-2.mp3",
+      "source": "card-fan-2.ogg",
+      "lowPassHz": 4400,
+      "targetPeakDbFS": -12,
+      "durationSeconds": 1.307,
+      "decodedPeakDbFS": -12.32,
+      "decodedRmsDbFS": -39.49,
+      "bytes": 16657,
+      "sha256": "4e3a339e7d8409823e1ce8aa6efa9c39ac1a967de435916f640002e84a64399c"
+    },
+    {
+      "file": "shuffle.mp3",
+      "source": "card-shuffle.ogg",
+      "lowPassHz": 4400,
+      "targetPeakDbFS": -14,
+      "durationSeconds": 3.063,
+      "decodedPeakDbFS": -14.46,
+      "decodedRmsDbFS": -43.72,
+      "bytes": 37660,
+      "sha256": "6775018f5fb41385e8d5df75cf1159cec20c49e8530cf5f9b921070f59666d7a"
+    }
+  ]
+}

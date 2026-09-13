@@ -1,0 +1,13 @@
+import brick from '../assets/painted/brick.webp';
+import lumber from '../assets/painted/lumber.webp';
+import wool from '../assets/painted/wool.webp';
+import grain from '../assets/painted/grain.webp';
+import ore from '../assets/painted/ore.webp';
+import desert from '../assets/painted/desert.webp';
+import knight from '../assets/painted/knight.webp';
+import victoryPoint from '../assets/painted/victoryPoint.webp';
+import roadBuilding from '../assets/painted/roadBuilding.webp';
+import yearOfPlenty from '../assets/painted/yearOfPlenty.webp';
+import monopoly from '../assets/painted/monopoly.webp';
+export const CARD_ARTWORK = {brick, lumber, wool, grain, ore, knight, victoryPoint, roadBuilding, yearOfPlenty, monopoly};
+export const TERRAIN_ARTWORK = {forest:lumber, hills:brick, pasture:wool, fields:grain, mountains:ore, desert};
