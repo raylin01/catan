@@ -1,3 +1,4 @@
+import {combinedHand} from '../../../shared/cardTypes.js';
 import './PlayerPanel.css';
 import GameIcon from './GameIcon';
 import {AiStatus} from './AiControls';
@@ -5,6 +6,7 @@ import {AiStatus} from './AiControls';
 function PlayerPanel({
   slot,
   seafarers,
+  citiesKnights,
   objective,
   player,
   isCurrentTurn,
@@ -21,7 +23,7 @@ function PlayerPanel({
 }) {
   const totalCards = typeof player.resources === 'number' 
     ? player.resources 
-    : Object.values(player.resources || {}).reduce((a, b) => a + b, 0);
+    : Object.values(combinedHand(player)).reduce((a, b) => a + b, 0);
   
   const developmentCards = typeof player.developmentCards === 'number'
     ? player.developmentCards
@@ -29,7 +31,8 @@ function PlayerPanel({
   const newDevelopmentCards = typeof player.newDevCards === 'number'
     ? player.newDevCards
     : player.newDevCards?.length || 0;
-  const devCardCount = developmentCards + newDevelopmentCards;
+  const devCardCount = citiesKnights ? (Array.isArray(player.progressCards)?player.progressCards.length:player.progressCards||0) : developmentCards + newDevelopmentCards;
+  const activeStrength=citiesKnights?Object.values(citiesKnights.knights).filter(k=>k.ownerId===player.id&&k.active).reduce((n,k)=>n+k.strength,0):0;
 
   const hiddenVP = player.hiddenVictoryPoints || 0;
 
@@ -77,7 +80,7 @@ function PlayerPanel({
         </div>
         <div 
           className="victory-points has-info"
-          onContextMenu={(e) => seafarers ? onRightClick?.(e, 'victoryPoints', {icon:'trophy',title:'Victory points',description:objective}) : handleRightClick(e, 'victoryPoints')}
+          onContextMenu={(e) => (seafarers||citiesKnights) ? onRightClick?.(e, 'victoryPoints', {icon:'trophy',title:'Victory points',description:objective}) : handleRightClick(e, 'victoryPoints')}
           title="Right-click for info"
         >
           <span className="vp-number">
@@ -108,36 +111,37 @@ function PlayerPanel({
             // Show total cards info
             if (onRightClick) {
               onRightClick(e, 'resourceCards', {
-                title: 'Resource Cards',
+                title: citiesKnights?'Resources & commodities':'Resource cards',
                 icon: 'cards',
-                description: `Total resource cards in this player's hand.`
+                description: citiesKnights?'The combined hand count. Resource and commodity cards have identical backs.':`Total resource cards in this player's hand.`
               });
             }
           }}
-          title="Resource cards in hand"
+          title={citiesKnights?'Resource and commodity cards in hand':'Resource cards in hand'}
         >
           <GameIcon className="stat-icon" name="cards" size={15} />
           <span className="stat-value">{totalCards}</span>
         </div>
         <div 
           className="stat has-info"
-          onContextMenu={(e) => handleRightClick(e, 'devCards')}
-          title="Development cards"
+          onContextMenu={(e) => handleRightClick(e, citiesKnights?'progressCards':'devCards')}
+          title={citiesKnights?'Progress cards':'Development cards'}
         >
           <GameIcon className="stat-icon" name="devCard" size={15} />
-          <span className="stat-value">{devCardCount}</span>
+          <span className="stat-value">{devCardCount}</span>{citiesKnights&&<span className="ck-public-progress">{Object.entries(player.progressCardColors||{}).map(([track,count])=>count>0&&<i key={track} className={track} title={`${count} ${track} progress cards`}>{count}</i>)}</span>}
         </div>
         <div 
           className="stat has-info"
-          onContextMenu={(e) => seafarers?.scenario==='the_pirate_islands' ? onRightClick?.(e,'warships',{icon:'warship',title:'Warships',description:'Knight cards upgrade ships to warships. Their number determines defense against the fleet and the strength of fortress attacks. This scenario has no Largest Army.'}) : handleRightClick(e, 'knights')}
-          title={seafarers?.scenario==='the_pirate_islands' ? 'Warships' : 'Knights played'}
+          onContextMenu={(e) => citiesKnights?handleRightClick(e,'ckKnights'):seafarers?.scenario==='the_pirate_islands' ? onRightClick?.(e,'warships',{icon:'warship',title:'Warships',description:'Knight cards upgrade ships to warships. Their number determines defense against the fleet and the strength of fortress attacks. This scenario has no Largest Army.'}) : handleRightClick(e, 'knights')}
+          title={citiesKnights?'Active knight strength':seafarers?.scenario==='the_pirate_islands' ? 'Warships' : 'Knights played'}
         >
           <GameIcon className="stat-icon" name={seafarers?.scenario==='the_pirate_islands' ? 'warship' : 'knight'} size={15} />
-          <span className="stat-value">{seafarers?.scenario==='the_pirate_islands' ? player.warships : player.knightsPlayed}</span>
+          <span className="stat-value">{citiesKnights?activeStrength:seafarers?.scenario==='the_pirate_islands' ? player.warships : player.knightsPlayed}</span>
         </div>
       </div>
       
       <div className="player-pieces">
+        {citiesKnights&&<div className="piece-count" title="City walls remaining"><GameIcon name="wall" size={15}/><span>{player.wallSupply}</span></div>}
         {seafarers && <div className="piece-count has-info" title="Ships remaining" onContextMenu={event=>handleRightClick(event,'ships')}><GameIcon name="ship" size={15}/><span>{player.ships}</span></div>}
         {seafarers?.scenario==='cloth_for_catan' && <div className="piece-count has-info" title="Cloth collected" onContextMenu={event=>handleRightClick(event,'cloth')}><GameIcon name="cloth" size={15}/><span>{player.cloth}</span></div>}
         <div 
@@ -168,16 +172,17 @@ function PlayerPanel({
       
       </div>
       <div className="player-achievements">
+        {citiesKnights&&player.defenderPoints>0&&<div className="achievement" title="Defender of Catan victory points"><GameIcon name="politics" size={15}/>{player.defenderPoints} Defender VP</div>}
         {longestRoad && (
           <div 
             className="achievement longest-road has-info"
-            onContextMenu={(e) => seafarers ? onRightClick?.(e,'longestRoad',{icon:'ship',title:'Longest Route',description:'The longest continuous route of at least 5 roads or ships earns 2 victory points. A road and ship connect only at your own building.'}) : handleRightClick(e, 'longestRoad')}
+            onContextMenu={(e) => (seafarers||citiesKnights) ? onRightClick?.(e,'longestRoad',{icon:'ship',title:'Longest Route',description:'The longest continuous route of at least 5 roads or ships earns 2 victory points. A road and ship connect only at your own building.'}) : handleRightClick(e, 'longestRoad')}
             title="Right-click for info"
           >
             <><GameIcon name="road" size={15} /> {seafarers ? 'Longest Route' : 'Longest Road'}</>
           </div>
         )}
-        {largestArmy && (
+        {largestArmy && !citiesKnights && (
           <div 
             className="achievement largest-army has-info"
             onContextMenu={(e) => handleRightClick(e, 'largestArmy')}

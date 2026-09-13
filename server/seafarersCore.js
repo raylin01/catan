@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import * as G from './gameLogic.js';
+import * as CK from './citiesKnightsCore.js';
 import { scenarioFor, scenarioMapKey } from '../shared/scenarios.js';
 import { newWorldComponents, validateNewWorldSetup } from '../shared/newWorld.js';
 
@@ -588,6 +589,7 @@ export function canPlaceShip(game, playerId, edgeKey, { setup = false, lastSettl
   const connected = [a,b].some(vertexKey => {
     const building = buildingAt(game, vertexKey)?.vertex;
     if (building?.owner !== undefined && building?.owner !== null && building.owner !== playerIndex) return false;
+    if (CK.isCitiesKnights(game) && CK.knightAt(game,vertexKey)?.ownerId && CK.knightAt(game,vertexKey).ownerId !== playerId) return false;
     if (setup) return G.areVerticesEqual(vertexKey, lastSettlement);
     if (building?.owner === playerIndex) return true;
     return incidentRoutes(game, vertexKey, playerIndex).some(route => route.edge.ship && canonicalEdge(game, route.key) !== canonicalEdge(game, edgeKey));
@@ -789,6 +791,8 @@ export function calculateSeaRouteLength(game, playerIndex) {
     longest = Math.max(longest, length);
     const building = buildingAt(game, atVertex)?.vertex;
     if (building?.owner != null && building.owner !== playerIndex) return;
+    if (CK.isCitiesKnights(game) && CK.knightAt(game,atVertex)?.ownerId !== undefined &&
+      CK.knightAt(game,atVertex).ownerId !== game.players[playerIndex].id) return;
     for (const next of byVertex.get(atVertex) || []) {
       if (used.has(next.key)) continue;
       if (route.kind !== next.kind && building?.owner !== playerIndex) continue;
@@ -1111,7 +1115,7 @@ export function queueGoldClaims(game, claims) {
   advanceChoiceQueue(game);
 }
 
-function advanceChoiceQueue(game) {
+export function advanceChoiceQueue(game) {
   if (game.pendingChoice) return;
   if (game.seafarers.scenario === 'the_forgotten_tribe') {
     const available = game.seafarers.pendingPortClaims.findIndex(claim => portCandidates(game, claim.playerId).length);
@@ -1286,7 +1290,15 @@ export function canMoveShip(game, playerId, fromEdgeKey, toEdgeKey) {
       candidate.seafarers.voyageEdges[playerId] = [destinationKey];
     } else candidate.seafarers.voyageEdges[playerId] = candidate.seafarers.voyageEdges[playerId].filter(edge => edge !== sourceKey);
   }
-  return canPlaceShip(candidate, playerId, toEdgeKey, { movingFrom: fromEdgeKey });
+  const placement=canPlaceShip(candidate, playerId, toEdgeKey, { movingFrom: fromEdgeKey });
+  if (!placement.valid) return placement;
+  if (CK.isCitiesKnights(game)) {
+    candidate.edges[toEdgeKey]={ road:false,ship:true,owner:index,warship:Boolean(source.edge.warship) };
+    for (const [vertex,knight] of Object.entries(game.citiesKnights.knights)) if (knight.ownerId === playerId &&
+      CK.hasOwnRouteAt(game,playerId,vertex) && !CK.hasOwnRouteAt(candidate,playerId,vertex))
+      return { valid:false,error:'Moving this ship would disconnect your knight' };
+  }
+  return placement;
 }
 
 export function moveShip(game, playerId, fromEdgeKey, toEdgeKey) {
@@ -1383,12 +1395,12 @@ export function legalPirateMoves(game, playerId) {
   for (const [hexKey, hex] of Object.entries(game.hexes)) {
     if (hex.terrain !== 'sea' || !canMovePirate(game, hexKey).valid) continue;
     const victims = shipsOnHex(game, hexKey, game.currentPlayerIndex)
-      .filter(index => RESOURCE_TYPES.some(resource => game.players[index].resources[resource] > 0) ||
+      .filter(index => (CK.isCitiesKnights(game) ? CK.cardCount(game.players[index]) > 0 : RESOURCE_TYPES.some(resource => game.players[index].resources[resource] > 0)) ||
         game.seafarers.scenario === 'cloth_for_catan' && game.players[index].cloth > 0);
     if (!victims.length) result.push({ type: 'movePirate', payload: { hexKey } });
     else for (const index of victims) {
       const victim = game.players[index];
-      if (RESOURCE_TYPES.some(resource => victim.resources[resource] > 0)) result.push({ type: 'movePirate', payload: { hexKey, stealFromPlayerId: victim.id, stealType: 'resource' } });
+      if (CK.isCitiesKnights(game) ? CK.cardCount(victim)>0 : RESOURCE_TYPES.some(resource => victim.resources[resource] > 0)) result.push({ type: 'movePirate', payload: { hexKey, stealFromPlayerId: victim.id, stealType: 'resource' } });
       if (game.seafarers.scenario === 'cloth_for_catan' && victim.cloth > 0) result.push({ type: 'movePirate', payload: { hexKey, stealFromPlayerId: victim.id, stealType: 'cloth' } });
     }
   }
@@ -1400,7 +1412,7 @@ export function movePirate(game, playerId, hexKey, stealFromPlayerId, stealType 
   const valid = canMovePirate(game, hexKey);
   if (!valid.valid) return fail(valid.error);
   const victims = hexKey.startsWith('frame:') ? [] : shipsOnHex(game, hexKey, game.currentPlayerIndex)
-    .filter(index => RESOURCE_TYPES.some(resource => game.players[index].resources[resource] > 0) ||
+    .filter(index => (CK.isCitiesKnights(game) ? CK.cardCount(game.players[index])>0 : RESOURCE_TYPES.some(resource => game.players[index].resources[resource] > 0)) ||
       game.seafarers.scenario === 'cloth_for_catan' && game.players[index].cloth > 0);
   const victimIndex = game.players.findIndex(player => player.id === stealFromPlayerId);
   if (victims.length && !victims.includes(victimIndex)) return fail('Choose an eligible ship owner to steal from');
@@ -1414,9 +1426,9 @@ export function movePirate(game, playerId, hexKey, stealFromPlayerId, stealType 
     awardCloth(game, game.currentPlayerIndex, 1);
     game.turnPhase = game.hasRolledThisTurn || game.turnRole === 'paired' ? 'main' : 'roll';
   } else if (victimIndex >= 0) {
-    if (stealType !== 'resource' || !RESOURCE_TYPES.some(resource => game.players[victimIndex].resources[resource] > 0)) return fail('That player has no resource to take');
+    if (stealType !== 'resource' || !(CK.isCitiesKnights(game) ? CK.cardCount(game.players[victimIndex])>0 : RESOURCE_TYPES.some(resource => game.players[victimIndex].resources[resource] > 0))) return fail('That player has no card to take');
     const victim = game.players[victimIndex];
-    const cards = RESOURCE_TYPES.flatMap(resource => Array(victim.resources[resource]).fill(resource))
+    const cards = (CK.isCitiesKnights(game) ? CK.CARD_TYPES : RESOURCE_TYPES).flatMap(resource => Array(CK.isCitiesKnights(game) ? CK.cardBalance(victim,resource) : victim.resources[resource]).fill(resource))
       .map(resource => ({ id: crypto.randomUUID(), resource }));
     const randomCards = shuffleWith(cards, Math.random);
     game.pendingRobberPick = { id: crypto.randomUUID(), thiefId: playerId, victimId: victim.id, cards: randomCards,

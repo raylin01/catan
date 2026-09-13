@@ -37,6 +37,8 @@ function ActionPanel({
   playerTradingAllowed = true,
   legalActions,
   seafarers,
+  citiesKnights,
+  restoringPillagedCity = false,
   paused = false
 }) {
   const legal = type => !paused && (!legalActions || legalActions.some(action=>action.type===type));
@@ -132,17 +134,17 @@ function ActionPanel({
 
         <button
           className={`action-btn build-btn ${selectedAction === 'city' ? 'active' : ''}`}
-          aria-label="City — costs 3 ore and 2 grain"
+          aria-label={`${restoringPillagedCity ? 'Restore pillaged city' : 'City'} — costs 3 ore and 2 grain`}
           aria-pressed={selectedAction === 'city'}
           onClick={() => setSelectedAction(selectedAction === 'city' ? null : 'city')}
-          disabled={!canBuild || !legal('upgradeToCity') || !canAffordCity || player.cities <= 0}
+          disabled={!canBuild || !legal('upgradeToCity') || (!legalActions && (!canAffordCity || player.cities <= 0))}
         >
           <BuildingPiece kind="city" color={player.color}/>
-          <span className="btn-label">City</span>
+          <span className="btn-label">{restoringPillagedCity ? 'Restore city' : 'City'}</span>
           <span className="cost"><span title="3 ore"><GameIcon name="ore" size={16}/>3</span><span title="2 grain"><GameIcon name="grain" size={16}/>2</span></span>
         </button>
 
-        <button
+        {!citiesKnights && <button
           className="action-btn build-btn dev-card-btn"
           aria-label="Buy development card — costs 1 ore, 1 grain and 1 wool"
           onClick={onBuyDevCard}
@@ -152,7 +154,7 @@ function ActionPanel({
           <span className="btn-label">Development</span>
           <span className="cost"><span title="1 ore"><GameIcon name="ore" size={16}/>1</span><span title="1 grain"><GameIcon name="grain" size={16}/>1</span><span title="1 wool"><GameIcon name="wool" size={16}/>1</span></span>
           {devCardsLeft <= 5 && <span className="remaining">({devCardsLeft} left)</span>}
-        </button>
+        </button>}
       </div>
 
       {/* Trade Section */}
@@ -167,7 +169,7 @@ function ActionPanel({
         >
           <GameIcon name="bank" size={22}/> Bank
         </button>
-      <button className="action-btn trade-btn" aria-label={turnRole !== 'paired' && playerTradingAllowed ? 'Trade with player' : 'Player trades unavailable during the extra action phase'} title={turnRole === 'paired' || !playerTradingAllowed ? 'Player trades are unavailable during the extra action phase' : undefined} onClick={() => onOpenTrade('player')} disabled={!canPlayerTrade || freeRoads > 0 || yearOfPlentyPicks > 0}>
+      <button className="action-btn trade-btn" aria-label={turnRole === 'paired'?'Player trades unavailable during the extra action phase':!playerTradingAllowed?'Player trades unavailable until required choices finish':'Trade with player'} title={turnRole==='paired'?'Player trades are unavailable during the extra action phase':!playerTradingAllowed?'Finish the required choices before trading':undefined} onClick={() => onOpenTrade('player')} disabled={!canPlayerTrade || freeRoads > 0 || yearOfPlentyPicks > 0}>
         <GameIcon name="trade" size={22}/> Players
       </button>
 

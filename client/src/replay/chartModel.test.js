@@ -44,3 +44,16 @@ test('empty and long recordings produce finite scales without argument overflow'
   assert.equal(model.maxTime,149999);
   assert.equal(model.lines[0].path.split('V').length,2);
 });
+test('expansion charts use their recorded metrics across six seats, including deactivation losses', () => {
+  const seats=Array.from({length:6},(_,i)=>({id:`p${i}`}));
+  const before=seats.map((seat,i)=>({...seat,publicVP:10,activeKnightStrength:i+1,cityWalls:2,metropolises:1,scienceLevel:3,tradeLevel:4,politicsLevel:5,defenderPoints:2,ships:7}));
+  const after=before.map(player=>({...player,activeKnightStrength:0}));
+  const metrics=[{seq:1,elapsedMs:100,players:before},{seq:2,elapsedMs:200,players:after}];
+  const knights=buildChart(metrics,seats,CHARTS.knights);
+  assert.equal(knights.lines.length,6);
+  assert.ok(knights.lines[5].path.includes(`H${knights.x(100)}V${knights.y(6)}H${knights.x(200)}V${knights.y(0)}`));
+  for(const [key,expected] of Object.entries({cityWalls:2,metropolises:1,scienceLevel:3,tradeLevel:4,politicsLevel:5,defenderPoints:2,ships:7})){
+    assert.equal(chartValue(before[5],CHARTS[key]),expected,key);
+    assert.equal(chartValue({publicVP:10},CHARTS[key]),0,`${key} does not fall back to victory points`);
+  }
+});

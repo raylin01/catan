@@ -1,4 +1,5 @@
 import {canTradeWithPlayers} from './gameOptions.js';
+import {ALL_HAND_CARDS,cardTypesFor,combinedHand} from '../shared/cardTypes.js';
 export const NEGOTIATION_LIMITS=Object.freeze({
   maxDepth:2,
   maxMessagesPerRoot:6,
@@ -8,7 +9,7 @@ export const NEGOTIATION_LIMITS=Object.freeze({
   rootTtlMs:600000
 });
 
-const RESOURCES=['brick','lumber','wool','grain','ore'];
+const RESOURCES=ALL_HAND_CARDS;
 const RESOURCE_SET=new Set(RESOURCES);
 const fail=(error,statusCode=400)=>({success:false,error,statusCode});
 const ownKeys=(value,allowed)=>Object.keys(value).every(key=>allowed.includes(key));
@@ -108,9 +109,10 @@ function normalizeIntent(room,actorSeatId,intent) {
   if(intent.kind==='interest') {
     if(!ownKeys(intent,['kind','wants','offers','to','replyToId'])||!['wants','offers','to','replyToId'].every(key=>Object.hasOwn(intent,key)))return fail('Invalid negotiation intent');
     const wants=resourceList(intent.wants),offers=resourceList(intent.offers);
-    if(!wants||!offers||wants.some(resource=>offers.includes(resource)))return fail('Interest must name separate wanted and offered resources');
+    if(!wants||!offers||wants.some(resource=>offers.includes(resource))||[...wants,...offers].some(card=>!cardTypesFor(room.game).includes(card)))return fail('Interest must name separate wanted and offered cards in this game');
     const player=room.game?.players?.find(candidate=>candidate.id===actorSeatId);
-    if(!player||offers.some(resource=>!Number.isSafeInteger(player.resources?.[resource])||player.resources[resource]<1))return fail('You do not own every offered resource',409);
+    const hand=combinedHand(player);
+    if(!player||offers.some(resource=>!Number.isSafeInteger(hand[resource])||hand[resource]<1))return fail('You do not own every offered resource',409);
     const to=intent.to??null,replyToId=intent.replyToId??null;
     if(to!==null&&!realTarget(room,actorSeatId,to))return fail('Choose another occupied playing seat');
     if(replyToId!==null&&!validId(replyToId))return fail('Invalid negotiation reply');

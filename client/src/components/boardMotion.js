@@ -9,6 +9,7 @@ export function createBoardSnapshot(roads, vertices, robber, {pirate,hexes={},se
     ),
     robber: robber || null,
     pirate: pirate || null,
+    numbers:new Map(Object.entries(hexes).filter(([,hex])=>hex.number!=null).map(([key,hex])=>[key,{number:hex.number,q:hex.q,r:hex.r}])),
     terrain: new Map(Object.entries(hexes).map(([key,hex])=>[key,hex.terrain])),
     tokens: JSON.stringify([seafarers?.villages,seafarers?.fortresses,seafarers?.wonders,seafarers?.rewards,seafarers?.collectiblePorts,seafarers?.bonusSettlements,ports])
   };
@@ -20,8 +21,9 @@ export function getBoardTransitions(previous, current) {
   const cities = new Set();
   const revealed = new Set();
   const shipMoves = new Map();
+  const numberMoves=new Map();
 
-  if (!previous) return { roads, settlements, cities, revealed, shipMoves, robber: false, pirate:false, tokens:false };
+  if (!previous) return { roads, settlements, cities, revealed, shipMoves, numberMoves, robber: false, pirate:false, tokens:false };
 
   current.roads.forEach((owner, id) => {
     if (!previous.roads.has(id) || previous.roads.get(id) !== owner) roads.add(id);
@@ -41,7 +43,11 @@ export function getBoardTransitions(previous, current) {
   }
   current.terrain?.forEach((terrain,key)=>{if(previous.terrain?.get(key)==='fog' && terrain!=='fog')revealed.add(key);});
 
+  const changedNumbers=[...(current.numbers||[])].filter(([key,hex])=>previous.numbers?.has(key)&&previous.numbers.get(key).number!==hex.number);
+  for(const [key,hex] of changedNumbers){const source=changedNumbers.find(([oldKey])=>previous.numbers.get(oldKey).number===hex.number);if(source){const old=previous.numbers.get(source[0]);numberMoves.set(key,{x:50*Math.sqrt(3)*(old.q+old.r/2-hex.q-hex.r/2),y:75*(old.r-hex.r)});}}
+
   return {
+    numberMoves,
     revealed,
     shipMoves,
     pirate: previous.pirate !== current.pirate,

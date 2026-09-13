@@ -1,3 +1,8 @@
+import {combinedHand} from '../../../shared/cardTypes.js';
+import CitiesKnightsPanel,{BarbarianVoyage} from './CitiesKnightsPanel';
+import ProgressCards from './ProgressCards';
+import {CK_ACTION_NAMES,choiceForVariant} from './citiesKnightsView';
+import './CitiesKnights.css';
 import {PresentationControls} from '../presentation/GamePresentation';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import HexBoard from './HexBoard';
@@ -47,6 +52,9 @@ function GameBoard({
 }) {
   const isReplay = Boolean(replay);
   const motionRate = Math.max(.25, Math.min(8, Number(isReplay ? replay.speed : playbackRate) || 1));
+  const [choiceVariant,setChoiceVariant]=useState('');
+  useEffect(()=>setChoiceVariant(''),[gameState.pendingChoice?.id]);
+  const [knightSource,setKnightSource]=useState(null);
   const [shipSource, setShipSource] = useState(null);
   const [seaStealActions, setSeaStealActions] = useState(null);
   const [selectedAction, setSelectedAction] = useState(null); // 'settlement', 'road', 'city'
@@ -68,10 +76,10 @@ function GameBoard({
   const [unreadMessages, setUnreadMessages] = useState(0);
   const chatIdentity = `${gameCode}:${playerId}`;
   const chatCursor = useRef({identity: chatIdentity, key: null});
-  
+
   // Info popup for right-click
   const { popup: infoPopup, showInfo, showHexInfo, closePopup: closeInfoPopup } = useInfoPopup();
-  
+
   const myPlayer = gameState.myIndex >= 0 ? gameState.players[gameState.myIndex] : null;
   const currentPlayer = gameState.phase !== 'waiting' ? gameState.players[gameState.currentPlayerIndex] : null;
   const decisionPlayer = gameState.players.find(player=>player.id===gameState.pendingChoice?.actorId) || currentPlayer;
@@ -82,6 +90,8 @@ function GameBoard({
   const needsToDiscard = gameState.phase === 'playing' && gameState.discardingPlayers?.some(
     d => d.playerIndex === gameState.myIndex
   );
+  const isCitiesKnights=Boolean(gameState.citiesKnights);
+  const myHand=combinedHand(myPlayer);
   const isSeafarers = Boolean(gameState.seafarers);
   const isExtended = gameState.gameOptions?.extension56 === true || gameState.isExtended === true;
   const isPairedTurn = isExtended && gameState.turnRole === 'paired';
@@ -123,7 +133,7 @@ function GameBoard({
   // Listen for steal notifications
   useEffect(() => {
     if (isReplay || !socket) return undefined;
-    
+
     const handleStealResult = ({ type, resource, otherPlayer }) => {
       if (type === 'stole') {
         addNotification(` You stole ${resource} from ${otherPlayer}!`);
@@ -131,7 +141,7 @@ function GameBoard({
         addNotification(` ${otherPlayer} stole ${resource} from you!`);
       }
     };
-    
+
     socket.on('stealResult', handleStealResult);
     return () => socket.off('stealResult', handleStealResult);
   }, [isReplay, socket, addNotification]);
@@ -169,10 +179,10 @@ function GameBoard({
     if (isReplay) return;
     const tradeOffer = gameState.tradeOffer;
     const isTradeForMe = tradeOffer?.to === gameState.myIndex;
-    
+
     // Create a unique ID for this trade to track if we've already shown it
     const tradeId = tradeOffer?.id || null;
-    
+
     if (tradeOffer && gameState.turnRole !== 'paired' && gameState.playerTradingAllowed !== false && isTradeForMe && tradeId !== lastTradeOfferId) {
       // New trade from another player - auto open the modal
       setTradeMode('player');
@@ -225,6 +235,8 @@ function GameBoard({
     setSeaStealActions(null);
     if (gameState.turnPhase==='robber' && isSeafarers) setSelectedAction(current=>current==='pirate' || !legalActions.some(action=>action.type==='moveRobber') ? 'pirate' : 'robber');
   }, [gameState.currentPlayerIndex, gameState.turnPhase, gameState.turnRole, playerId, presentationKey]);
+  useEffect(()=>{if(!['moveKnight','driveRobber'].includes(selectedAction)||!legalActions.some(a=>a.type===selectedAction&&(a.payload.fromVertexKey||a.payload.vertexKey)===knightSource))setKnightSource(null);},[selectedAction,knightSource,legalActions]);
+  const resolveCityChoice=payload=>{if(paused||isReplay||gameState.pendingChoice?.actorId!==playerId||gameState.pendingChoice.id!==payload.choiceId)return;socket.emit('resolveCitiesKnightsChoice',payload,response=>{if(!response.success)addNotification(response.error);});};
   const handleSeaAction = action => {
     if (!action || paused || isReplay) return;
     const authoritative = legalActions.find(candidate=>candidate.type===action.type && JSON.stringify(candidate.payload || {})===JSON.stringify(action.payload || {}));
@@ -232,6 +244,7 @@ function GameBoard({
     socket.emit(authoritative.type, authoritative.payload || {}, response=>{
       if (!response.success) {addNotification(response.error);return;}
       setSeaStealActions(null);
+      if(CK_ACTION_NAMES[authoritative.type]){setSelectedAction(null);setKnightSource(null);}
       if (authoritative.type==='placeShip' && isSetup) {
         socket.emit('advanceSetup', result=>{if(!result.success)addNotification(result.error);});
         setLastPlacedSettlement(null);
@@ -260,11 +273,11 @@ function GameBoard({
     if (gameState.diceRoll && gameState.turnPhase !== 'roll') {
       // Create unique key for this roll to prevent duplicate notifications
       const rollKey = rollEvent?.id || `${gameState.diceRoll.die1}-${gameState.diceRoll.die2}-${productionIndex}`;
-      
+
       // Only notify for 7 (robber) - regular rolls are shown in the dice display
       if (rollKey !== lastNotifiedRoll && gameState.diceRoll.total === 7) {
         const roller = productionPlayer;
-        addNotification(`${roller.name} rolled a 7. ${gameState.turnPhase === "discard" ? "Players must discard before the robber moves." : "Move the robber."}`);
+        addNotification(`${roller.name} rolled a 7. ${gameState.turnPhase === "discard" ? "Players must discard." : isCitiesKnights&&!gameState.citiesKnights.barbarian.attacked ? "The robber waits until the first barbarian attack." : "Move the robber."}`);
         setLastNotifiedRoll(rollKey);
       } else if (rollKey !== lastNotifiedRoll) {
         setLastNotifiedRoll(rollKey);
@@ -305,9 +318,9 @@ function GameBoard({
   }, [socket, isSetup, addNotification]);
 
   const handlePlaceRoad = useCallback((edgeKey) => {
-    socket.emit('placeRoad', { 
-      edgeKey, 
-      isSetup, 
+    socket.emit('placeRoad', {
+      edgeKey,
+      isSetup,
       lastSettlement: setupSettlement
     }, (response) => {
       if (response.success) {
@@ -343,7 +356,7 @@ function GameBoard({
         addNotification('Must move robber to a different hex');
         return;
       }
-      
+
       // Get players on this hex
       socket.emit('getPlayersOnHex', { hexKey }, (response) => {
         if (response.success && response.players.length > 0) {
@@ -362,9 +375,9 @@ function GameBoard({
   }, [gameState.turnPhase, gameState.robber, isMyTurn, socket, addNotification]);
 
   const handleStealFromPlayer = useCallback((stealPlayerId) => {
-    socket.emit('moveRobber', { 
-      hexKey: pendingRobberHex, 
-      stealFromPlayerId: stealPlayerId 
+    socket.emit('moveRobber', {
+      hexKey: pendingRobberHex,
+      stealFromPlayerId: stealPlayerId
     }, (response) => {
       if (response.success) {
         setPendingRobberHex(null);
@@ -453,18 +466,18 @@ function GameBoard({
       return `Discard ${discardInfo.cardsToDiscard} cards`;
     }
     if (isSetup) {
-      return isMyTurn 
-        ? selectedAction === 'port' ? 'Place the harbor on a highlighted coast' : `Place your ${['first','second','third'][gameState.setupPhase] || 'starting'} ${selectedAction==='ship' ? 'ship' : selectedAction==='road' ? 'road' : 'settlement'}`
+      return isMyTurn
+        ? selectedAction === 'port' ? 'Place the harbor on a highlighted coast' : `Place your ${['first','second','third'][gameState.setupPhase] || 'starting'} ${selectedAction==='ship' ? 'ship' : selectedAction==='road' ? 'road' : isCitiesKnights&&gameState.setupPhase===1?'city':'settlement'}`
         : `${currentPlayer?.name} is placing...`;
     }
     if (!isMyTurn) {
       return isPairedTurn ? `${currentPlayer?.name}'s extra action phase` : `${currentPlayer?.name}'s turn`;
     }
     if (gameState.turnPhase === 'main' && selectedAction) {
-      return selectedAction === 'ship' ? 'Choose a highlighted sea route for your ship'
+      return CK_ACTION_NAMES[String(selectedAction).split(':')[0]] ? `${CK_ACTION_NAMES[String(selectedAction).split(':')[0]]}: choose a highlighted ${['moveKnight','driveRobber'].includes(selectedAction)&&!knightSource?'knight':'location'}` : selectedAction === 'ship' ? 'Choose a highlighted sea route for your ship'
         : selectedAction === 'moveShip' ? shipSource ? 'Choose a highlighted destination for your ship' : 'Choose a highlighted ship to move'
         : selectedAction === 'road' ? 'Choose a highlighted path for your road'
-        : selectedAction === 'city' ? 'Choose a highlighted settlement to upgrade'
+        : selectedAction === 'city' ? Object.values(gameState.vertices || {}).some(vertex=>vertex.owner===gameState.myIndex&&vertex.pillagedNoPiece) ? 'Restore your pillaged city before upgrading another settlement' : 'Choose a highlighted settlement to upgrade'
         : 'Choose a highlighted intersection for your settlement';
     }
     switch (gameState.turnPhase) {
@@ -476,9 +489,9 @@ function GameBoard({
       default: return '';
     }
   };
-  
+
   return (
-    <div className={`game-board game-hud ${isSeafarers?'has-seafarers':''} ${isReplay ? 'replay-game-board' : ''}`} onKeyDown={event => {
+    <div className={`game-board game-hud ${isSeafarers?'has-seafarers':''} ${isCitiesKnights?'has-cities-knights':''} ${isReplay ? 'replay-game-board' : ''}`} onKeyDown={event => {
       if (event.key === 'Escape' && selectedAction && !isSetup && !isReplay && !event.defaultPrevented &&
         !event.target.closest('input,textarea,select,[role="dialog"],.game-chat-window')) {
         event.preventDefault(); setSelectedAction(null);
@@ -490,10 +503,10 @@ function GameBoard({
           <span className="table-wordmark">CATAN</span>
           {isReplay && <span className="replay-game-label">Replay</span>}
         </div>
-        
+
         <div className="turn-indicator">
           {currentPlayer ? (
-            <div 
+            <div
               className="current-player-badge"
               style={{ '--turn-color': decisionPlayer.color }}
             >
@@ -517,13 +530,16 @@ function GameBoard({
 
       </div>
 
-      {isReplay && isSeafarers && <div className="replay-scenario-context"><strong>{scenarioName(gameState)}</strong><span>{scenarioObjective(gameState)}</span></div>}
+      {isReplay && (isSeafarers||isCitiesKnights) && <div className="replay-scenario-context"><strong>{isCitiesKnights?'Cities & Knights · ':''}{scenarioName(gameState)}</strong><span>{isCitiesKnights&&!isSeafarers?'13 victory points to win.':scenarioObjective(gameState)}</span></div>}
+
+      {isReplay&&isCitiesKnights&&<div className="ck-replay-voyage"><BarbarianVoyage game={gameState}/></div>}
 
       <div className={`player-roster ${gameState.players.length >= 5 ? 'large-roster' : ''}`} role="group" aria-label="Players and scores" style={{'--seat-count': gameState.players.length}}>
           {gameState.players.map((player, idx) => (
             <PlayerPanel
               seafarers={gameState.seafarers}
-              objective={scenarioObjective(gameState)}
+              citiesKnights={gameState.citiesKnights}
+              objective={isCitiesKnights&&!isSeafarers?'13 victory points to win. Defend Catan, develop your cities and gain metropolises.':scenarioObjective(gameState)}
               slot={slots.find(slot=>slot.id===player.id)}
               key={player.id}
               player={player}
@@ -554,18 +570,18 @@ function GameBoard({
               }}
             />
           ))}
-          
+
           {!isReplay && isWaiting && (
             <div className="waiting-controls">
               {isHost && (
                 <>
-                  <button 
+                  <button
                     className="shuffle-btn"
                     onClick={handleShuffleBoard}
                   >
                      Shuffle Board
                   </button>
-                  <button 
+                  <button
                     className="start-game-btn"
                     onClick={handleStartGame}
                     disabled={gameState.players.length < 2}
@@ -598,7 +614,12 @@ function GameBoard({
             robber={gameState.seafarers?.scenario === 'the_pirate_islands' ? null : gameState.robber}
             pirate={gameState.pirate}
             seafarers={gameState.seafarers}
-            pendingChoice={isReplay ? null : gameState.pendingChoice}
+            pendingChoice={isReplay ? null : choiceForVariant(gameState.pendingChoice,choiceVariant)}
+            initialCity={isCitiesKnights&&isSetup&&gameState.setupPhase===1}
+            citiesKnights={gameState.citiesKnights}
+            knightSource={knightSource}
+            onSelectKnight={setKnightSource}
+            onMultipleCityActions={setSeaStealActions}
             shipSource={shipSource}
             onSelectShip={setShipSource}
             onSeaAction={handleSeaAction}
@@ -619,12 +640,13 @@ function GameBoard({
             lastPlacedSettlement={lastPlacedSettlement}
             freeRoads={gameState.freeRoads}
           />
-          
+
           {/* Dice display - auto-hides after 5 seconds */}
           {gameState.diceRoll && (
-            <DiceDisplay 
+            <DiceDisplay
               key={rollIdentity}
-              roll={gameState.diceRoll} 
+              citiesKnights={gameState.citiesKnights}
+              roll={gameState.diceRoll}
               rollId={rollEvent?.id}
               duration={900 / motionRate}
               animate={Boolean(freshRoll && freshRoll.presentationIdentity === rollIdentity && freshRoll.id === rollEvent?.id)}
@@ -635,6 +657,7 @@ function GameBoard({
 
         {/* Right sidebar - Actions */}
         <div className="sidebar right-sidebar">
+          {isCitiesKnights&&<CitiesKnightsPanel choiceVariant={choiceVariant} onChoiceVariant={setChoiceVariant} game={gameState} playerId={isReplay?replay.perspective:playerId} legalActions={isReplay?[]:legalActions} onAction={handleSeaAction} onResolve={resolveCityChoice} selectedAction={selectedAction} setSelectedAction={setSelectedAction} knightSource={knightSource} paused={paused} replay={isReplay}/>}
           {isSeafarers && <SeafarersPanel game={gameState} playerId={playerId} legalActions={isReplay?[]:legalActions} onAction={handleSeaAction} selectedAction={selectedAction} setSelectedAction={setSelectedAction} shipSource={shipSource} paused={paused} replay={isReplay}/>}
           {isReplay ? replay.inspector : <>
           {legalActions.some(action => action.type === 'advanceSetup') && (
@@ -644,8 +667,10 @@ function GameBoard({
           )}
           {gameState.phase === 'playing' && myPlayer && (
             <>
-              <ActionPanel 
+              <ActionPanel
                 legalActions={legalActions}
+                citiesKnights={gameState.citiesKnights}
+                restoringPillagedCity={Object.values(gameState.vertices || {}).some(vertex=>vertex.owner===gameState.myIndex&&vertex.pillagedNoPiece)}
                 seafarers={gameState.seafarers}
                 paused={paused || Boolean(gameState.pendingChoice)}
                 isMyTurn={isMyTurn}
@@ -676,7 +701,7 @@ function GameBoard({
             </>
           )}
 
-          <button 
+          <button
             className="chat-toggle"
             onClick={() => setShowChat(!showChat)}
           >
@@ -693,17 +718,17 @@ function GameBoard({
       {isReplay ? (
         <ReplayHand players={gameState.players} perspective={replay.perspective} onCardInfo={showInfo} />
       ) : myPlayer ? (
-        <div className="my-resources-bar" data-own-hand>
-          <div className="hand-heading"><span>Your hand</span><strong>{Object.values(myPlayer.resources || {}).reduce((sum, count) => sum + count, 0)} <small>cards</small></strong></div>
+        <div className={`my-resources-bar ${isCitiesKnights?'ck-hand':''}`} data-own-hand>
+          <div className="hand-heading"><span>Your hand</span><strong>{Object.values(myHand).reduce((sum, count) => sum + count, 0)} <small>cards</small></strong></div>
           <ResourceCards
-            resources={myPlayer.resources}
-            onRightClick={(e, resourceKey) => showInfo(e, resourceKey)}
+            resources={myHand}
+            onRightClick={(e, resourceKey) => showInfo(e, isCitiesKnights&&resourceKey==='cloth'?'commodityCloth':resourceKey)}
           />
 
           <button type="button" className="dev-cards-summary" onClick={() => setShowDevCardModal(true)}>
             <BuildingPiece kind="development"/>
-            <span className="label">Development</span>
-            <span className="count">{myPlayer.developmentCards?.length || 0}</span>
+            <span className="label">{isCitiesKnights?'Progress':'Development'}</span>
+            <span className="count">{isCitiesKnights?myPlayer.progressCards?.length||0:myPlayer.developmentCards?.length || 0}</span>
             {myPlayer.newDevCards?.length > 0 && (
               <span className="new-badge">+{myPlayer.newDevCards.length} new</span>
             )}
@@ -725,8 +750,8 @@ function GameBoard({
 
       {/* Trade Notification Banner - shows when there's a pending trade from another player */}
       {!isReplay && gameState.turnRole !== 'paired' && gameState.playerTradingAllowed !== false && gameState.tradeOffer &&
-       gameState.tradeOffer.from !== gameState.myIndex && 
-       !showTradeModal && 
+       gameState.tradeOffer.from !== gameState.myIndex &&
+       !showTradeModal &&
        dismissedTradeId !== gameState.tradeOffer.id && (
         <div className="trade-notification-banner">
           <GameIcon name="trade" size={24}/>
@@ -734,8 +759,8 @@ function GameBoard({
             <strong>{gameState.players[gameState.tradeOffer.from]?.name}</strong> offered a trade to {gameState.players[gameState.tradeOffer.to]?.name}.
           </span>
           <button className="view-trade-btn" onClick={() => {setTradeMode('player'); setShowTradeModal(true);}}>View Trade</button>
-          <button 
-            className="dismiss-trade-btn" 
+          <button
+            className="dismiss-trade-btn"
             onClick={(e) => {
               e.stopPropagation();
               setDismissedTradeId(gameState.tradeOffer.id);
@@ -758,12 +783,12 @@ function GameBoard({
         paused={paused}
         onPick={cardId => new Promise(resolve => socket.emit('chooseRobberCard', {cardId}, resolve))}
       />}
-      {!isReplay && seaStealActions && <SeaStealModal actions={seaStealActions.filter(action=>legalActions.some(current=>current.type===action.type && JSON.stringify(current.payload)===JSON.stringify(action.payload)))} players={gameState.players} paused={paused} onAction={handleSeaAction} onClose={()=>setSeaStealActions(null)}/>}
+      {!isReplay && seaStealActions && <SeaStealModal citiesKnights={isCitiesKnights} actions={seaStealActions.filter(action=>legalActions.some(current=>current.type===action.type && JSON.stringify(current.payload)===JSON.stringify(action.payload)))} players={gameState.players} paused={paused} onAction={handleSeaAction} onClose={()=>setSeaStealActions(null)}/>}
       {/* Modals */}
       {!isReplay && showTradeModal && tradePanel && tradePanel(() => setShowTradeModal(false), tradeMode)}
 
       {!isReplay && showDevCardModal && myPlayer && (
-        <DevCardModal 
+        isCitiesKnights ? <ProgressCards player={myPlayer} legalActions={legalActions} paused={paused} onAction={handleSeaAction} onClose={()=>setShowDevCardModal(false)}/> : <DevCardModal
           socket={socket}
           myPlayer={myPlayer}
           isMyTurn={isMyTurn}
@@ -778,14 +803,14 @@ function GameBoard({
       )}
 
       {!isReplay && revealedCard && (
-        <CardReveal 
+        <CardReveal
           cardType={revealedCard}
           onClose={() => setRevealedCard(null)}
         />
       )}
 
       {!isReplay && needsToDiscard && (
-        <DiscardModal 
+        <DiscardModal
           socket={socket}
           player={myPlayer}
           paused={paused}
@@ -803,7 +828,7 @@ function GameBoard({
             <h3>Steal from whom?</h3>
             <div className="steal-options">
               {playersOnHex.map(p => (
-                <button 
+                <button
                   key={p.id}
                   className="steal-btn"
                   onClick={() => handleStealFromPlayer(p.id)}
@@ -816,7 +841,7 @@ function GameBoard({
             </div>
             {/* Show OK button if no players have cards to steal */}
             {playersOnHex.every(p => !p.hasResources) && (
-              <button 
+              <button
                 className="steal-ok-btn"
                 disabled={paused}
                 onClick={() => handleStealFromPlayer(null)}
@@ -830,7 +855,7 @@ function GameBoard({
 
       {/* Chat panel */}
       {!isReplay && (
-        <Chat 
+        <Chat
           key={chatIdentity}
           open={showChat}
           messages={chatMessages}
@@ -842,7 +867,7 @@ function GameBoard({
 
       {/* Info Popup for right-click help */}
       {infoPopup && (
-        <InfoPopup 
+        <InfoPopup
           position={infoPopup.position}
           info={infoPopup.info}
           onClose={closeInfoPopup}
@@ -851,7 +876,7 @@ function GameBoard({
 
       {/* Victory celebration with confetti */}
       {!isReplay && gameState.phase === 'finished' && gameState.winner && (
-        <Confetti 
+        <Confetti
           winner={gameState.players.find(p => p.id === gameState.winner)}
           onBackToLobby={onLeaveGame}
           replayId={replayId}

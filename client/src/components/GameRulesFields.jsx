@@ -1,3 +1,4 @@
+import {useId} from 'react';
 import {NEW_WORLD_TERRAINS,newWorldComponents,validateNewWorldSetup} from '../../../shared/newWorld.js';
 import GameIcon from './GameIcon';
 import {SEAFARERS_SCENARIOS, scenarioFor, scenarioLayouts, scenarioTitle, victoryGoal} from '../../../shared/scenarios.js';
@@ -6,6 +7,7 @@ export function rulesDraft(options, seatCount = 4) {
   return {
     seatCount: String(seatCount),
     extension56: options?.extension56 === true,
+    citiesKnights: options?.expansions?.includes('cities_knights') === true,
     seafarers: options?.expansions?.includes('seafarers') === true,
     scenario: scenarioFor(options?.scenario)?.id || 'heading_for_new_shores',
     layout: options?.setup?.layout || 'fixed',
@@ -19,7 +21,7 @@ export function gameOptionsForDraft(draft) {
   return {
     version: 1,
     extension56: draft.extension56,
-    expansions: draft.seafarers ? ['seafarers'] : [],
+    expansions: [...(draft.seafarers?['seafarers']:[]),...(draft.citiesKnights?['cities_knights']:[])],
     scenario: draft.seafarers ? draft.scenario : 'base',
     ...(draft.seafarers ? {setup: {
       layout: draft.scenario === 'new_world' ? 'variable' : draft.layout,
@@ -31,6 +33,7 @@ export function gameOptionsForDraft(draft) {
 }
 
 export function validRulesDraft(draft) {
+  if (draft.citiesKnights&&draft.seafarers&&['the_forgotten_tribe','the_pirate_islands'].includes(draft.scenario))return false;
   if (!draft.seafarers) return true;
   const seedValid=draft.seed === '' || (/^\d+$/.test(draft.seed) && Number(draft.seed) <= 0xffffffff);
   return seedValid && (draft.scenario!=='new_world' || validateNewWorldSetup(gameOptionsForDraft(draft).setup,Number(draft.seatCount)).success);
@@ -39,10 +42,13 @@ export function validRulesDraft(draft) {
 export function gameRulesLabel(options, count) {
   const name = options?.expansions?.includes('seafarers')
     ? `Seafarers · ${scenarioTitle(options.scenario, count)}` : 'Base game';
-  return `${name}${options?.extension56 ? ' · 5–6 player extension' : ''} · ${count} seats`;
+  return `${options?.expansions?.includes('cities_knights')?(options.expansions.includes('seafarers')?'Cities & Knights + ':'Cities & Knights'):''}${options?.expansions?.includes('cities_knights')&&!options.expansions.includes('seafarers')?'':name}${options?.extension56 ? ' · 5–6 player extension' : ''} · ${count} seats`;
 }
 
 export default function GameRulesFields({value, onChange, disabled = false}) {
+  const combinationHelpId=useId();
+  const affectedScenario=['the_forgotten_tribe','the_pirate_islands'].includes(value.scenario);
+  const showCombinationHelp=value.seafarers&&(value.citiesKnights||affectedScenario);
   const change = patch => {
     const next = {...value, ...patch};
     if (patch.seatCount && patch.seatCount!==value.seatCount) {next.terrainMix=undefined;next.hexSwaps=undefined;}
@@ -69,7 +75,10 @@ export default function GameRulesFields({value, onChange, disabled = false}) {
             onChange={event => change({seafarers: event.target.checked})}/>
           <span>Seafarers</span>
         </label>
+        <label className="room-rules-switch"><input type="checkbox" checked={value.citiesKnights} aria-describedby={showCombinationHelp?combinationHelpId:undefined} disabled={disabled || (value.seafarers&&['the_forgotten_tribe','the_pirate_islands'].includes(value.scenario))} onChange={event=>change({citiesKnights:event.target.checked})}/><span>Cities & Knights</span></label>
       </div>
+      {showCombinationHelp&&<p id={combinationHelpId} className="room-field-help game-rules-description">The Forgotten Tribe and The Pirate Islands use development cards, and their combined Cities &amp; Knights rules are unspecified. {value.citiesKnights?'Choose another scenario, or turn off Cities & Knights to play either.':'Choose another scenario to add Cities & Knights.'}</p>}
+      {value.citiesKnights&&<p className="room-field-help game-rules-description">Improve cities with commodities, command knights and defend Catan from barbarians. {value.seafarers?'The scenario victory goal increases by 2 points.':'13 victory points to win.'}</p>}
       <label className="game-rules-field">
         Seats
         <select value={value.seatCount} onChange={event => change({seatCount: event.target.value})} disabled={disabled}>
@@ -79,11 +88,11 @@ export default function GameRulesFields({value, onChange, disabled = false}) {
       {value.seafarers && <>
         <label className="game-rules-field game-rules-scenario">
           Scenario
-          <select value={value.scenario} disabled={disabled} onChange={event => change({scenario: event.target.value, layout: event.target.value === 'new_world' ? 'variable' : value.layout})}>
-            {SEAFARERS_SCENARIOS.map(scenario => <option key={scenario.id} value={scenario.id}>{scenarioTitle(scenario.id, Number(value.seatCount))}</option>)}
+          <select value={value.scenario} aria-describedby={showCombinationHelp?combinationHelpId:undefined} disabled={disabled} onChange={event => change({scenario: event.target.value, layout: event.target.value === 'new_world' ? 'variable' : value.layout})}>
+            {SEAFARERS_SCENARIOS.map(scenario => <option key={scenario.id} value={scenario.id} disabled={value.citiesKnights&&['the_forgotten_tribe','the_pirate_islands'].includes(scenario.id)}>{scenarioTitle(scenario.id, Number(value.seatCount))}</option>)}
           </select>
         </label>
-        <p className="room-field-help game-rules-description">{selected?.description} {value.scenario === 'the_pirate_islands' ? 'Reach 10 victory points and recapture your fortress.' : value.scenario === 'the_wonders_of_catan' ? 'Complete level 4, or reach 10 VP with a wonder strictly ahead of all opponents.' : `${victoryGoal(gameOptionsForDraft(value))} victory points to win.`}</p>
+        <p className="room-field-help game-rules-description">{selected?.description} {value.scenario === 'the_pirate_islands' ? 'Reach 10 victory points and recapture your fortress.' : value.scenario === 'the_wonders_of_catan' ? `Complete level 4, or reach ${victoryGoal(gameOptionsForDraft(value))} VP with a wonder strictly ahead of all opponents.` : `${victoryGoal(gameOptionsForDraft(value))} victory points to win.`}</p>
         <label className="game-rules-field">
           Board setup
           <select value={value.scenario === 'new_world' ? 'variable' : value.layout} disabled={disabled || layouts.length === 1} onChange={event => change({layout: event.target.value})}>

@@ -1,9 +1,11 @@
 import * as G from './gameLogic.js';
 import * as SF from './seafarersCore.js';
+import * as CK from './citiesKnightsCore.js';
 
 const fail = error => ({ success: false, error });
 const resources = ['brick', 'lumber', 'wool', 'grain', 'ore'];
-export const actionNames = ['rollDice','discardCards','moveRobber','movePirate','chooseRobberCard','placeSettlement','placeRoad','placeShip','moveShip','placePort','claimWonder','buildWonder','attackFortress','upgradeToCity','buyDevCard','playDevCard','yearOfPlentyPick','bankTrade','proposeTrade','respondToTrade','cancelTrade','advanceSetup','endTurn','finishFreeRoads','resolveSeafarersChoice'];
+export const actionNames = ['rollDice','discardCards','moveRobber','movePirate','chooseRobberCard','placeSettlement','placeRoad','placeShip','moveShip','placePort','claimWonder','buildWonder','attackFortress','upgradeToCity','buyDevCard','playDevCard','yearOfPlentyPick','bankTrade','proposeTrade','respondToTrade','cancelTrade','advanceSetup','endTurn','finishFreeRoads','resolveSeafarersChoice',
+  'resolveCitiesKnightsChoice','buildCityWall','improveCity','recruitKnight','promoteKnight','activateKnight','moveKnight','driveRobber','playProgressCard','offerCommercialHarbor'];
 
 /** One transactional authority for every transport. Never trust client setup flags. */
 export function executeAction(game, playerId, type, payload = {}, dryRun = false) {
@@ -13,13 +15,18 @@ export function executeAction(game, playerId, type, payload = {}, dryRun = false
   if (index < 0) return fail('Player not found');
   if (!['setup','playing'].includes(game.phase)) return fail('Game is not active');
   const current = index === game.currentPlayerIndex;
-  if (!current && !['discardCards','respondToTrade'].includes(type) && !(type === 'resolveSeafarersChoice' && game.pendingChoice?.actorId === playerId)) return fail('Not your turn');
+  if (!current && !['discardCards','respondToTrade'].includes(type) && !(['resolveSeafarersChoice','resolveCitiesKnightsChoice'].includes(type) && game.pendingChoice?.actorId === playerId)) return fail('Not your turn');
   const copy = structuredClone(game);
   try {
     let result;
     if (copy.pendingChoice) {
-      if (type !== 'resolveSeafarersChoice') return fail('Finish the current choice first');
-      result = SF.resolveSeafarersChoice(copy, playerId, payload.choiceId, payload.optionId);
+      if (copy.pendingChoice.expansion === 'cities_knights') {
+        if (type !== 'resolveCitiesKnightsChoice') return fail('Finish the current choice first');
+        result = CK.resolveCitiesKnightsChoice(copy, playerId, payload.choiceId, payload.optionId, payload.cards);
+      } else {
+        if (type !== 'resolveSeafarersChoice') return fail('Finish the current choice first');
+        result = SF.resolveSeafarersChoice(copy, playerId, payload.choiceId, payload.optionId);
+      }
     } else if (game.phase === 'setup' && game.turnPhase === 'portPlacement') {
       if (type !== 'placePort') return fail('Place the drawn port before settling');
       result = SF.placePort(copy, playerId, payload.edgeKey);
@@ -45,12 +52,13 @@ export function executeAction(game, playerId, type, payload = {}, dryRun = false
       if (type !== 'advanceSetup') copy.setupAction = step;
     } else {
       const allowed = {
-        roll: ['rollDice','playDevCard'],
+        roll: ['rollDice','playDevCard','playProgressCard'],
         discard: ['discardCards'],
         robber: ['moveRobber','movePirate'],
         robberPick: ['chooseRobberCard'],
         yearOfPlenty: ['yearOfPlentyPick'],
-        main: ['placeSettlement','placeRoad','placeShip','moveShip','claimWonder','buildWonder','attackFortress','upgradeToCity','buyDevCard','playDevCard','bankTrade','proposeTrade','respondToTrade','cancelTrade','endTurn'],
+        main: ['placeSettlement','placeRoad','placeShip','moveShip','claimWonder','buildWonder','attackFortress','upgradeToCity','buyDevCard','playDevCard','bankTrade','proposeTrade','respondToTrade','cancelTrade','endTurn',
+          'buildCityWall','improveCity','recruitKnight','promoteKnight','activateKnight','moveKnight','driveRobber','playProgressCard','offerCommercialHarbor'],
       };
       const resolvingPlenty = game.yearOfPlentyPicks > 0;
       const resolvingRoads = game.freeRoads > 0;
@@ -84,12 +92,26 @@ export function executeAction(game, playerId, type, payload = {}, dryRun = false
         case 'respondToTrade': result = G.respondToTrade(copy,playerId,payload.accept); break;
         case 'cancelTrade': result = G.cancelTrade(copy,playerId); break;
         case 'endTurn': result = G.endTurn(copy,playerId); break;
+        case 'buildCityWall': result = CK.buildCityWall(copy,playerId,payload.vertexKey); break;
+        case 'improveCity': result = CK.improveCity(copy,playerId,payload.track,payload.vertexKey); break;
+        case 'recruitKnight': result = CK.recruitKnight(copy,playerId,payload.vertexKey); break;
+        case 'promoteKnight': result = CK.promoteKnight(copy,playerId,payload.vertexKey); break;
+        case 'activateKnight': result = CK.activateKnight(copy,playerId,payload.vertexKey); break;
+        case 'moveKnight': result = CK.moveKnight(copy,playerId,payload.fromVertexKey,payload.toVertexKey); break;
+        case 'driveRobber': result = CK.driveRobber(copy,playerId,payload.vertexKey,payload.hexKey,payload.stealFromPlayerId,payload.stealType); break;
+        case 'playProgressCard': result = CK.playProgressCard(copy,playerId,payload.cardId,payload.params); break;
+        case 'offerCommercialHarbor': result = CK.offerCommercialHarbor(copy,playerId,payload.targetPlayerId,payload.resource); break;
       }
     }
     if (!result?.success) return result || fail('Invalid action');
+    if (CK.isCitiesKnights(copy) && !copy.pendingChoice) {
+      if (SF.isSeafarers(copy)) SF.advanceChoiceQueue(copy);
+      CK.exposeNextChoice(copy);
+    }
     G.refreshPlayerTradingAllowed(copy);
     for (const p of copy.players) {
       if (resources.some(r => !Number.isSafeInteger(p.resources[r]) || p.resources[r] < 0)) return fail('Invalid resource balance');
+      if (CK.isCitiesKnights(copy) && CK.COMMODITIES.some(r => !Number.isSafeInteger(p.commodities[r]) || p.commodities[r] < 0)) return fail('Invalid commodity balance');
     }
     if(!dryRun){Object.keys(game).forEach(key => delete game[key]);Object.assign(game,copy);}
     return result;
@@ -111,7 +133,9 @@ export function playerView(game, playerId) {
   view.players = view.players.map((p,index) => {
     const raw = game.players[index];
     if (raw.id === playerId) return p;
-    return {...p, resources: Object.values(raw.resources).reduce((a,b)=>a+b,0),
+    const {commodities,...publicPlayer}=p;
+    return {...publicPlayer, resources: CK.isCitiesKnights(game) ? CK.getCardCount(raw) : Object.values(raw.resources).reduce((a,b)=>a+b,0),
+      ...(CK.isCitiesKnights(game) ? { progressCards:raw.progressCards.length } : {}),
       developmentCards: raw.developmentCards.length, newDevCards: raw.newDevCards.length, hiddenVictoryPoints: 0};
   });
   return view;
@@ -121,6 +145,10 @@ export function legalActions(game,playerId) {
   const choices = [];
   if (game.pendingChoice) {
     if (game.pendingChoice.actorId !== playerId) return choices;
+    if (game.pendingChoice.expansion === 'cities_knights') {
+      if (game.pendingChoice.selection === 'cards') return choices;
+      return game.pendingChoice.options.map(option => ({ type: 'resolveCitiesKnightsChoice', payload: { choiceId: game.pendingChoice.id, optionId: option.id } }));
+    }
     return game.pendingChoice.options.map(option => ({ type: 'resolveSeafarersChoice', payload: { choiceId: game.pendingChoice.id, optionId: option.id } }));
   }
   if(!['setup','playing'].includes(game.phase)||game.players[game.currentPlayerIndex]?.id!==playerId)return choices;
@@ -165,15 +193,15 @@ export function legalActions(game,playerId) {
     const p = game.players.find(p=>p.id===playerId);
     if (game.devCardDeck.length && p.resources.ore && p.resources.grain && p.resources.wool) choices.push({type:'buyDevCard',payload:{}});
   }
-  for (const resource of resources) {
+  for (const resource of CK.isCitiesKnights(game) ? CK.CARD_TYPES : resources) {
     add('yearOfPlentyPick',{resource});
-    for (const getResource of resources) if (getResource!==resource) add('bankTrade',{giveResource:resource,giveAmount:G.getTradeRatio(game,game.players.findIndex(p=>p.id===playerId),resource),getResource});
+    for (const getResource of CK.isCitiesKnights(game) ? CK.CARD_TYPES : resources) if (getResource!==resource) add('bankTrade',{giveResource:resource,giveAmount:G.getTradeRatio(game,game.players.findIndex(p=>p.id===playerId),resource),getResource});
   }
   for (const cardType of ['knight','roadBuilding','yearOfPlenty']) add('playDevCard',{cardType});
   for (const resource of resources) add('playDevCard',{cardType:'monopoly',params:{resource}});
   if (game.phase === 'playing' && game.turnPhase === 'robber' && game.players[game.currentPlayerIndex]?.id===playerId) {
     for (const hexKey of Object.keys(game.hexes)) if (hexKey!==game.robber && SF.canMoveRobber(game,hexKey).valid) {
-      const victims = G.getPlayersOnHex(game,hexKey,game.currentPlayerIndex).filter(index=>Object.values(game.players[index]?.resources||{}).some(n=>n>0));
+      const victims = G.getPlayersOnHex(game,hexKey,game.currentPlayerIndex).filter(index=>CK.isCitiesKnights(game) ? CK.cardCount(game.players[index])>0 : Object.values(game.players[index]?.resources||{}).some(n=>n>0));
       if (!victims.length) choices.push({type:'moveRobber',payload:{hexKey}});
       else for(const index of victims) choices.push({type:'moveRobber',payload:{hexKey,stealFromPlayerId:game.players[index].id}});
     }
@@ -181,6 +209,41 @@ export function legalActions(game,playerId) {
   }
   if (game.phase === 'playing' && game.turnPhase === 'robberPick' && game.pendingRobberPick?.thiefId===playerId) {
     for (const card of game.pendingRobberPick.cards) add('chooseRobberCard',{cardId:card.id});
+  }
+  if (CK.isCitiesKnights(game) && game.phase === 'playing') {
+    for(const card of player.progressCards) if(card.type === 'alchemy' ? game.turnPhase === 'roll' : game.turnPhase === 'main') choices.push({type:'playProgressCard',payload:{cardId:card.id}});
+    if(game.turnPhase === 'main' && !game.freeRoads && !game.pendingChoice) {
+      for(const vertexKey of Object.keys(game.vertices)) {
+        if(game.vertices[vertexKey]?.building === 'city' && game.vertices[vertexKey].owner === game.currentPlayerIndex) {
+          add('buildCityWall',{vertexKey});
+          for(const track of Object.keys(CK.TRACKS)) add('improveCity',{track,vertexKey});
+        }
+        const knight=CK.knightAt(game,vertexKey);
+        if(knight?.ownerId===playerId) {
+          add('promoteKnight',{vertexKey});add('activateKnight',{vertexKey});
+          if(knight.active && knight.activatedTurn!==game.citiesKnights.turnSerial && knight.actedTurn!==game.citiesKnights.turnSerial) {
+            for(const toVertexKey of CK.routeReachableVertices(game,playerId,vertexKey)) {
+              const occupant=CK.knightAt(game,toVertexKey);
+              if(!SF.buildingAt(game,toVertexKey)?.vertex?.building && (!occupant || occupant.ownerId!==playerId && occupant.strength<knight.strength))
+                choices.push({type:'moveKnight',payload:{fromVertexKey:vertexKey,toVertexKey}});
+            }
+            if(game.citiesKnights.barbarian.attacked) {
+              const adjacent=G.getVertexAdjacentHexes(game,vertexKey).map(hex=>G.hexKey(hex.q,hex.r));
+              if(adjacent.includes(game.robber)) for(const hexKey of Object.keys(game.hexes))if(hexKey!==game.robber && SF.canMoveRobber(game,hexKey).valid) {
+                const victims=G.getPlayersOnHex(game,hexKey,game.currentPlayerIndex).filter(index=>CK.cardCount(game.players[index])>0);
+                if(!victims.length)choices.push({type:'driveRobber',payload:{vertexKey,hexKey}});
+                else for(const index of victims)choices.push({type:'driveRobber',payload:{vertexKey,hexKey,stealFromPlayerId:game.players[index].id}});
+              }
+              if(SF.isSeafarers(game)&&adjacent.includes(game.pirate))
+                for(const action of SF.legalPirateMoves({...game,turnPhase:'robber'},playerId)) choices.push({type:'driveRobber',payload:{vertexKey,...action.payload}});
+            }
+          }
+        } else if(!CK.vertexHasPiece(game,vertexKey) && CK.hasOwnRouteAt(game,playerId,vertexKey)) add('recruitKnight',{vertexKey});
+      }
+      const harbor=game.citiesKnights.harborOffers;
+      if(harbor?.ownerId===playerId) for(const target of game.players)if(target.id!==playerId&&!harbor.offeredTo.includes(target.id))
+        for(const resource of resources)if(player.resources[resource]>0)choices.push({type:'offerCommercialHarbor',payload:{targetPlayerId:target.id,resource}});
+    }
   }
   return choices;
 }

@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import './DiscardModal.css';
 import CardArtwork from './CardArtwork';
+import {combinedHand,ALL_HAND_CARDS} from '../../../shared/cardTypes.js';
 
 const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
 
 function DiscardModal({ socket, player, cardsToDiscard, addNotification, paused }) {
-  const [selected, setSelected] = useState({ brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
+  const hand=combinedHand(player);
+  const types=player.commodities ? ALL_HAND_CARDS : RESOURCES;
+  const [selected, setSelected] = useState(()=>Object.fromEntries(types.map(r=>[r,0])));
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -28,7 +31,7 @@ function DiscardModal({ socket, player, cardsToDiscard, addNotification, paused 
   const totalSelected = Object.values(selected).reduce((a, b) => a + b, 0);
 
   const updateSelected = (resource, delta) => {
-    const newAmount = Math.max(0, Math.min(player.resources[resource], selected[resource] + delta));
+    const newAmount = Math.max(0, Math.min(hand[resource], selected[resource] + delta));
     if (delta > 0 && totalSelected >= cardsToDiscard) return;
     setSelected({ ...selected, [resource]: newAmount });
   };
@@ -70,8 +73,8 @@ function DiscardModal({ socket, player, cardsToDiscard, addNotification, paused 
         </div>
 
         <div className="resource-discard-list">
-          {RESOURCES.map(r => {
-            const available = player.resources[r];
+          {types.map(r => {
+            const available = hand[r];
             if (available === 0) return null;
             
             return (

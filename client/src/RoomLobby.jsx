@@ -545,7 +545,7 @@ function RoomLobby({
 
         <AgentInstructions/>
         <footer className="room-home-footer">
-          Base games play to 10 victory points. Add Seafarers or the 5–6 player extension when creating a room.
+          Base games play to 10 victory points. Add Seafarers, Cities & Knights, or the 5–6 player extension when creating a room.
         </footer>
       </div>
     </main>

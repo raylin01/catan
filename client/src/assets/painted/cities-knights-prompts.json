@@ -1,0 +1,52 @@
+{
+  "tool": "built-in image_gen",
+  "reference": "knight.webp (style only)",
+  "generated": [
+    {
+      "source": "/Users/ray/.codex/generated_images/01a0995c-6b43-77e1-8071-04dfbee58481/exec-fdd6d0d1-2c55-4181-8433-4b4c6b381ac8.png",
+      "prompt": "Use case: historical-scene. Asset type: original illustrated medieval board-game card art atlas. Create ONE square 3 by 3 contact sheet of nine equally sized square full-bleed paintings, no gutters, no borders, no text, no letters, no logos. Each cell independently composed with its central subject fully inside that cell. Reference image is STYLE ONLY: realistic hand-painted gouache/oil, fine brushwork, warm ivory stone, muted olive/copper/ochre, luminous daylight, believable medieval European coastal world, detailed but clear silhouettes at card size. Avoid modern objects, fantasy magic, graphic icons, flat vectors. EXACT row-major subjects: row1: (1) PAPER commodity: ivory handmade paper sheets and rolled parchment on a medieval papermaker's wooden bench by a sunlit window; (2) COIN commodity: stack and scattered old gold coins beside a small leather purse on a market table, no readable lettering; (3) CLOTH commodity: folded bolts of burgundy and cream woven cloth in a medieval cloth merchant stall. row2: (4) ALCHEMY: thoughtful medieval alchemist with brass scales, glass vessels and two ivory dice on a stone workshop desk; (5) CRANE: large wooden treadwheel construction crane hoisting a stone block beside a growing city tower; (6) ENGINEERING: mason and architect surveying a strong stone city wall with a compass and rolled plan. row3: (7) INVENTION: ingenious medieval scholar adjusting a wooden gear mechanism in a bright workshop; (8) IRRIGATION: farmer directing water through a stone channel across golden grain fields; (9) MEDICINE: medieval physician tending a seated villager with linen bandage, herbs and ceramic bowls in a sunny courtyard.",
+      "cells": [
+        "paper",
+        "coin",
+        "cloth",
+        "alchemy",
+        "crane",
+        "engineering",
+        "invention",
+        "irrigation",
+        "medicine"
+      ]
+    },
+    {
+      "source": "/Users/ray/.codex/generated_images/01a0995c-6b43-77e1-8071-04dfbee58481/exec-afc0f8ae-4479-4436-8c1a-674010901b63.png",
+      "prompt": "Use case: historical-scene. Asset type: original illustrated medieval board-game card art atlas. Create ONE square 3 by 3 contact sheet of nine equally sized square full-bleed paintings, no gutters, no borders, no text, no letters, no logos. Each cell independently composed with its central subject fully inside that cell. Reference image is STYLE ONLY: realistic hand-painted gouache/oil, fine brushwork, warm ivory stone, muted olive/copper/ochre, luminous daylight, believable medieval European coastal world, detailed but clear silhouettes at card size. Avoid modern objects, fantasy magic, graphic icons, flat vectors. EXACT row-major subjects: row1: (1) MINING: miners with picks and ore baskets in a rocky mountain quarry, sunny distant hills; (2) PRINTING: early wooden printing press with craftsman pulling fresh paper sheets, no readable text; (3) SMITHING: medieval blacksmith hammering a glowing sword on an anvil, forge glow. row2: (4) COMMERCIAL HARBOR: busy stone harbor with a merchant exchanging a grain sack for folded cloth beside a moored wooden sailboat; (5) GUILD DUES: senior guild collector taking a modest pouch from prosperous craftspeople in a carved guildhall; (6) MERCHANT: traveling medieval merchant with loaded pack mule approaching a city market. row3: (7) MERCHANT FLEET: several broad wooden merchant sailing ships with cream square sails crossing a sunlit blue harbor; (8) RESOURCE MONOPOLY: wealthy grain-and-timber wholesaler overseeing many barrels, sacks and lumber bundles in a market storehouse; (9) TRADE MONOPOLY: prosperous textile-and-paper trader with gold coins, cloth bolts and parchment rolls under a market arcade.",
+      "cells": [
+        "mining",
+        "printing",
+        "smithing",
+        "commercialHarbor",
+        "guildDues",
+        "merchant",
+        "merchantFleet",
+        "resourceMonopoly",
+        "tradeMonopoly"
+      ]
+    },
+    {
+      "source": "/Users/ray/.codex/generated_images/01a0995c-6b43-77e1-8071-04dfbee58481/exec-98a8b79f-db86-4a48-8aa9-7d28f8c5894f.png",
+      "prompt": "Use case: historical-scene. Asset type: original illustrated medieval board-game card art atlas. Create ONE square 3 by 3 contact sheet of nine equally sized square full-bleed paintings, no gutters, no borders, no text, no letters, no logos. Each cell independently composed with its central subject fully inside that cell. Reference image is STYLE ONLY: realistic hand-painted gouache/oil, fine brushwork, warm ivory stone, muted olive/copper/ochre, luminous daylight, believable medieval European coastal world, detailed but clear silhouettes at card size. Avoid modern objects, fantasy magic, graphic icons, flat vectors. EXACT row-major subjects: row1: (1) DIPLOMACY: two medieval envoys shaking hands across a map table in a bright hall; (2) ENCOURAGEMENT: red-cloaked herald inspiring a small row of armored city guards in a courtyard; (3) ESPIONAGE: discreet hooded observer reading an unlettered sealed scroll in shadow beside a sunlit castle passage. row2: (4) INTRIGUE: two richly dressed courtiers whispering beside a stone column as a knight departs; (5) SABOTAGE: broken wooden cart wheel and scattered grain sacks beside a damaged bridge, a furtive figure retreating in the distance, no fire; (6) TAXATION: city tax collector recording dues in a ledger at a gate as merchants offer coins and sacks, no readable text. row3: (7) TREASON: armored guard quietly handing a castle key to a rival envoy under an arch; (8) CONSTITUTION: assembled medieval council solemnly presenting a parchment charter with wax seal, no readable writing; (9) WEDDING: medieval couple in fine modest clothes beneath a flower arch in a stone town square, townspeople celebrating.",
+      "cells": [
+        "diplomacy",
+        "encouragement",
+        "espionage",
+        "intrigue",
+        "sabotage",
+        "taxation",
+        "treason",
+        "constitution",
+        "wedding"
+      ]
+    }
+  ],
+  "delivery": "Mechanical equal-grid crops; cwebp quality88. No semantic image edits."
+}

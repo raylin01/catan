@@ -1,6 +1,14 @@
 export const CHARTS = {
   vp: { label: 'Victory points', publicKey: 'publicVP', privateKey: 'totalVP', suffix: 'VP' },
-  roads: { label: 'Roads', publicKey: 'roads', suffix: 'roads' }
+  roads: { label: 'Roads', publicKey: 'roads', suffix: 'roads' },
+  knights: { label: 'Active knight strength', publicKey: 'activeKnightStrength', suffix: 'strength' },
+  cityWalls: { label: 'City walls', publicKey: 'cityWalls', suffix: 'walls' },
+  metropolises: { label: 'Metropolises', publicKey: 'metropolises', suffix: 'metropolises' },
+  scienceLevel: { label: 'Science improvement', publicKey: 'scienceLevel', suffix: 'levels' },
+  tradeLevel: { label: 'Trade improvement', publicKey: 'tradeLevel', suffix: 'levels' },
+  politicsLevel: { label: 'Politics improvement', publicKey: 'politicsLevel', suffix: 'levels' },
+  defenderPoints: { label: 'Defender victory points', publicKey: 'defenderPoints', suffix: 'VP' },
+  ships: { label: 'Ships built', publicKey: 'ships', suffix: 'ships' }
 };
 export const CHART_SIZE = { width: 760, height: 280, left: 36, right: 24, top: 22, bottom: 36 };
 

@@ -1,4 +1,5 @@
 import * as SF from './seafarersCore.js';
+import * as CK from './citiesKnightsCore.js';
 
 /**
  * ============================================================================
@@ -912,8 +913,15 @@ export function createGame(gameId, hostPlayer, isExtended = false, enableSpecial
 
 /** Apply a supported scenario after every room seat has been added. */
 export function configureExpansions(game, options) {
-  if (!options?.expansions?.includes('seafarers')) return { success: true };
-  return SF.configureSeafarers(game, options);
+  if (options?.expansions?.includes('cities_knights') && options?.expansions?.includes('seafarers') &&
+    ['the_forgotten_tribe','the_pirate_islands'].includes(options.scenario))
+    return {success:false,error:'This combination needs unpublished development-card conversion rules'};
+  if (options?.expansions?.includes('seafarers')) {
+    const sea = SF.configureSeafarers(game, options);
+    if (!sea.success) return sea;
+  }
+  if (options?.expansions?.includes('cities_knights')) return CK.configureCitiesKnights(game, options);
+  return { success: true };
 }
 
 export function previewNewWorldSetup(options, count) {
@@ -986,6 +994,8 @@ export function startGame(game) {
   game.currentPlayerIndex = 0;
   const seaStart = SF.onGameStart(game);
   if (!seaStart.success) return seaStart;
+  const cityStart = CK.onGameStart(game);
+  if (!cityStart.success) return cityStart;
   if (game.pairedTurnRules) {
     game.productionPlayerIndex = 0;
     game.turnRole = 'primary';
@@ -1073,6 +1083,11 @@ export function rollDice(game, playerId) {
   
   game.diceRoll = { die1, die2, total };
   game.hasRolledThisTurn = true;
+  if (CK.isCitiesKnights(game)) {
+    CK.rollEvent(game, die1, total);
+    refreshPlayerTradingAllowed(game);
+    return { success: true, roll: game.diceRoll, eventDie: game.citiesKnights.eventDie, resourceGains: null };
+  }
   if (SF.isSeafarers(game)) {
     const fleet = SF.onDiceRolled(game, die1, die2);
     if (!fleet.success) return fleet;
@@ -1090,8 +1105,9 @@ export function completeRoll(game, total) {
     // Check if any player has more than 7 cards
     const playersToDiscard = [];
     game.players.forEach((p, idx) => {
-      const totalCards = Object.values(p.resources).reduce((a, b) => a + b, 0);
-      if (totalCards > 7) {
+      const totalCards = CK.isCitiesKnights(game) ? CK.cardCount(p) : Object.values(p.resources).reduce((a, b) => a + b, 0);
+      const discardLimit = CK.isCitiesKnights(game) ? CK.discardLimit(game,p.id) : 7;
+      if (totalCards > discardLimit) {
         playersToDiscard.push({
           playerIndex: idx,
           cardsToDiscard: Math.floor(totalCards / 2)
@@ -1103,7 +1119,7 @@ export function completeRoll(game, total) {
       game.turnPhase = 'discard';
       game.discardingPlayers = playersToDiscard;
     } else {
-      game.turnPhase = SF.isPirateIslands(game) ? 'pirateSeven' : 'robber';
+      game.turnPhase = CK.isCitiesKnights(game) && !game.citiesKnights.barbarian.attacked ? 'main' : SF.isPirateIslands(game) ? 'pirateSeven' : 'robber';
       if (SF.isPirateIslands(game)) SF.queuePirateSeven(game);
     }
     refreshPlayerTradingAllowed(game);
@@ -1112,6 +1128,16 @@ export function completeRoll(game, total) {
     // Distribute resources
     const gains = distributeResources(game, total);
     SF.onProduction(game, total);
+    if (CK.isCitiesKnights(game)) {
+      for (const player of game.players) {
+        if (player.cityImprovements.science < 3) continue;
+        const received = Object.values(gains[game.players.indexOf(player)]).reduce((a,b)=>a+b,0);
+        const hasGoldClaim = game.pendingChoice?.kind === 'goldResource' && game.pendingChoice.actorId === player.id ||
+          game.seafarers?.choiceQueue?.some(claim => claim.playerId === player.id);
+        const options=RESOURCE_TYPES.filter(type=>game.bank[type]>0).map(id=>({id,label:id,resource:id}));
+        if (received === 0 && !hasGoldClaim && options.length) CK.enqueueChoice(game,{ kind:'aqueduct',actorId:player.id,label:'Aqueduct: choose one resource',options });
+      }
+    }
     game.turnPhase = 'main';
     refreshPlayerTradingAllowed(game);
     return { success: true, roll: game.diceRoll, resourceGains: gains };
@@ -1134,7 +1160,8 @@ function distributeResources(game, roll) {
   // Track what each player receives
   const gains = {};
   game.players.forEach((_, idx) => {
-    gains[idx] = { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+    gains[idx] = { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0,
+      ...(CK.isCitiesKnights(game) ? { paper:0, coin:0, cloth:0 } : {}) };
   });
   
   // Track which (hex, physical_vertex) combinations have already been processed
@@ -1161,7 +1188,11 @@ function distributeResources(game, roll) {
           
           const amount = buildingInfo.type === 'city' ? 2 : 1;
           if (hex.terrain === 'gold') goldClaims.push({ playerId: game.players[buildingInfo.owner].id, amount, hexKey: hKey });
-          else pendingGains.push({ playerIndex: buildingInfo.owner, resource: hex.resource, amount });
+          else if (CK.isCitiesKnights(game) && buildingInfo.type === 'city' &&
+            {lumber:'paper',wool:'cloth',ore:'coin'}[hex.resource]) {
+            pendingGains.push({ playerIndex: buildingInfo.owner, resource: hex.resource, amount:1 });
+            pendingGains.push({ playerIndex: buildingInfo.owner, resource: {lumber:'paper',wool:'cloth',ore:'coin'}[hex.resource], amount:1 });
+          } else pendingGains.push({ playerIndex: buildingInfo.owner, resource: hex.resource, amount });
         }
       }
     }
@@ -1169,14 +1200,16 @@ function distributeResources(game, roll) {
 
   // A shortage cancels production for multiple recipients. A sole recipient
   // receives the remaining supply (official base-game resource-shortage rule).
-  RESOURCE_TYPES.forEach(resource => {
+  (CK.isCitiesKnights(game) ? CK.CARD_TYPES : RESOURCE_TYPES).forEach(resource => {
     const recipients=new Map();
     for(const gain of pendingGains.filter(g=>g.resource===resource))recipients.set(gain.playerIndex,(recipients.get(gain.playerIndex)||0)+gain.amount);
     const demand=[...recipients.values()].reduce((a,b)=>a+b,0);
-    if(demand>game.bank[resource]&&recipients.size>1)return;
+    const supply = CK.isCitiesKnights(game) && CK.COMMODITIES.includes(resource) ? game.citiesKnights.commodityBank : game.bank;
+    if(demand>supply[resource]&&recipients.size>1)return;
     for(const [index,amount] of recipients){
-      const received=Math.min(amount,game.bank[resource]);
-      game.players[index].resources[resource]+=received;gains[index][resource]+=received;game.bank[resource]-=received;
+      const received=Math.min(amount,supply[resource]);
+      const hand = CK.isCitiesKnights(game) && CK.COMMODITIES.includes(resource) ? game.players[index].commodities : game.players[index].resources;
+      hand[resource]+=received;gains[index][resource]+=received;supply[resource]-=received;
     }
   });
   if (goldClaims.length) SF.queueGoldClaims(game, goldClaims);
@@ -1203,8 +1236,8 @@ export function discardCards(game, playerId, resources) {
     return { success: false, error: 'You do not need to discard' };
   }
   
-  const resourceValidation = validateResourceBundle(resources);
-  if (!resourceValidation.valid) {
+  const resourceValidation = CK.isCitiesKnights(game) ? CK.validateCardBundle(game,game.players[playerIndex],resources,discardInfo.cardsToDiscard) : validateResourceBundle(resources);
+  if (CK.isCitiesKnights(game) ? !resourceValidation.success : !resourceValidation.valid) {
     return { success: false, error: resourceValidation.error };
   }
 
@@ -1217,15 +1250,15 @@ export function discardCards(game, playerId, resources) {
   
   // Verify player has these resources
   for (const [resource, amount] of Object.entries(resources)) {
-    if (player.resources[resource] < amount) {
+    if ((CK.isCitiesKnights(game) ? CK.cardBalance(player,resource) : player.resources[resource]) < amount) {
       return { success: false, error: `Not enough ${resource}` };
     }
   }
   
   // Discard
   for (const [resource, amount] of Object.entries(resources)) {
-    player.resources[resource] -= amount;
-    game.bank[resource] += amount;
+    if (CK.isCitiesKnights(game)) CK.moveCard(game,player,'bank',resource,amount);
+    else { player.resources[resource] -= amount; game.bank[resource] += amount; }
   }
   
   // Remove from discarding list
@@ -1233,7 +1266,7 @@ export function discardCards(game, playerId, resources) {
   
   // If all done discarding, move to robber phase
   if (game.discardingPlayers.length === 0) {
-    game.turnPhase = SF.isPirateIslands(game) ? 'pirateSeven' : 'robber';
+    game.turnPhase = CK.isCitiesKnights(game) && !game.citiesKnights.barbarian.attacked ? 'main' : SF.isPirateIslands(game) ? 'pirateSeven' : 'robber';
     if (SF.isPirateIslands(game)) SF.queuePirateSeven(game);
   }
   
@@ -1269,7 +1302,7 @@ export function moveRobber(game, playerId, hexKey, stealFromPlayerId) {
   }
 
   const eligibleVictimIndexes = getPlayersOnHex(game, hexKey, game.currentPlayerIndex)
-    .filter(index => Object.values(game.players[index].resources).some(amount => amount > 0));
+    .filter(index => CK.isCitiesKnights(game) ? CK.cardCount(game.players[index]) > 0 : Object.values(game.players[index].resources).some(amount => amount > 0));
   const victimIndex = stealFromPlayerId == null ? -1 : game.players.findIndex(p => p.id === stealFromPlayerId);
   if (eligibleVictimIndexes.length > 0 && !eligibleVictimIndexes.includes(victimIndex)) {
     return { success: false, error: 'Select an adjacent player with resource cards' };
@@ -1282,8 +1315,8 @@ export function moveRobber(game, playerId, hexKey, stealFromPlayerId) {
   if (victimIndex !== -1) {
     const victim = game.players[victimIndex];
     const cards = [];
-    for (const resource of RESOURCE_TYPES) {
-      for (let index = 0; index < victim.resources[resource]; index++) {
+    for (const resource of CK.isCitiesKnights(game) ? CK.CARD_TYPES : RESOURCE_TYPES) {
+      for (let index = 0; index < (CK.isCitiesKnights(game) ? CK.cardBalance(victim,resource) : victim.resources[resource]); index++) {
         cards.push({ id: crypto.randomUUID(), resource });
       }
     }
@@ -1317,12 +1350,12 @@ export function chooseRobberCard(game, playerId, cardId) {
   if (!card) return { success: false, error: 'Invalid robber card' };
   const thief = game.players.find(candidate => candidate.id === pending.thiefId);
   const victim = game.players.find(candidate => candidate.id === pending.victimId);
-  if (!thief || !victim || victim.resources[card.resource] < 1) {
+  if (!thief || !victim || (CK.isCitiesKnights(game) ? CK.cardBalance(victim,card.resource) : victim.resources[card.resource]) < 1) {
     return { success: false, error: 'Robber card choice is no longer available' };
   }
 
-  victim.resources[card.resource]--;
-  thief.resources[card.resource]++;
+  if (CK.isCitiesKnights(game)) CK.moveCard(game,victim,thief,card.resource,1);
+  else { victim.resources[card.resource]--; thief.resources[card.resource]++; }
   const stolenInfo = {
     resource: card.resource,
     thief: thief.id,
@@ -1360,7 +1393,9 @@ export function canPlaceSettlement(game, playerId, vKey, isSetup = false) {
   if (!vertex) return { valid: false, error: 'Invalid vertex' };
   // Check if this vertex (or any equivalent) already has a building
   if (hasBuildingAtVertex(game, vKey)) return { valid: false, error: 'Location occupied' };
-  if (player.settlements <= 0) return { valid: false, error: 'No settlements left' };
+  if (CK.isCitiesKnights(game) && CK.knightAt(game,vKey)) return { valid:false,error:'A knight occupies this intersection' };
+  if (CK.isCitiesKnights(game) && isSetup && game.setupPhase===1 && player.cities<=0) return {valid:false,error:'No cities left for setup'};
+  if (player.settlements <= 0 && !(CK.isCitiesKnights(game) && isSetup && game.setupPhase === 1)) return { valid: false, error: 'No settlements left' };
   
   // Check distance rule (no adjacent settlements) - use physical position check
   if (hasAdjacentBuilding(game, vKey)) {
@@ -1407,16 +1442,18 @@ export function placeSettlement(game, playerId, vKey) {
   }
   
   // Place settlement - stored at the key provided, lookups check all equivalents
-  game.vertices[vKey] = { building: 'settlement', owner: playerIndex };
-  player.settlements--;
-  player.victoryPoints++;
+  const secondCity = CK.isCitiesKnights(game) && isSetup && game.setupPhase === 1;
+  game.vertices[vKey] = { building: secondCity ? 'city' : 'settlement', owner: playerIndex };
+  if (secondCity) { player.cities--; player.victoryPoints += 2; }
+  else { player.settlements--; player.victoryPoints++; }
   if (SF.isSeafarers(game)) SF.onSettlementPlaced(game, playerIndex, vKey, isSetup);
 
   // An opponent settlement can split an existing road network.
   updateLongestRoad(game);
   
   // During second setup phase, give initial resources
-  if (isSetup && game.setupPhase === (SF.needsThirdSetup(game) ? 2 : 1)) {
+  if (isSetup && (CK.isCitiesKnights(game) && game.setupPhase === 1 && !SF.needsThirdSetup(game) ||
+    game.setupPhase === (SF.needsThirdSetup(game) ? 2 : 1) && !(CK.isCitiesKnights(game) && SF.needsThirdSetup(game) && game.setupPhase === 1))) {
     giveInitialResources(game, vKey, playerIndex);
   }
   
@@ -1631,7 +1668,7 @@ export function placeRoad(game, playerId, eKey, isSetup = false, lastSettlement 
 }
 
 /** Upgrade an existing settlement to a city (costs 3 ore + 2 grain) */
-export function upgradeToCity(game, playerId, vKey) {
+export function upgradeToCity(game, playerId, vKey, cityCost = BUILDING_COSTS.city) {
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   if (playerIndex === -1) {
     return { success: false, error: 'Player not found' };
@@ -1649,18 +1686,26 @@ export function upgradeToCity(game, playerId, vKey) {
     return { success: false, error: 'No settlement here to upgrade' };
   }
   
-  if (player.cities <= 0) {
+  if (CK.isCitiesKnights(game) && !vertex.pillagedNoPiece && Object.values(game.vertices).some(other=>other.owner===playerIndex&&other.pillagedNoPiece)) {
+    return { success: false, error: 'Restore your pillaged city before upgrading another settlement' };
+  }
+
+  if (player.cities <= 0 && !vertex.pillagedNoPiece) {
     return { success: false, error: 'No cities left' };
   }
   
-  if (!hasResources(player, BUILDING_COSTS.city)) {
+  if (!hasResources(player, cityCost)) {
     return { success: false, error: 'Not enough resources' };
   }
   
-  payResourceCost(game, player, BUILDING_COSTS.city);
+  payResourceCost(game, player, cityCost);
+  const wasOnSide = Boolean(vertex.pillagedNoPiece);
   vertex.building = 'city';
-  player.settlements++; // Return settlement
-  player.cities--;
+  delete vertex.pillagedNoPiece;
+  if (!wasOnSide) {
+    player.settlements++; // Return settlement piece if one was used.
+    player.cities--;
+  }
   player.victoryPoints++; // City worth 2 VP, settlement was 1, net +1
   
   checkWinner(game);
@@ -1677,6 +1722,7 @@ export function upgradeToCity(game, playerId, vKey) {
  * Card is added to newDevCards - can't be played until next turn
  */
 export function buyDevCard(game, playerId) {
+  if (CK.isCitiesKnights(game)) return {success:false,error:'Development cards are replaced by progress cards'};
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   if (playerIndex === -1) {
     return { success: false, error: 'Player not found' };
@@ -1718,6 +1764,7 @@ export function buyDevCard(game, playerId) {
  * - VP cards are never "played" (just count toward victory)
  */
 export function playDevCard(game, playerId, cardType, params = {}) {
+  if (CK.isCitiesKnights(game)) return {success:false,error:'Development cards are replaced by progress cards'};
   if (game.phase !== 'playing' || !['roll', 'main'].includes(game.turnPhase)) {
     return { success: false, error: 'Cannot play a development card now' };
   }
@@ -1878,6 +1925,12 @@ export function getPlayerPorts(game, playerIndex) {
  * Priority: 2:1 specific port > 3:1 generic port > 4:1 default
  */
 export function getTradeRatio(game, playerIndex, resource) {
+  if (CK.isCitiesKnights(game)) {
+    const player = game.players[playerIndex];
+    if (CK.COMMODITIES.includes(resource) && player?.cityImprovements.trade >= 3) return 2;
+    if (game.citiesKnights.merchantFleet?.ownerId === player?.id && game.citiesKnights.merchantFleet?.type === resource) return 2;
+    if (game.citiesKnights.merchant?.ownerId === player?.id && game.hexes[game.citiesKnights.merchant.hexKey]?.resource === resource) return 2;
+  }
   const ports = getPlayerPorts(game, playerIndex);
   
   // Check for specific resource 2:1 port
@@ -1913,7 +1966,8 @@ export function bankTrade(game, playerId, giveResource, giveAmount, getResource)
   
   const player = game.players[playerIndex];
 
-  if (!isResource(giveResource) || !isResource(getResource) || giveResource === getResource) {
+  const validType = type => CK.isCitiesKnights(game) ? CK.CARD_TYPES.includes(type) : isResource(type);
+  if (!validType(giveResource) || !validType(getResource) || giveResource === getResource) {
     return { success: false, error: 'Invalid bank trade resources' };
   }
   
@@ -1924,18 +1978,23 @@ export function bankTrade(game, playerId, giveResource, giveAmount, getResource)
     return { success: false, error: `Trade requires ${requiredRatio}:1 ratio for ${giveResource}` };
   }
   
-  if (player.resources[giveResource] < giveAmount) {
+  if ((CK.isCitiesKnights(game) ? CK.cardBalance(player,giveResource) : player.resources[giveResource]) < giveAmount) {
     return { success: false, error: 'Not enough resources' };
   }
 
-  if (game.bank[getResource] < 1) {
+  if ((CK.isCitiesKnights(game) ? CK.bankBalance(game,getResource) : game.bank[getResource]) < 1) {
     return { success: false, error: `No ${getResource} left in the bank` };
   }
   
-  player.resources[giveResource] -= giveAmount;
-  player.resources[getResource] += 1;
-  game.bank[giveResource] += giveAmount;
-  game.bank[getResource] -= 1;
+  if (CK.isCitiesKnights(game)) {
+    CK.moveCard(game,player,'bank',giveResource,giveAmount);
+    CK.moveCard(game,'bank',player,getResource,1);
+  } else {
+    player.resources[giveResource] -= giveAmount;
+    player.resources[getResource] += 1;
+    game.bank[giveResource] += giveAmount;
+    game.bank[getResource] -= 1;
+  }
   
   return { success: true };
 }
@@ -1964,18 +2023,18 @@ export function proposeTrade(game, playerId, offer, request) {
   
   const player = game.players[playerIndex];
 
-  const offerValidation = validateResourceBundle(offer);
-  if (!offerValidation.valid) {
-    return { success: false, error: offerValidation.error };
+  const offerValidation = CK.isCitiesKnights(game) ? CK.validateCardBundle(game,player,offer) : validateResourceBundle(offer);
+  if (CK.isCitiesKnights(game) ? !offerValidation.success || !offerValidation.total : !offerValidation.valid) {
+    return { success: false, error: offerValidation.error || 'Offer at least one card' };
   }
-  const requestValidation = validateResourceBundle(request);
-  if (!requestValidation.valid) {
-    return { success: false, error: requestValidation.error };
+  const requestValidation = CK.isCitiesKnights(game) ? CK.validateCardBundle(game,{resources:Object.fromEntries(RESOURCE_TYPES.map(type=>[type,Infinity])),commodities:Object.fromEntries(CK.COMMODITIES.map(type=>[type,Infinity]))},request) : validateResourceBundle(request);
+  if (CK.isCitiesKnights(game) ? !requestValidation.success || !requestValidation.total : !requestValidation.valid) {
+    return { success: false, error: requestValidation.error || 'Request at least one card' };
   }
   
   // Verify player has offered resources
   for (const [resource, amount] of Object.entries(offer)) {
-    if (player.resources[resource] < amount) {
+    if ((CK.isCitiesKnights(game) ? CK.cardBalance(player,resource) : player.resources[resource]) < amount) {
       return { success: false, error: `Not enough ${resource}` };
     }
   }
@@ -2017,41 +2076,36 @@ export function respondToTrade(game, playerId, accept) {
   if (accept) {
     const offer = game.tradeOffer.offer;
     const request = game.tradeOffer.request;
-    const offerValidation = validateResourceBundle(offer);
-    const requestValidation = validateResourceBundle(request);
-    if (!offerValidation.valid || !requestValidation.valid) {
-      return { success: false, error: 'Trade offer is invalid' };
-    }
-
     const offerer = game.players[game.tradeOffer.from];
     if (!offerer) {
       return { success: false, error: 'Trade offerer no longer exists' };
     }
+    const offerValidation = CK.isCitiesKnights(game) ? CK.validateCardBundle(game,offerer,offer) : validateResourceBundle(offer);
+    const requestValidation = CK.isCitiesKnights(game) ? CK.validateCardBundle(game,player,request) : validateResourceBundle(request);
+    if (CK.isCitiesKnights(game) ? !offerValidation.success || !requestValidation.success : !offerValidation.valid || !requestValidation.valid) return { success: false, error: 'Trade offer is invalid' };
 
     // Recheck both sides immediately before settlement because balances can
     // change while an offer is open. Mutate only after every check passes.
     for (const [resource, amount] of Object.entries(offer)) {
-      if (offerer.resources[resource] < amount) {
+      if ((CK.isCitiesKnights(game) ? CK.cardBalance(offerer,resource) : offerer.resources[resource]) < amount) {
         return { success: false, error: `Offerer no longer has enough ${resource}` };
       }
     }
 
     // Verify player has requested resources
     for (const [resource, amount] of Object.entries(request)) {
-      if (player.resources[resource] < amount) {
+      if ((CK.isCitiesKnights(game) ? CK.cardBalance(player,resource) : player.resources[resource]) < amount) {
         return { success: false, error: `Not enough ${resource}` };
       }
     }
     
     // Execute trade
-    for (const [resource, amount] of Object.entries(offer)) {
-      offerer.resources[resource] -= amount;
-      player.resources[resource] += amount;
-    }
-    
-    for (const [resource, amount] of Object.entries(request)) {
-      player.resources[resource] -= amount;
-      offerer.resources[resource] += amount;
+    if (CK.isCitiesKnights(game)) {
+      CK.transferCards(game,offerer,player,offer);
+      CK.transferCards(game,player,offerer,request);
+    } else {
+      for (const [resource, amount] of Object.entries(offer)) { offerer.resources[resource] -= amount; player.resources[resource] += amount; }
+      for (const [resource, amount] of Object.entries(request)) { player.resources[resource] -= amount; offerer.resources[resource] += amount; }
     }
     
     game.tradeOffer = null;
@@ -2138,7 +2192,15 @@ export function endTurn(game, playerId, { attackFortress = false } = {}) {
     return { success: false, error: 'Complete the current card action first' };
   }
   checkWinner(game);
-  if (game.phase === 'finished') return { success: true, winner: game.winner };
+  if (game.phase === 'finished') return {success:true,winner:game.winner};
+  if (CK.isCitiesKnights(game)) {
+    const hand = game.players[playerIndex].progressCards;
+    if (hand.length > 4) {
+      CK.enqueueChoice(game,{kind:'progressHandLimit',actorId:playerId,label:'Return a progress card before ending your turn',
+        options:hand.map(card=>({id:card.id,label:`${card.color}: ${card.type}`,cardId:card.id,cardType:card.type,color:card.color}))});
+      return {success:true,choicePending:true};
+    }
+  }
   const seaEnd = SF.onActorEnd(game, { attackFortress });
   if (!seaEnd.success) return seaEnd;
   if (game.phase === 'finished') return { success: true, winner: game.winner, winners: game.winners };
@@ -2162,6 +2224,11 @@ export function endTurn(game, playerId, { attackFortress = false } = {}) {
   game.yearOfPlentyPicks = 0;
   game.devCardPlayedThisTurn = false;
   game.hasRolledThisTurn = false;
+  if (CK.isCitiesKnights(game)) {
+    game.citiesKnights.merchantFleet = null;
+    game.citiesKnights.harborOffers = null;
+    game.citiesKnights.turnSerial++;
+  }
 
   if (game.pairedTurnRules) {
     if (game.turnRole === 'primary') {
@@ -2434,6 +2501,10 @@ function calculateRoadLength(game, playerIndex) {
 
 /** Check if an opponent has a building at a vertex (breaks road continuity) */
 function hasOpponentBuildingAtVertex(game, vKey, playerIndex) {
+  if (CK.isCitiesKnights(game)) {
+    const knight=CK.knightAt(game,vKey);
+    if (knight && knight.ownerId!==game.players[playerIndex]?.id) return true;
+  }
   const match = vKey.match(/v_(-?\d+)_(-?\d+)_(\d+)/);
   if (!match) return false;
   
@@ -2611,7 +2682,7 @@ export function checkWinner(game) {
   for (const player of [game.players[game.currentPlayerIndex]]) {
     // Total VP = visible VP + hidden VP from dev cards
     const totalVP = player.victoryPoints + (player.hiddenVictoryPoints || 0);
-    if (SF.isSeafarers(game) ? SF.isScenarioWinner(game, player, totalVP) : totalVP >= 10) {
+    if (SF.isSeafarers(game) ? SF.isScenarioWinner(game, player, totalVP) : totalVP >= (CK.isCitiesKnights(game) ? 13 : 10)) {
       game.phase = 'finished';
       game.winner = player.id;
       
@@ -2644,13 +2715,10 @@ export function getPlayerView(game, playerId) {
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   
   // Get trade ratios for this player
-  const tradeRatios = {
-    brick: getTradeRatio(game, playerIndex, 'brick'),
-    lumber: getTradeRatio(game, playerIndex, 'lumber'),
-    wool: getTradeRatio(game, playerIndex, 'wool'),
-    grain: getTradeRatio(game, playerIndex, 'grain'),
-    ore: getTradeRatio(game, playerIndex, 'ore')
-  };
+  const tradeRatios = Object.fromEntries(
+    (CK.isCitiesKnights(game) ? [...RESOURCE_TYPES, ...CK.COMMODITIES] : RESOURCE_TYPES)
+      .map(type => [type, getTradeRatio(game, playerIndex, type)])
+  );
   
   // After game ends, all information is public
   const isGameOver = game.phase === 'finished';
@@ -2658,20 +2726,31 @@ export function getPlayerView(game, playerId) {
   return {
     ...game,
     pendingRobberPick: undefined,
-    ...(SF.isSeafarers(game) ? { seafarers: SF.publicSeafarersState(game, playerId), pendingChoice: SF.publicPendingChoice(game, playerId) } : {}),
+    ...(SF.isSeafarers(game) ? { seafarers: SF.publicSeafarersState(game, playerId) } : {}),
+    ...(CK.isCitiesKnights(game) ? { citiesKnights: CK.publicState(game) } : {}),
+    pendingChoice: game.pendingChoice?.expansion === 'cities_knights' ? CK.publicChoice(game,playerId) : SF.publicPendingChoice(game,playerId),
     playerTradingAllowed: isPlayerTradingAllowed(game),
-    players: game.players.map((p, idx) => ({
-      ...p,
+    players: game.players.map((rawPlayer, idx) => {
+      const p=structuredClone(rawPlayer);
+      const {commodities,progressCards,...publicPlayer}=p;
+      return {
+      ...publicPlayer,
       // After game over, show everyone's dev cards; during game, only show own cards
       developmentCards: isGameOver || idx === playerIndex ? p.developmentCards : p.developmentCards.length,
       newDevCards: isGameOver || idx === playerIndex ? p.newDevCards : p.newDevCards.length,
       // After game over, show everyone's resources; during game, only show own resources
-      resources: isGameOver || idx === playerIndex ? p.resources : Object.values(p.resources).reduce((a, b) => a + b, 0),
+      resources: idx === playerIndex ? p.resources : CK.isCitiesKnights(game) ? CK.getCardCount(p) :
+        isGameOver ? p.resources : Object.values(p.resources).reduce((a, b) => a + b, 0),
+      ...(CK.isCitiesKnights(game) ? {
+        ...(idx === playerIndex ? {commodities:p.commodities} : {}),
+        progressCards: idx === playerIndex ? p.progressCards : p.progressCards.length,
+        progressCardColors: Object.fromEntries(['science','trade','politics'].map(color=>[color,p.progressCards.filter(card=>card.color===color).length])),
+      } : {}),
       // After game over, show everyone's hidden VP; during game, only show own
       // (Note: hidden VPs should already be moved to victoryPoints when game ends, 
       // but this is a safety check)
       hiddenVictoryPoints: isGameOver || idx === playerIndex ? p.hiddenVictoryPoints : 0
-    })),
+    }}),
     devCardDeck: game.devCardDeck.length,
     myIndex: playerIndex,
     myPorts: getPlayerPorts(game, playerIndex),

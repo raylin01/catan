@@ -311,6 +311,8 @@ export default function ReplayPage({ replayId, onBack, token, getToken }) {
   const replay = useMemo(() => ({boardCamera,perspective,allowedSeatIds,onSelectPlayer:changePerspective,inspector:showInspector ? inspector : null,resetKey,playing,speed}),[perspective,allowedSeatIds,changePerspective,inspector,showInspector,resetKey,playing,speed]);
   const gameState = useMemo(() => frame?.state?.gameState ? {...frame.state.gameState,myIndex:perspective === 'omniscient' ? -1 : frame.state.gameState.myIndex ?? -1} : null,[frame?.state?.gameState,perspective]);
   const players = recording?.players || EMPTY;
+  const hasSeafarers = recording?.gameOptions?.expansions?.includes('seafarers');
+  const hasCitiesKnights = recording?.gameOptions?.expansions?.includes('cities_knights');
   const activePerspective = perspectives.find(option => option.id === perspective);
 
   if (initialLoading) return <main className="replay-route replay-route-centered" aria-busy="true"><div className="replay-loading"><i/><strong>Loading replay</strong></div></main>;
@@ -345,6 +347,7 @@ export default function ReplayPage({ replayId, onBack, token, getToken }) {
         <button type="button" aria-pressed={chartTab === 'roads'} onClick={() => setChartTab('roads')}><GameIcon name="road" size={17}/>Roads</button>
       </div>
       <button type="button" aria-label="Close charts" onClick={() => {setShowAnalysis(false);chartsButton.current?.focus();}}><GameIcon name="close" size={18}/></button></header>
+      {(hasCitiesKnights||hasSeafarers)&&<label className="replay-expansion-chart">Expansion metric<select value={['vp','roads'].includes(chartTab)?'':chartTab} onChange={e=>setChartTab(e.target.value||'vp')}><option value="">Choose a metric</option>{hasSeafarers&&<option value="ships">Ships</option>}{hasCitiesKnights&&<><option value="knights">Active knight strength</option><option value="cityWalls">City walls</option><option value="metropolises">Metropolises</option><option value="scienceLevel">Science</option><option value="tradeLevel">Trade</option><option value="politicsLevel">Politics</option><option value="defenderPoints">Defender points</option></>}</select></label>}
       <RecordedChart key={chartTab} points={metrics} players={players} chart={chartTab} timeMs={timeMs} seq={seq} onSeek={seekEvent}/>
     </section>}
     <ReplayTimeline events={events} metrics={metrics} players={players} durationMs={durationMs} timeMs={timeMs} playing={playing} speed={speed} skipIdle={skipIdle}

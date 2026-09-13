@@ -169,3 +169,5 @@
 @keyframes choice-breathe { 0%,100% { opacity:.6; scale:.95; } 50% { opacity:1; scale:1.08; } }
 @keyframes choice-light { 0%,100% { opacity:.2; } 50% { opacity:.48; } }
 @media(prefers-reduced-motion:reduce) { .choice-aura,.edge-choice-aura { animation:none; opacity:.8; }.upgrade-preview { transition:none; } }
+
+.number-token.is-moving{animation:number-disc-move var(--piece-motion-duration,520ms) ease-out both}@keyframes number-disc-move{from{translate:var(--number-from-x) var(--number-from-y);opacity:.6}to{translate:0 0;opacity:1}}@media(prefers-reduced-motion:reduce){.number-token.is-moving{animation:none}}

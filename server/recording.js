@@ -96,6 +96,9 @@ const safeEventPayload=(type,payload,room)=> {
     }:{})};
   }
   const fields={
+    buildCityWall:['vertexKey'],improveCity:['track','vertexKey'],recruitKnight:['vertexKey'],promoteKnight:['vertexKey'],activateKnight:['vertexKey'],
+    moveKnight:['fromVertexKey','toVertexKey'],driveRobber:['vertexKey','hexKey','stealFromPlayerId','stealType'],playProgressCard:['cardType'],
+    offerCommercialHarbor:['targetPlayerId','resource'],resolveCitiesKnightsChoice:['choiceId','optionId','cards'],
     placePort:['edgeKey'],claimWonder:['wonderId'],placeShip:['edgeKey'],moveShip:['fromEdgeKey','toEdgeKey'],movePirate:['hexKey','stealFromPlayerId','stealType'],resolveSeafarersChoice:['choiceId','optionId'],
     join:['role','seatId','kind','provider','model'],configureSeat:['seatId','kind','provider','model','chatEnabled','chatModel','chatReasoning'],
     removeController:['seatId','kind','provider','model','chatEnabled','chatModel','chatReasoning'],chat:['message'],aiChatReply:['replyToSequence','message'],
@@ -138,7 +141,7 @@ function projectCardEvents(events,access) {
     for(const transfer of event.transfers||[]) {
       const involved=access.seatId&&(transfer.from===access.seatId||transfer.to===access.seatId);
       const owns=involved&&(access.ownsSeatHistory||event.audienceGenerations?.[access.seatId]===access.generation);
-      if(owns||transfer.resource==='development')transfers.push(clone(transfer));
+      if(owns||transfer.resource==='development'||['progressScience','progressTrade','progressPolitics'].includes(transfer.resource))transfers.push(clone(transfer));
       else {
         const key=`${transfer.from}:${transfer.to}`,prior=grouped.get(key);
         if(prior)prior.count+=transfer.count;
@@ -166,7 +169,8 @@ export function projectEvent(event,access={}) {
   if(!event.payload)return projected;
   if(access.full||(access.seatId===event.actorSeatId&&(access.ownsSeatHistory||access.generation===event.actorGeneration)))projected.payload=clone(event.payload);
   else if(event.type==='discardCards')projected.payload={count:Object.values(event.payload.resources||{}).reduce((sum,count)=>sum+count,0)};
-  else if(!['chooseRobberCard','yearOfPlentyPick','resolveSeafarersChoice'].includes(event.type))projected.payload=clone(event.payload);
+  else if(event.type==='offerCommercialHarbor')projected.payload={targetPlayerId:event.payload.targetPlayerId};
+  else if(!['chooseRobberCard','yearOfPlentyPick','resolveSeafarersChoice','resolveCitiesKnightsChoice'].includes(event.type))projected.payload=clone(event.payload);
   return projected;
 }
 
@@ -181,8 +185,18 @@ export function reconstruct(recording,events,at,checkpoint=null) {
   return {state,seq};
 }
 
-function counts(player) {
-  return {...(typeof player.ships==='number'?{ships:15-player.ships}:{}),roads:15-(player.roads||0),longestRoad:player.roadLength||0,settlements:5-(player.settlements||0),cities:4-(player.cities||0)};
+function counts(player,game) {
+  const cities=game.citiesKnights;
+  const knights=cities?Object.values(cities.knights).filter(knight=>knight.ownerId===player.id):[];
+  const owner=game.players.findIndex(candidate=>candidate.id===player.id);
+  const retainedCities=cities?Object.values(game.vertices).filter(vertex=>vertex.owner===owner&&vertex.pillagedNoPiece).length:0;
+  return {...(cities?{
+    knights:knights.length,activeKnightStrength:knights.filter(knight=>knight.active).reduce((sum,knight)=>sum+knight.strength,0),
+    cityWalls:Object.values(cities.walls).filter(owner=>owner===player.id).length,
+    metropolises:Object.values(cities.metropolises).filter(metropolis=>metropolis.ownerId===player.id).length,
+    scienceLevel:player.cityImprovements.science,tradeLevel:player.cityImprovements.trade,politicsLevel:player.cityImprovements.politics,
+    defenderPoints:player.defenderPoints||0,
+  }:{}),...(typeof player.ships==='number'?{ships:15-player.ships}:{}),roads:15-(player.roads||0),longestRoad:player.roadLength||0,settlements:5-(player.settlements||0)+retainedCities,cities:4-(player.cities||0)-retainedCities};
 }
 
 export function metrics(recording,events,access) {
@@ -198,7 +212,7 @@ export function metrics(recording,events,access) {
       largestArmyPlayerId:playerId(game.largestArmyPlayer),winnerId:game.winner||null,
       players:(game.players||[]).map(player=>{
       const visible=access.full||(access.seatId===player.id&&(access.ownsSeatHistory||historicalSlots.get(player.id)?.generation===access.generation));
-      return {id:player.id,publicVP:player.victoryPoints||0,...(visible?{totalVP:(player.victoryPoints||0)+(player.hiddenVictoryPoints||0)}:{}),...counts(player)};
+      return {id:player.id,publicVP:player.victoryPoints||0,...(visible?{totalVP:(player.victoryPoints||0)+(player.hiddenVictoryPoints||0)}:{}),...counts(player,game)};
     })});
   };
   append(0,0,0);

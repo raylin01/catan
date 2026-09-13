@@ -8,6 +8,9 @@ const RESOURCES = [
   { key: 'wool', name: 'Wool', color: '#91b96e' },
   { key: 'grain', name: 'Grain', color: '#d1a94e' },
   { key: 'ore', name: 'Ore', color: '#74777b' },
+  { key: 'paper', name: 'Paper', color: '#a9b68b' },
+  { key: 'coin', name: 'Coin', color: '#b39a56' },
+  { key: 'cloth', name: 'Cloth', color: '#9677a4' },
 ];
 
 function ResourceCards({ resources, compact = false, selectable = false, selected = {}, onSelect, onRightClick, gain = null, gainDelay = 900 }) {
@@ -33,10 +36,11 @@ function ResourceCards({ resources, compact = false, selectable = false, selecte
 
   if (typeof resources === 'number') {
     return <div className="resource-cards compact">
-      <div className="total-cards"><span className="count">{resources} resource cards</span></div>
+      <div className="total-cards"><span className="count">{resources} cards</span></div>
     </div>;
   }
 
+  const visibleResources = RESOURCES.filter((r,i)=>i<5 || Object.hasOwn(resources || {},r.key));
   const gainedResources = activeGain ? RESOURCES.filter(resource => activeGain.gains[resource.key] > 0) : [];
   const gainSummary = gainedResources.length
     ? gainedResources.map(resource => `+${activeGain.gains[resource.key]} ${resource.name}`).join(', ')
@@ -61,7 +65,7 @@ function ResourceCards({ resources, compact = false, selectable = false, selecte
 
   return <div className={`resource-cards ${compact ? 'compact' : ''}`}>
     {activeGain && <div key={activeGain.id} className="resource-gain-summary" role="status" aria-live="polite">{gainSummary}</div>}
-    {RESOURCES.map(resource => {
+    {visibleResources.map(resource => {
       const count = resources?.[resource.key] || 0;
       const selectedCount = selected[resource.key] || 0;
       const gained = activeGain?.gains[resource.key] || 0;

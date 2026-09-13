@@ -1,3 +1,7 @@
+import {combinedHand,ALL_HAND_CARDS} from '../../../shared/cardTypes.js';
+import {useState} from 'react';
+import ProgressCards, {ProgressBack} from '../components/ProgressCards';
+import {CITIES_KNIGHTS_CARDS} from '../../../shared/citiesKnights.js';
 import GameIcon from '../components/GameIcon';
 import ResourceCards from '../components/ResourceCards';
 import CardArtwork from '../components/CardArtwork';
@@ -29,9 +33,9 @@ function devCount(player) {
 }
 
 function ConcealedCards({ kind, count }) {
-  const label = `${count} ${kind === 'resource' ? 'resource' : 'development'} card${count === 1 ? '' : 's'}`;
+  const label = `${count} ${kind === 'hand' ? 'hand' : kind === 'resource' ? 'resource' : 'development'} card${count === 1 ? '' : 's'}`;
   return <div className={`replay-card-back replay-card-back--${kind}`} aria-label={label} title={label}>
-    <GameIcon name={kind === 'resource' ? 'cards' : 'devCard'} size={22} />
+    <GameIcon name={kind !== 'development' ? 'cards' : 'devCard'} size={22} />
     <strong>{count}</strong>
   </div>;
 }
@@ -40,8 +44,8 @@ function ConcealedHand({ player, index }) {
   return <article className="replay-concealed-hand" style={{ '--replay-seat-color': playerColor(player, index) }}>
     <header><i aria-hidden="true" /><strong>{player?.name || `Player ${index + 1}`}</strong></header>
     <div className="replay-concealed-cards">
-      <ConcealedCards kind="resource" count={resourceCount(player?.resources)} />
-      <ConcealedCards kind="development" count={devCount(player)} />
+      <ConcealedCards kind={player.progressCards!==undefined?'hand':'resource'} count={resourceCount(player?.resources)} />
+      {player.progressCards!==undefined?<ReplayProgressCards player={player}/>:<ConcealedCards kind="development" count={devCount(player)} />}
     </div>
   </article>;
 }
@@ -59,7 +63,19 @@ function groupedCards(cards, isNew) {
   return [...grouped.values()];
 }
 
+function ReplayProgressCards({player}) {
+  const [selected,setSelected]=useState(null);
+  const visible=Array.isArray(player.progressCards)?player.progressCards:[];
+  const victories=player.progressVictoryCards||[];
+  return <div className="replay-progress-cards">
+    {[...visible,...victories].map((card,i)=>{const info=CITIES_KNIGHTS_CARDS[card.type];return <button type="button" key={card.id||`vp-${i}`} className={`replay-progress-card track-${card.color||info?.color}`} aria-label={`Show ${info?.name||card.type} card details`} onClick={()=>setSelected(card)}><CardArtwork name={card.type}/><span>{info?.name||card.type}</span></button>;})}
+    {!Array.isArray(player.progressCards)&&Object.entries(player.progressCardColors||{}).map(([color,count])=>count>0&&<ProgressBack key={color} color={color} count={count}/>)}
+    {!cardCount(player.progressCards)&&!victories.length&&<span className="replay-no-dev-cards">No progress cards</span>}
+    {selected&&<ProgressCards player={{progressCards:[selected]}} replay onClose={()=>setSelected(null)}/>}
+  </div>;
+}
 function DevelopmentCards({ player }) {
+  if(player.progressCards!==undefined)return <ReplayProgressCards player={player}/>;
   const ready = player?.developmentCards;
   const fresh = player?.newDevCards ?? player?.newDevelopmentCards;
   const visible = Array.isArray(ready) && (fresh == null || Array.isArray(fresh));
@@ -85,11 +101,11 @@ function CompactVisibleHand({ player, index }) {
     <header><i aria-hidden="true" /><strong>{player?.name || `Player ${index + 1}`}</strong></header>
     <div className="replay-compact-hand-body">
       {resourcesVisible ? <div className="replay-compact-resources" aria-label="Resource cards">
-        {RESOURCES.map(resource => <div key={resource} className={`replay-compact-resource replay-compact-resource--${resource} ${Number(player.resources[resource]) ? '' : 'is-empty'}`} title={`${resource}: ${Number(player.resources[resource]) || 0}`}>
+        {(player.commodities?ALL_HAND_CARDS:RESOURCES).map(resource => <div key={resource} className={`replay-compact-resource replay-compact-resource--${resource} ${Number(combinedHand(player)[resource]) ? '' : 'is-empty'}`} title={`${resource}: ${Number(combinedHand(player)[resource]) || 0}`}>
           <CardArtwork name={resource} />
-          <strong>{Number(player.resources[resource]) || 0}</strong>
+          <strong>{Number(combinedHand(player)[resource]) || 0}</strong>
         </div>)}
-      </div> : <ConcealedCards kind="resource" count={resourceCount(player?.resources)} />}
+      </div> : <ConcealedCards kind={player.progressCards!==undefined?'hand':'resource'} count={resourceCount(player?.resources)} />}
       <DevelopmentCards player={player} />
     </div>
   </article>;
@@ -103,7 +119,7 @@ function ProminentHand({ player, index, onCardInfo }) {
       <small>Recorded player view</small>
     </header>
     <div className="replay-primary-hand-body">
-      {resourcesVisible ? <ResourceCards resources={player.resources} onRightClick={onCardInfo} /> : <ConcealedCards kind="resource" count={resourceCount(player?.resources)} />}
+      {resourcesVisible ? <ResourceCards resources={combinedHand(player)} onRightClick={onCardInfo} /> : <ConcealedCards kind={player.progressCards!==undefined?'hand':'resource'} count={resourceCount(player?.resources)} />}
       <DevelopmentCards player={player} />
     </div>
   </article>;

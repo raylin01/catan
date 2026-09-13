@@ -1,3 +1,4 @@
+import {ckCommand} from './components/citiesKnightsView';
 import {seafarersCommand} from './components/seafarersCommands';
 import {AiControls, ChatModelFields} from './components/AiControls';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -169,6 +170,8 @@ function createRoomAdapter() {
   };
 
   const commandFor = (event, payload = {}) => {
+    const cityCommand=ckCommand(event,payload);
+    if(cityCommand)return cityCommand;
     const seaCommand=seafarersCommand(event,payload);
     if(seaCommand)return seaCommand;
     switch (event) {
