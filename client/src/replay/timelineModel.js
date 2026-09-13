@@ -1,3 +1,5 @@
+import { playerColor } from './replayUtils.js';
+
 const IDLE_GRACE_MS = 1200;
 const eventOrderCache = new WeakMap();
 
@@ -35,7 +37,7 @@ function playerLookup(players = []) {
   return new Map(players.map((player, index) => [player?.id, {
     ...player,
     name: player?.name || `Player ${index + 1}`,
-    color: player?.color || ['#d96855', '#4f94b5', '#dc9b51', '#63a892'][index % 4]
+    color: playerColor(player, index)
   }]));
 }
 
@@ -190,7 +192,7 @@ export function buildTimelineMarkers(events = [], metrics = [], players = []) {
         point,
         label: setup
           ? `${name || 'Table'} began setup`
-          : name ? `${name} began turn ${displayTurn ?? ''}`.trim() : `Turn ${displayTurn} began`,
+          : point.turnRole === 'paired' ? `${name || 'Player'} began the extra action phase of turn ${displayTurn ?? ''}`.trim() : name ? `${name} began turn ${displayTurn ?? ''}`.trim() : `Turn ${displayTurn} began`,
         playerId: point.currentPlayerId,
         playersById
       }));
@@ -304,7 +306,7 @@ export function buildTurnBands(metrics = [], players = [], durationMs = 0) {
       turn: start.turn,
       endMs,
       color: markerColor(playersById, start.playerId) || null,
-      label: `${name} · ${setup ? 'Setup' : displayTurn == null ? 'Turn' : `Turn ${displayTurn}`}`
+      label: `${name} · ${setup ? 'Setup' : `${point?.turnRole === 'paired' ? 'Extra action · ' : ''}${displayTurn == null ? 'Turn' : `Turn ${displayTurn}`}`}`
     };
   });
 }

@@ -57,7 +57,7 @@ function GameBoard({
   const [lastTradeOfferId, setLastTradeOfferId] = useState(null);
   const [dismissedTradeId, setDismissedTradeId] = useState(null);
 
-  const [lastNotifiedRoll, setLastNotifiedRoll] = useState(rollEvent?.id || (gameState.diceRoll ? `${gameState.diceRoll.die1}-${gameState.diceRoll.die2}-${gameState.currentPlayerIndex}` : null));
+  const [lastNotifiedRoll, setLastNotifiedRoll] = useState(rollEvent?.id || (gameState.diceRoll ? `${gameState.diceRoll.die1}-${gameState.diceRoll.die2}-${gameState.productionPlayerIndex ?? gameState.currentPlayerIndex}` : null));
   const [unreadMessages, setUnreadMessages] = useState(0);
   const chatIdentity = `${gameCode}:${playerId}`;
   const chatCursor = useRef({identity: chatIdentity, key: null});
@@ -74,11 +74,12 @@ function GameBoard({
   const needsToDiscard = gameState.phase === 'playing' && gameState.discardingPlayers?.some(
     d => d.playerIndex === gameState.myIndex
   );
-  
-  // 5-6 player extension: Special Building Phase
-  const isSpecialBuildPhase = gameState.specialBuildingPhase && gameState.turnPhase === 'specialBuild';
-  const isMySpecialBuild = isSpecialBuildPhase && gameState.specialBuildIndex === gameState.myIndex;
-  const canBuildNow = isMyTurn || isMySpecialBuild;
+  const isExtended = gameState.gameOptions?.extension56 === true || gameState.isExtended === true;
+  const isPairedTurn = isExtended && gameState.turnRole === 'paired';
+  const productionIndex = gameState.pairedTurnRules && Number.isInteger(gameState.productionPlayerIndex) ? gameState.productionPlayerIndex : gameState.currentPlayerIndex;
+  const productionPlayer = gameState.players[productionIndex];
+  const extraPlayer = isExtended ? gameState.players[(productionIndex + 3) % gameState.players.length] : null;
+  const canBuildNow = isMyTurn;
   const setupSettlement = gameState.setupAction?.settlement || lastPlacedSettlement;
 
   // Setup state is authoritative on the server. Keep the local value only as
@@ -126,36 +127,6 @@ function GameBoard({
     return () => socket.off('stealResult', handleStealResult);
   }, [isReplay, socket, addNotification]);
 
-  // Listen for special building phase events (5-6 player extension)
-  useEffect(() => {
-    if (isReplay || !socket) return undefined;
-    const handleSpecialBuildStarted = ({ currentBuilder }) => {
-      if (currentBuilder === playerId) {
-        addNotification(' Special Building Phase - Your turn to build!');
-      }
-    };
-    
-    const handleSpecialBuildNext = ({ currentBuilder }) => {
-      if (currentBuilder === playerId) {
-        addNotification(' Your turn in Special Building Phase!');
-      }
-    };
-    
-    const handleSpecialBuildEnded = () => {
-      addNotification('Special Building Phase ended');
-    };
-    
-    socket.on('specialBuildingPhaseStarted', handleSpecialBuildStarted);
-    socket.on('specialBuildNext', handleSpecialBuildNext);
-    socket.on('specialBuildingPhaseEnded', handleSpecialBuildEnded);
-    
-    return () => {
-      socket.off('specialBuildingPhaseStarted', handleSpecialBuildStarted);
-      socket.off('specialBuildNext', handleSpecialBuildNext);
-      socket.off('specialBuildingPhaseEnded', handleSpecialBuildEnded);
-    };
-  }, [isReplay, socket, playerId, addNotification]);
-
   // Track new chat messages for notification dot
   useEffect(() => {
     if (isReplay) return;
@@ -193,7 +164,7 @@ function GameBoard({
     // Create a unique ID for this trade to track if we've already shown it
     const tradeId = tradeOffer?.id || null;
     
-    if (tradeOffer && isTradeForMe && tradeId !== lastTradeOfferId) {
+    if (tradeOffer && gameState.turnRole !== 'paired' && gameState.playerTradingAllowed !== false && isTradeForMe && tradeId !== lastTradeOfferId) {
       // New trade from another player - auto open the modal
       setTradeMode('player');
       setShowTradeModal(true);
@@ -206,7 +177,7 @@ function GameBoard({
       setLastTradeOfferId(null);
       setDismissedTradeId(null);
     }
-  }, [gameState.tradeOffer, gameState.myIndex, gameState.players, isReplay, lastTradeOfferId, addNotification]);
+  }, [gameState.tradeOffer, gameState.myIndex, gameState.players, gameState.turnRole, gameState.playerTradingAllowed, isReplay, lastTradeOfferId, addNotification]);
 
   // Auto-select action during setup
   useEffect(() => {
@@ -228,6 +199,14 @@ function GameBoard({
     }
   }, [gameState, isReplay, isSetup, isMyTurn, legalActions]);
 
+  useEffect(() => {
+    if (!isSetup) setSelectedAction(null);
+  }, [gameState.currentPlayerIndex, gameState.turnRole, isSetup]);
+
+  useEffect(() => {
+    if ((gameState.turnRole === 'paired' || gameState.playerTradingAllowed === false) && tradeMode === 'player') setShowTradeModal(false);
+  }, [gameState.turnRole, gameState.playerTradingAllowed, tradeMode]);
+
   // Reset roll notification tracker when turn phase goes back to 'roll' (new turn)
   useEffect(() => {
     if (gameState.turnPhase === 'roll') {
@@ -240,18 +219,18 @@ function GameBoard({
     if (isReplay) return;
     if (gameState.diceRoll && gameState.turnPhase !== 'roll') {
       // Create unique key for this roll to prevent duplicate notifications
-      const rollKey = rollEvent?.id || `${gameState.diceRoll.die1}-${gameState.diceRoll.die2}-${gameState.currentPlayerIndex}`;
+      const rollKey = rollEvent?.id || `${gameState.diceRoll.die1}-${gameState.diceRoll.die2}-${productionIndex}`;
       
       // Only notify for 7 (robber) - regular rolls are shown in the dice display
       if (rollKey !== lastNotifiedRoll && gameState.diceRoll.total === 7) {
-        const roller = gameState.players[gameState.currentPlayerIndex];
+        const roller = productionPlayer;
         addNotification(`${roller.name} rolled a 7. ${gameState.turnPhase === "discard" ? "Players must discard before the robber moves." : "Move the robber."}`);
         setLastNotifiedRoll(rollKey);
       } else if (rollKey !== lastNotifiedRoll) {
         setLastNotifiedRoll(rollKey);
       }
     }
-  }, [gameState.diceRoll, gameState.turnPhase, gameState.currentPlayerIndex, gameState.players, isReplay, lastNotifiedRoll, addNotification, rollEvent?.id]);
+  }, [gameState.diceRoll, gameState.turnPhase, gameState.currentPlayerIndex, gameState.players, isReplay, lastNotifiedRoll, addNotification, rollEvent?.id, productionIndex, productionPlayer]);
 
   // Handle winner
   useEffect(() => {
@@ -414,11 +393,11 @@ function GameBoard({
       if (gameState.phase === 'waiting') return 'Recorded lobby';
       if (isSetup) return `${currentPlayer?.name || 'A player'} is setting up`;
       const phase = String(gameState.turnPhase || gameState.phase || 'recorded turn').replaceAll('-', ' ');
-      return `${currentPlayer?.name || 'A player'}'s turn · ${phase}`;
+      return isPairedTurn ? `${currentPlayer?.name || 'A player'}'s extra action phase · ${phase}` : `${currentPlayer?.name || 'A player'}'s turn · ${phase}`;
     }
     if (gameState.phase === 'waiting') {
-      const modeText = gameState.isExtended ? '(5-6 Player Mode)' : '';
-      return `Board Preview ${modeText} - Waiting for players... (${gameState.players.length}/${maxPlayers})`;
+      const modeText = isExtended ? '5–6 player extension · ' : '';
+      return `${modeText}Waiting for players (${gameState.players.length}/${maxPlayers})`;
     }
     if (gameState.phase === 'finished') {
       const winner = gameState.players.find(p => p.id === gameState.winner);
@@ -436,16 +415,8 @@ function GameBoard({
         ? `Place your ${gameState.setupPhase === 0 ? 'first' : 'second'} settlement and road`
         : `${currentPlayer?.name} is placing...`;
     }
-    // Special Building Phase (5-6 player extension)
-    if (isSpecialBuildPhase) {
-      if (isMySpecialBuild) {
-        return ' Special Building Phase - Build or buy cards, then pass';
-      }
-      const specialBuilder = gameState.players[gameState.specialBuildIndex];
-      return ` Special Building Phase - ${specialBuilder?.name}'s turn to build`;
-    }
     if (!isMyTurn) {
-      return `${currentPlayer?.name}'s turn`;
+      return isPairedTurn ? `${currentPlayer?.name}'s extra action phase` : `${currentPlayer?.name}'s turn`;
     }
     if (gameState.turnPhase === 'main' && selectedAction) {
       return selectedAction === 'road' ? 'Choose a highlighted path for your road'
@@ -457,20 +428,11 @@ function GameBoard({
       case 'robber': return 'Move the robber';
       case 'robberPick': return 'Choose a face-down card';
       case 'discard': return 'Waiting for players to discard';
-      case 'main': return 'Build, trade, or end turn';
+      case 'main': return isPairedTurn ? 'Extra action phase · Build, use the bank, or end turn' : 'Build, trade, or end turn';
       default: return '';
     }
   };
   
-  // Handler to end special building phase turn
-  const handleEndSpecialBuild = useCallback(() => {
-    socket.emit('endSpecialBuild', (response) => {
-      if (!response.success) {
-        addNotification(response.error);
-      }
-    });
-  }, [socket, addNotification]);
-
   return (
     <div className={`game-board game-hud ${isReplay ? 'replay-game-board' : ''}`} onKeyDown={event => {
       if (event.key === 'Escape' && selectedAction && !isSetup && !isReplay && !event.defaultPrevented &&
@@ -499,6 +461,11 @@ function GameBoard({
             </div>
           )}
           <span className="status-message" role="status">{getStatusMessage()}</span>
+          {isExtended && gameState.phase === 'playing' && productionPlayer && extraPlayer && (
+            <span className="turn-pair-context" aria-label={`Production turn: ${productionPlayer.name}. Extra action phase: ${extraPlayer.name}.`}>
+              Production: {productionPlayer.name} · Extra action: {extraPlayer.name}
+            </span>
+          )}
         </div>
         <div className="game-header-tools"><PresentationControls />
           {!isReplay && <GameLog key={`${gameCode}:${playerId}`} events={events} players={gameState.players}/>}
@@ -506,13 +473,14 @@ function GameBoard({
 
       </div>
 
-      <div className="player-roster" role="group" aria-label="Players and scores" style={{'--seat-count': gameState.players.length}}>
+      <div className={`player-roster ${gameState.players.length >= 5 ? 'large-roster' : ''}`} role="group" aria-label="Players and scores" style={{'--seat-count': gameState.players.length}}>
           {gameState.players.map((player, idx) => (
             <PlayerPanel
               slot={slots.find(slot=>slot.id===player.id)}
               key={player.id}
               player={player}
               isCurrentTurn={idx === gameState.currentPlayerIndex}
+              turnLabel={isPairedTurn && idx === gameState.currentPlayerIndex ? 'Extra action' : undefined}
               isMe={!isReplay && idx === gameState.myIndex}
               viewSelected={isReplay && player.id === replay.perspective}
               viewLabel={isReplay ? (
@@ -554,7 +522,7 @@ function GameBoard({
                     onClick={handleStartGame}
                     disabled={gameState.players.length < 2}
                   >
-                    ▶ Start Game ({gameState.players.length}/4)
+                    Start game ({gameState.players.length}/{gameState.maxPlayers || 4})
                   </button>
                 </>
               )}
@@ -635,8 +603,8 @@ function GameBoard({
                 freeRoads={gameState.freeRoads}
                 yearOfPlentyPicks={gameState.yearOfPlentyPicks}
                 devCardsLeft={gameState.devCardDeck}
-                isSpecialBuildPhase={isSpecialBuildPhase}
-                isMySpecialBuild={isMySpecialBuild}
+                turnRole={gameState.turnRole}
+                playerTradingAllowed={gameState.playerTradingAllowed !== false}
               />
               {gameState.freeRoads > 0 && legalActions.some(action => action.type === 'finishFreeRoads') && (
                 <button
@@ -697,21 +665,8 @@ function GameBoard({
         </div>
       )}
 
-      {/* Special Building Phase Banner (5-6 player extension) */}
-      {!isReplay && isMySpecialBuild && (
-        <div className="special-build-banner">
-          <GameIcon name="settlement" size={24}/>
-          <span className="special-build-text">
-            <strong>Special Building Phase!</strong> You may build roads, settlements, cities, or buy development cards. No trading allowed.
-          </span>
-          <button className="special-build-done-btn" onClick={handleEndSpecialBuild}>
-            Done Building
-          </button>
-        </div>
-      )}
-
       {/* Trade Notification Banner - shows when there's a pending trade from another player */}
-      {!isReplay && gameState.tradeOffer &&
+      {!isReplay && gameState.turnRole !== 'paired' && gameState.playerTradingAllowed !== false && gameState.tradeOffer &&
        gameState.tradeOffer.from !== gameState.myIndex && 
        !showTradeModal && 
        dismissedTradeId !== gameState.tradeOffer.id && (

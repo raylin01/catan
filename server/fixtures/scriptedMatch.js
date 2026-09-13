@@ -8,7 +8,7 @@ const COSTS = {
   developmentCard: {ore: 1, grain: 1, wool: 1},
 };
 const PIPS = {2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1};
-const PLAYER_NAMES = ['Mira', 'Jon', 'Cora'];
+const PLAYER_NAMES = ['Mira', 'Jon', 'Cora', 'Theo', 'Nia', 'Remy'];
 const DEFAULT_SEED = 0xC47A2026;
 
 const clone = value => structuredClone(value);
@@ -219,6 +219,8 @@ export function playScriptedMatch({
   maxTurns = 1000,
   stopAfter,
   sample = true,
+  seatCount = 3,
+  gameOptions,
 } = {}) {
   if (!service || typeof service.create !== 'function' || typeof service.command !== 'function' ||
       typeof service.observe !== 'function') {
@@ -261,7 +263,8 @@ export function playScriptedMatch({
     created = requireSuccess(service.create({
       name: title.trim(),
       title: title.trim(),
-      seatCount: 3,
+      seatCount,
+      gameOptions,
       sample: sample === true,
     }), 'room creation');
     code = created.code;
@@ -478,7 +481,7 @@ export function playScriptedMatch({
       // Execute one real offer, acceptance and confirmation once both players
       // naturally have a mutually useful card. No hand or board state is
       // injected to force this exchange.
-      if (!successful.tradeConfirm) {
+      if (!successful.tradeConfirm && view.gameState.playerTradingAllowed !== false) {
         for (const target of bots.filter(bot => bot.seatId !== actor.seatId)) {
           const targetView = observe(target);
           const theirHand = ownPlayer(targetView).resources;

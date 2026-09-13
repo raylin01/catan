@@ -11,7 +11,7 @@ const names = value => Array.isArray(value) && value.length > 0 && value.length 
 /** Only the finite public protocol crosses from another AI to private gameplay. */
 export function projectNegotiations(view, incoming = [], now = Date.now()) {
   const game = view.gameState, seat = view.seatId;
-  if (game?.phase !== 'playing' || game.turnPhase !== 'main' || view.paused) return [];
+  if (game?.phase !== 'playing' || game.turnPhase !== 'main' || game.playerTradingAllowed === false || view.paused) return [];
   const players = game.players || [], own = players.find(player => player.id === seat);
   const active = players[game.currentPlayerIndex]?.id;
   const seen = new Set(), result = [];
@@ -59,7 +59,7 @@ export function projectNegotiationWindow(view) {
 const resourceArray = {type: 'array', items: {type: 'string', enum: RESOURCE_NAMES}, minItems: 1, maxItems: 2};
 export function negotiationSchemaFor(view) {
   const game = view.gameState;
-  if (!view.negotiation || game?.phase !== 'playing' || game.turnPhase !== 'main') return {type: 'null'};
+  if (!view.negotiation || game?.phase !== 'playing' || game.turnPhase !== 'main' || game.playerTradingAllowed === false) return {type: 'null'};
   const incoming = view.negotiation.canReply === true
     ? projectNegotiations(view, view.negotiations).filter(item=>item.depth<2) : [];
   const parents = incoming.map(item => item.id), choices = [];

@@ -70,6 +70,7 @@ export function executeAction(game, playerId, type, payload = {}, dryRun = false
       }
     }
     if (!result?.success) return result || fail('Invalid action');
+    G.refreshPlayerTradingAllowed(copy);
     for (const p of copy.players) {
       if (resources.some(r => !Number.isSafeInteger(p.resources[r]) || p.resources[r] < 0)) return fail('Invalid resource balance');
     }

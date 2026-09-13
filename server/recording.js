@@ -1,4 +1,5 @@
 import {playerView} from './actions.js';
+import {roomGameOptions,rulesVersionFor,baseGameOptions} from './gameOptions.js';
 
 export const RECORDING_FORMAT_VERSION=1;
 export const RECORDING_RULES_VERSION='catan-rules-1';
@@ -53,6 +54,7 @@ function sanitizeSlot(slot) {
 /** Full authoritative replay state, deliberately excluding auth and idempotency envelopes. */
 export function captureState(room) {
   return {
+    gameOptions:roomGameOptions(room),
     gameState:clone(room.game),slots:(room.slots||[]).map(sanitizeSlot),trade:clone(room.trade),paused:!!room.paused,
     chat:clone(room.chat||[]),cardEvents:clone(room.cardEvents||[]),lastRoll:clone(room.lastRoll||null)
   };
@@ -73,7 +75,7 @@ function playerMetadata(room) {
 export function createRecording(room,{id,now,partial=false,sample=false,title}={}) {
   const state=captureState(room),status=recordingStatus(room);
   return {id,roomCode:room.code,title:title||room.name||'Catan match',formatVersion:RECORDING_FORMAT_VERSION,
-    rulesVersion:RECORDING_RULES_VERSION,projectionVersion:RECORDING_PROJECTION_VERSION,status,partial:!!partial,sample:!!sample,
+    rulesVersion:rulesVersionFor(roomGameOptions(room)),gameOptions:roomGameOptions(room),projectionVersion:RECORDING_PROJECTION_VERSION,status,partial:!!partial,sample:!!sample,
     createdAt:now,startedAt:room.game?now:null,endedAt:['won','ended'].includes(status)?now:null,lastAt:now,lastSeq:0,lastElapsedMs:0,
     turn:0,winnerId:room.game?.winner||null,players:playerMetadata(room),initialState:state,latestState:state,events:[]};
 }
@@ -82,6 +84,7 @@ const pick=(payload,names)=>Object.fromEntries(names.filter(name=>Object.hasOwn(
 const safeEventPayload=(type,payload,room)=> {
   if(!payload||typeof payload!=='object'||Array.isArray(payload))return null;
   if(type==='aiHeartbeat')return {status:payload.status,...(payload.error?{error:'AI runner reported an error'}:{})};
+  if(type==='configureGame')return {seatCount:room.slots.length,gameOptions:roomGameOptions(room)};
   if(['configureSeat','removeController'].includes(type)) {
     const slot=room.slots.find(candidate=>candidate.id===payload.seatId);
     if(!slot)return null;
@@ -111,12 +114,14 @@ const safeEventPayload=(type,payload,room)=> {
 export function advanceRecording(recording,room,{type,actorSeatId=null,actorGeneration=null,actorName=null,summary='',payload=null,at}={}) {
   const state=captureState(room),seq=recording.lastSeq+1;
   const elapsedMs=Math.max(recording.lastElapsedMs,Number.isFinite(at)?Math.max(0,at-recording.createdAt):recording.lastElapsedMs);
-  const turn=recording.turn+(type==='endTurn'?1:0);
+  // Count production turns, not the extra action phase within a paired turn.
+  const turn=recording.turn+(type==='endTurn'&&room.game?.turnRole!=='paired'?1:0);
   const cleanPayload=safeEventPayload(type,payload,room);
   const event={seq,at,elapsedMs,turn,type,actorSeatId,actorGeneration,actorName,summary,
     ...(cleanPayload?{payload:cleanPayload}:{}),patch:createPatch(recording.latestState,state)};
   const status=recordingStatus(room),terminal=['won','ended'].includes(status);
   const next={...recording,status,lastAt:at,lastSeq:seq,lastElapsedMs:elapsedMs,turn,winnerId:room.game?.winner||null,
+    gameOptions:roomGameOptions(room),rulesVersion:rulesVersionFor(roomGameOptions(room)),
     startedAt:recording.startedAt||(room.game?at:null),endedAt:terminal?(recording.endedAt||at):null,
     players:playerMetadata(room),latestState:state};
   if(recording.events)next.events=[...recording.events,event];
@@ -143,6 +148,7 @@ function projectCardEvents(events,access) {
 
 export function projectState(state,access={}) {
   const copy=clone(state),historicalSlot=copy.slots?.find(slot=>slot.id===access.seatId);
+  copy.gameOptions=copy.gameOptions??copy.gameState?.gameOptions??baseGameOptions();
   const ownsGeneration=access.seatId&&(access.ownsSeatHistory||historicalSlot?.generation===access.generation);
   if(copy.gameState&&!access.full)copy.gameState=playerView(copy.gameState,ownsGeneration?access.seatId:undefined);
   copy.cardEvents=projectCardEvents(copy.cardEvents,{...access,seatId:ownsGeneration?access.seatId:null});
@@ -184,6 +190,7 @@ export function metrics(recording,events,access) {
     const historicalSlots=new Map((state.slots||[]).map(slot=>[slot.id,slot]));
     const game=state.gameState,playerId=index=>game.players?.[index]?.id||null;
     points.push({seq,elapsedMs,turn,phase:game.phase,turnPhase:game.turnPhase,
+      turnRole:game.turnRole||'primary',productionPlayerId:playerId(game.pairedTurnRules?game.productionPlayerIndex:game.currentPlayerIndex),
       currentPlayerId:playerId(game.currentPlayerIndex),longestRoadPlayerId:playerId(game.longestRoadPlayer),
       largestArmyPlayerId:playerId(game.largestArmyPlayer),winnerId:game.winner||null,
       players:(game.players||[]).map(player=>{
@@ -200,5 +207,6 @@ export function publicMetadata(recording) {
   return {id:recording.id,title:recording.title,roomCode:recording.roomCode,status:recording.status,partial:!!recording.partial,
     sample:!!recording.sample,createdAt:recording.createdAt,startedAt:recording.startedAt,endedAt:recording.endedAt,lastSeq:recording.lastSeq,
     elapsedMs:recording.lastElapsedMs,turn:recording.turn,winnerId:recording.winnerId,players:clone(recording.players),
+    gameOptions:clone(recording.gameOptions??baseGameOptions()),
     formatVersion:recording.formatVersion,rulesVersion:recording.rulesVersion,projectionVersion:recording.projectionVersion};
 }

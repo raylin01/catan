@@ -6,6 +6,7 @@ import {appendCardEvent,projectCardEvents} from './cardEvents.js';
 import {REASONING_VALUES,initializeAiSlot,leaseIsLive,fenceAiCommand,claimRunnerLease,heartbeatRunner,applyAiControl,projectAiStatus} from './aiControl.js';
 import {createRecording,advanceRecording,recordingStatus,publicMetadata,projectState,projectEvent,reconstruct,metrics,createPatch,applyPatch} from './recording.js';
 import {negotiationState,syncNegotiationTurn,negotiationOpportunity,prepareNegotiation,readNegotiations,recordAiTradeAction} from './negotiation.js';
+import {validateGameOptions,roomGameOptions,rulesVersionFor,canTradeWithPlayers} from './gameOptions.js';
 
 const secret=()=>randomBytes(32).toString('base64url');
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -119,7 +120,9 @@ export class RoomService {
   create(options={}) {
     if(!options||typeof options!=='object'||Array.isArray(options))return fail('Invalid room configuration');
     const {name,seatCount=3,seats,sample=false,title}=options;
-    if(!cleanName(name)||![3,4].includes(seatCount)) return fail('Enter a name and choose 3 or 4 seats');
+    if(!cleanName(name)) return fail('Enter a room name');
+    const configuration=validateGameOptions(options.gameOptions,seatCount);
+    if(!configuration.success)return fail(configuration.error);
     if(seats!==undefined&&!Array.isArray(seats))return fail('Seats must be an array');
     if(seats?.length>seatCount)return fail('Too many seat configurations');
     if(seats?.some(seat=>!seat||typeof seat!=='object'||Array.isArray(seat)))return fail('Invalid seat configuration');
@@ -144,7 +147,7 @@ export class RoomService {
       }
       slots.push(slot);
     }
-    const room={code,recordingId:secret(),revision:0,name:cleanName(name),slots,members:{[hash(token)]:{role:'host',name:cleanName(name)}},game:null,trade:null,chat:[],chatSequence:0,receipts:{},cardEventSequence:0,cardEvents:[],paused:false,interrupted:false};
+    const room={code,recordingId:secret(),revision:0,name:cleanName(name),gameOptions:configuration.gameOptions,slots,members:{[hash(token)]:{role:'host',name:cleanName(name)}},game:null,trade:null,chat:[],chatSequence:0,receipts:{},cardEventSequence:0,cardEvents:[],paused:false,interrupted:false};
     const recording=createRecording(room,{id:room.recordingId,now:this.now(),sample:sample===true,title:cleanName(title)||room.name});
     this.persistRecording(room,recording,{type:'lobbyCreated',actorName:room.name,summary:`${room.name} created the lobby`});
     return {success:true,code,token,role:'host',replayId:room.recordingId};
@@ -208,7 +211,7 @@ export class RoomService {
       ...(ownSlot.runnerLease?.runId?{runnerRunId:ownSlot.runnerLease.runId}:{})}:null;
     const publicChat=(room.chat||[]).map((message,index)=>({...message,sequence:message.sequence??index+1,authorRole:message.authorRole||'human'}));
     return {success:true,code,replayId:room.recordingId,revision:room.revision,role:member.role,host:member.role==='host',seatId:member.seatId||null,generation:member.generation||0,
-      paused:room.paused,slots,ai:ownAi,controlEpoch:ownAi?.controlEpoch,
+      paused:room.paused,gameOptions:roomGameOptions(room),slots,ai:ownAi,controlEpoch:ownAi?.controlEpoch,
       negotiation:member.role==='ai'&&ownSlot?negotiationOpportunity(room,ownSlot,now):null,
       gameState,legalActions:choices,decision,trade:clone(room.trade),events:clone(room.events||[]),chat:member.role==='ai'?[]:clone(publicChat),
       rollEvent:room.lastRoll?{id:room.lastRoll.id,roll:clone(room.lastRoll.roll),gains:clone(room.lastRoll.audienceGenerations?.[member.seatId]===member.generation?room.lastRoll.gainsBySeat[member.seatId]||{}:{})}:null,
@@ -230,7 +233,7 @@ export class RoomService {
     if(member.seatId && generation!==member.generation)return fail('Seat controller changed',409);
     const copy=clone(room),beforeGame=room.game?clone(room.game):null;let result={success:true};
     try {
-      const hostTypes=['configureSeat','start','removeController','pause','resume','endGame'];
+      const hostTypes=['configureGame','configureSeat','start','removeController','pause','resume','endGame'];
       if(hostTypes.includes(type)&&member.role!=='host')return fail('Only the host can do that',403);
       const slot=copy.slots.find(s=>s.id===member.seatId);
       const aiControlType=['aiPause','aiResume','aiCancel'].includes(type);
@@ -247,6 +250,18 @@ export class RoomService {
         if(!target.controller)return fail('AI seat has no attached controller');
         if(member.role!=='host'&&member.seatId!==target.id)return fail('You cannot control that AI seat',403);
         result=applyAiControl(target,{aiPause:'pause',aiResume:'resume',aiCancel:'cancel'}[type],this.now());
+      } else if(type==='configureGame') {
+        if(copy.game)return fail('Game options are locked after start');
+        if(Object.keys(payload).some(key=>!['seatCount','gameOptions'].includes(key)))return fail('Invalid game configuration');
+        const seatCount=payload.seatCount??copy.slots.length;
+        const configuration=validateGameOptions(Object.hasOwn(payload,'gameOptions')?payload.gameOptions:roomGameOptions(copy),seatCount);
+        if(!configuration.success)return fail(configuration.error);
+        if(copy.slots.slice(seatCount).some(seat=>seat.controller))return fail('Release occupied seats before reducing the player count',409);
+        const changed=seatCount!==copy.slots.length||JSON.stringify(configuration.gameOptions)!==JSON.stringify(roomGameOptions(copy));
+        copy.slots=copy.slots.slice(0,seatCount);
+        while(copy.slots.length<seatCount)copy.slots.push({id:randomUUID(),kind:'human',provider:null,model:null,generation:0,controller:null,ready:false,name:`Seat ${copy.slots.length+1}`});
+        copy.gameOptions=configuration.gameOptions;
+        if(changed)for(const seat of copy.slots)seat.ready=false;
       } else if(type==='configureSeat') {
         if(copy.game)return fail('Seats are locked after start');
         const target=copy.slots.find(s=>s.id===payload.seatId);
@@ -269,8 +284,16 @@ export class RoomService {
         const invalidSeat=copy.slots.some(s=>!s.controller||!s.ready||copy.members[s.controller]?.seatId!==s.id||copy.members[s.controller]?.generation!==s.generation);
         if(invalidSeat)return fail('Every seat must be occupied and ready');
         if([...this.rooms.values()].filter(r=>r.game&&['setup','playing'].includes(r.game.phase)).length>=this.maxActive)return fail('Another game is active',409);
-        copy.game=G.createGame(code,{id:copy.slots[0].id,name:copy.slots[0].name});
-        for(const s of copy.slots.slice(1))G.addPlayer(copy.game,{id:s.id,name:s.name});
+        const configuration=validateGameOptions(roomGameOptions(copy),copy.slots.length);
+        if(!configuration.success)return fail(configuration.error);
+        copy.gameOptions=configuration.gameOptions;
+        copy.game=G.createGame(code,{id:copy.slots[0].id,name:copy.slots[0].name},copy.gameOptions.extension56);
+        copy.game.gameOptions=clone(copy.gameOptions);
+        copy.game.rulesVersion=rulesVersionFor(copy.gameOptions);
+        for(const s of copy.slots.slice(1)){
+          const added=G.addPlayer(copy.game,{id:s.id,name:s.name});
+          if(!added.success)return added;
+        }
         result=G.startGame(copy.game);
         copy.interrupted=false;
       } else if(type==='ready') {
@@ -347,7 +370,7 @@ export class RoomService {
         gainsBySeat:Object.fromEntries(copy.game.players.map((player,index)=>[player.id,clone(result.resourceGains?.[index]||{})]))};
       copy.revision++;
       appendCardEvent(copy,beforeGame,type,type==='rollDice'?copy.lastRoll?.id:null);
-      const labels={ready:'readied their seat',advanceSetup:'advanced setup',chat:'sent a message',configureSeat:'configured a seat',finishFreeRoads:'finished placing free roads',yearOfPlentyPick:'chose a Year of Plenty resource',start:'started the game',placeSettlement:'built a settlement',placeRoad:'built a road',upgradeToCity:'built a city',rollDice:'rolled the dice',discardCards:'discarded cards',moveRobber:'moved the robber',chooseRobberCard:'stole a resource card',buyDevCard:'bought a development card',playDevCard:'played a development card',bankTrade:'traded with the bank',endTurn:'ended their turn',tradeOffer:'offered a trade',tradeCounter:'made a counteroffer',tradeAccept:'accepted a trade offer',tradeReject:'rejected a trade offer',tradeConfirm:'confirmed a trade',tradeCancel:'cancelled a trade',leave:'left their seat',removeController:'removed a seat controller',pause:'paused the game',resume:'resumed the game',aiPause:'paused an AI seat',aiResume:'resumed an AI seat',aiCancel:'cancelled an AI decision',endGame:'ended the game'};
+      const labels={configureGame:'changed the lobby rules',ready:'readied their seat',advanceSetup:'advanced setup',chat:'sent a message',configureSeat:'configured a seat',finishFreeRoads:'finished placing free roads',yearOfPlentyPick:'chose a Year of Plenty resource',start:'started the game',placeSettlement:'built a settlement',placeRoad:'built a road',upgradeToCity:'built a city',rollDice:'rolled the dice',discardCards:'discarded cards',moveRobber:'moved the robber',chooseRobberCard:'stole a resource card',buyDevCard:'bought a development card',playDevCard:'played a development card',bankTrade:'traded with the bank',endTurn:'ended their turn',tradeOffer:'offered a trade',tradeCounter:'made a counteroffer',tradeAccept:'accepted a trade offer',tradeReject:'rejected a trade offer',tradeConfirm:'confirmed a trade',tradeCancel:'cancelled a trade',leave:'left their seat',removeController:'removed a seat controller',pause:'paused the game',resume:'resumed the game',aiPause:'paused an AI seat',aiResume:'resumed an AI seat',aiCancel:'cancelled an AI decision',endGame:'ended the game'};
       if(labels[type])copy.events=[...(copy.events||[]),{id:randomUUID(),at:this.now(),actor:member.name,type,summary:`${member.name} ${labels[type]}`}].slice(-200);
       const response={success:true,revision:copy.revision};
       // Return private effects only to the authenticated actor, never the event stream.
@@ -551,7 +574,7 @@ export class RoomService {
   }
   tradeAction(room,seatId,type,p) {
     const game=room.game;
-    if(game.phase!=='playing'||game.turnPhase!=='main'||game.freeRoads||game.yearOfPlentyPicks)return fail('Trading is unavailable now');
+    if(!canTradeWithPlayers(game))return fail('Player trading is unavailable now');
     const active=game.players[game.currentPlayerIndex].id,player=game.players.find(x=>x.id===seatId);
     if(type==='tradeOffer'||type==='tradeCounter') {
       const previous=room.trade;
