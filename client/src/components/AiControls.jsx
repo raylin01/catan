@@ -2,8 +2,8 @@ import './AiControls.css';
 
 const labels={thinking:'Choosing a move','reading-chat':'Considering chat',speaking:'Preparing a reply',waiting:'Waiting for play',error:'Controller error',stopped:'Controller stopped'};
 export function AiStatus({slot}) {
-  if(slot?.kind!=='ai')return null;
-  const info=slot.ai||{},offline=info.connection!=='online';
+  if(slot?.kind!=='ai'||!['online','stale','offline'].includes(slot.ai?.connection))return null;
+  const info=slot.ai,offline=info.connection!=='online';
   const text=info.paused?'AI paused':info.connection==='stale'?'Connection stale':offline?'Controller offline':labels[info.status]||'Connected';
   return <div className={`ai-status ${offline?'ai-status-offline':''}`} title={info.lastActivityAt?`Last controller activity: ${new Date(info.lastActivityAt).toLocaleTimeString()}`:undefined}>
     <span className={`ai-status-dot ${!offline&&['thinking','reading-chat','speaking'].includes(info.status)?'ai-status-active':''}`}/>
