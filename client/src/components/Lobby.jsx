@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import RulesModal from './RulesModal';
+import GameIcon from './GameIcon';
 import './Lobby.css';
 
 function Lobby({ onCreateGame, onJoinGame, error, setError }) {
@@ -8,7 +9,6 @@ function Lobby({ onCreateGame, onJoinGame, error, setError }) {
   const [gameCode, setGameCode] = useState('');
   const [showRules, setShowRules] = useState(false);
   const [isExtended, setIsExtended] = useState(false);
-  const [enableSpecialBuild, setEnableSpecialBuild] = useState(true);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -19,7 +19,7 @@ function Lobby({ onCreateGame, onJoinGame, error, setError }) {
     }
     
     if (mode === 'create') {
-      onCreateGame(playerName.trim(), isExtended, enableSpecialBuild);
+      onCreateGame(playerName.trim(), isExtended);
     } else if (mode === 'join') {
       if (!gameCode.trim()) {
         setError('Please enter a game code');
@@ -38,7 +38,7 @@ function Lobby({ onCreateGame, onJoinGame, error, setError }) {
         className="rules-btn"
         onClick={() => setShowRules(true)}
       >
-        📜 Rules
+        <GameIcon name="overview" size={18} /> Rules
       </button>
       
       <div className="lobby-content">
@@ -53,7 +53,7 @@ function Lobby({ onCreateGame, onJoinGame, error, setError }) {
               className="menu-btn create-btn"
               onClick={() => setMode('create')}
             >
-              <span className="btn-icon">🏝️</span>
+              <GameIcon className="btn-icon" name="settlement" size={22} />
               Create New Game
             </button>
             
@@ -61,7 +61,7 @@ function Lobby({ onCreateGame, onJoinGame, error, setError }) {
               className="menu-btn join-btn"
               onClick={() => setMode('join')}
             >
-              <span className="btn-icon">🚢</span>
+              <GameIcon className="btn-icon" name="players" size={22} />
               Join Game
             </button>
           </div>
@@ -100,38 +100,23 @@ function Lobby({ onCreateGame, onJoinGame, error, setError }) {
                       className={`mode-option ${!isExtended ? 'active' : ''}`}
                       onClick={() => setIsExtended(false)}
                     >
-                      <span className="mode-icon">🎲</span>
+                      <GameIcon className="mode-icon" name="dice" size={22} />
                       <span className="mode-label">Standard</span>
-                      <span className="mode-desc">2-4 Players</span>
+                      <span className="mode-desc">3–4 players</span>
                     </button>
                     <button
                       type="button"
                       className={`mode-option ${isExtended ? 'active' : ''}`}
                       onClick={() => setIsExtended(true)}
                     >
-                      <span className="mode-icon">👥</span>
+                      <GameIcon className="mode-icon" name="players" size={22} />
                       <span className="mode-label">Extended</span>
-                      <span className="mode-desc">5-6 Players</span>
+                      <span className="mode-desc">5–6 players</span>
                     </button>
                   </div>
                 </div>
                 
-                {/* Special Building Phase option - only for extended mode */}
-                {isExtended && (
-                  <div className="form-group special-build-option">
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={enableSpecialBuild}
-                        onChange={(e) => setEnableSpecialBuild(e.target.checked)}
-                      />
-                      <span className="checkbox-text">
-                        <span className="checkbox-title">🏗️ Special Building Phase</span>
-                        <span className="checkbox-desc">Allow all players to build after each turn</span>
-                      </span>
-                    </label>
-                  </div>
-                )}
+                {isExtended && <p className="mode-desc">The extra player takes an action phase after the production player.</p>}
               </>
             )}
             
@@ -159,7 +144,7 @@ function Lobby({ onCreateGame, onJoinGame, error, setError }) {
         )}
 
         <div className="lobby-footer">
-          <p>2-6 Players • First to 10 Victory Points Wins</p>
+          <p>3–6 players · First to 10 victory points wins</p>
           <p className="credits">Created by <span className="creator-name">Viral Doshi</span></p>
         </div>
       </div>

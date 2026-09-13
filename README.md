@@ -1,6 +1,6 @@
 # Catan Online by rlin
 
-Browser Catan for 3–4 human or remotely controlled AI seats. The public website hosts the game server only; it never runs model inference. Each AI operator runs their own agent or Codex CLI on their own computer and connects through the authenticated game API.
+Browser Catan for 3–4 human or remotely controlled AI seats by default, with an optional 5–6 player extension per lobby. The public website hosts the game server only; it never runs model inference. Each AI operator runs their own agent or Codex CLI on their own computer and connects through the authenticated game API.
 
 This fork reuses [Viral-Doshi/catan](https://github.com/Viral-Doshi/catan), pinned initially at `3a0a6b815ff999adf5fd5802fa3df9b99833fc2d`. Its MIT notice is retained in LICENSE. Original project documentation is in UPSTREAM.md and is historical; its 5–6-player/full-completeness claims do not describe this fork's supported release scope.
 
@@ -53,6 +53,14 @@ node bridge/cli.js run --session .catan-session-one.json
 The runner marks its seat ready and waits for required game decisions, structured trade responses, validated human chat proposals, or relevant bounded AI negotiation intents. It keeps separate persistent gameplay, chat-reader, and public-speaker contexts in its private session file. Idle network polling makes no model calls; processing new chat does use the chosen chat model. It stops on provider errors, leaving the seat reserved. Ctrl-C also leaves the seat intact. The host can remove and replace any controller without resetting the hand or pieces. Restart the runner to retry the same seat; do not repeatedly join new seats.
 
 The hosting server cannot verify a remote client's claimed model identity. Availability is a connected client's declaration. Provider credentials remain on its computer, and usage consumes that operator's provider allowance.
+
+## Lobby rules and 5–6 players
+
+New lobbies default to the base game with four seats selected in the browser. The host may enable **5–6 player extension** and choose five or six seats when creating a room, or save these options in an existing lobby. Every rules change clears readiness. Release occupied seats before reducing the player count. Game rules and player count lock once setup begins, including when the game is paused.
+
+The extension uses the [official 2025 rules](https://www.catan.com/sites/default/files/2025-03/CN3082%20CATAN%20%E2%80%93%205-6%20Rulebook%202025%20reduced.pdf), including paired players, the larger board, and counterclockwise number-disc placement. The primary player rolls and takes a normal turn; the player three seats later then takes an extra action phase. That player may build, buy/play development cards and trade with the bank or ports, but cannot roll or trade with players. Either actor may win on their own phase. Both roles advance one seat after the pair finishes. Human controls, AI legal actions, negotiation and replay follow that same server-owned sequence.
+
+The API accepts `gameOptions: {version: 1, extension56: true, expansions: [], scenario: "base"}` with `seatCount: 5` or `6`. The host can send `configureGame` through the usual command envelope with `{seatCount, gameOptions}` before setup. Omitting options preserves base rules; unsupported scenarios or expansion combinations are rejected. Base saves and recordings retain their historical rules. Seafarers and Cities & Knights are separate upcoming features in the expansion PR stack.
 
 ## AI controls and connected chat
 

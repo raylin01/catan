@@ -232,8 +232,9 @@ export function createFixture(view = 'play') {
     devCardDeck: 17,
     longestRoadPlayer: 1,
     largestArmyPlayer: 2,
-    specialBuildingPhase: false,
-    specialBuildIndex: 0,
+    productionPlayerIndex: 0,
+    turnRole: 'primary',
+    playerTradingAllowed: true,
     winner: null,
     tradeRatios: makePool({brick: 3, lumber: 2, wool: 4, grain: 3, ore: 4}),
     bankAvailable: Object.fromEntries(RESOURCES.map(resource => [resource, true]))

@@ -127,8 +127,7 @@ function HexBoard({
   const offsetX = -bounds.minX + BOARD_GUTTER;
   const offsetY = -bounds.minY + BOARD_GUTTER;
 
-  // Check if vertex can be placed
-  // Use canBuildNow which includes special building phase
+  // Check if vertex can be placed during setup or the acting player's main phase.
   const canPlaceAtVertex = (vKey) => {
     if (paused) return false;
     if (gamePhase === 'setup') {
@@ -137,7 +136,7 @@ function HexBoard({
     }
     if (gamePhase === 'playing') {
       if (!canBuildNow) return false;
-      if ((turnPhase === 'main' || turnPhase === 'specialBuild') && selectedAction === 'settlement') return true;
+      if (turnPhase === 'main' && selectedAction === 'settlement') return true;
     }
     return false;
   };
@@ -147,7 +146,7 @@ function HexBoard({
     if (paused) return false;
     if (!canBuildNow) return false;
     if (gamePhase !== 'playing') return false;
-    if (turnPhase !== 'main' && turnPhase !== 'specialBuild') return false;
+    if (turnPhase !== 'main') return false;
     if (selectedAction !== 'city') return false;
     if (vertex.building !== 'settlement' || vertex.owner !== myIndex) return false;
     return true;
@@ -162,7 +161,7 @@ function HexBoard({
     }
     if (gamePhase === 'playing') {
       if (!canBuildNow) return false;
-      if ((turnPhase === 'main' || turnPhase === 'specialBuild') && selectedAction === 'road') return true;
+      if (turnPhase === 'main' && selectedAction === 'road') return true;
       if (freeRoads > 0 && selectedAction === 'road') return true;
     }
     return false;

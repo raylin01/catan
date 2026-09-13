@@ -32,15 +32,14 @@ function ActionPanel({
   freeRoads,
   yearOfPlentyPicks,
   devCardsLeft,
-  isSpecialBuildPhase = false,
-  isMySpecialBuild = false
+  turnRole = 'primary',
+  playerTradingAllowed = true
 }) {
   const canRoll = isMyTurn && turnPhase === 'roll';
-  
-  // During special build phase, the player can build but not trade or roll
-  const canBuild = (isMyTurn && turnPhase === 'main') || isMySpecialBuild;
-  const canTrade = isMyTurn && turnPhase === 'main' && !isSpecialBuildPhase;
-  const canEnd = isMyTurn && turnPhase === 'main' && !isSpecialBuildPhase;
+  const canBuild = isMyTurn && turnPhase === 'main';
+  const canTrade = canBuild;
+  const canPlayerTrade = canTrade && turnRole !== 'paired' && playerTradingAllowed;
+  const canEnd = canBuild;
   
 
   const canAffordRoad = hasResources(player, BUILDING_COSTS.road) || freeRoads > 0;
@@ -61,13 +60,7 @@ function ActionPanel({
         {selectedAction && canBuild && <button type="button" className="cancel-placement" onClick={() => setSelectedAction(null)} title="Cancel placement (Escape)">Cancel</button>}
       </div>
       
-      {/* Special Build Phase indicator */}
-      {isMySpecialBuild && (
-        <div className="special-build-indicator">
-          Special Building Phase
-          <span className="no-trade-hint">(No trading allowed)</span>
-        </div>
-      )}
+      {isMyTurn && turnRole === 'paired' && <p className="paired-action-note">Your extra action phase. Bank and port trades are allowed; player trades are unavailable.</p>}
       
       {/* Roll Dice */}
       {turnPhase === 'roll' && <button
@@ -154,7 +147,7 @@ function ActionPanel({
 
       {/* Trade Section */}
       <div className="action-section trade-actions">
-        <h4>Trade {isMySpecialBuild && <span className="disabled-hint">(disabled)</span>}</h4>
+        <h4>Trade</h4>
         
         <button
           className="action-btn trade-btn"
@@ -164,7 +157,7 @@ function ActionPanel({
         >
           <GameIcon name="bank" size={22}/> Bank
         </button>
-      <button className="action-btn trade-btn" aria-label="Trade with player" onClick={() => onOpenTrade('player')} disabled={turnPhase !== 'main' || isSpecialBuildPhase || freeRoads > 0 || yearOfPlentyPicks > 0}>
+      <button className="action-btn trade-btn" aria-label={turnRole !== 'paired' && playerTradingAllowed ? 'Trade with player' : 'Player trades unavailable during the extra action phase'} title={turnRole === 'paired' || !playerTradingAllowed ? 'Player trades are unavailable during the extra action phase' : undefined} onClick={() => onOpenTrade('player')} disabled={!canPlayerTrade || freeRoads > 0 || yearOfPlentyPicks > 0}>
         <GameIcon name="trade" size={22}/> Players
       </button>
 
@@ -183,4 +176,3 @@ function ActionPanel({
 }
 
 export default ActionPanel;
-

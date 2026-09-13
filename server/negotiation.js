@@ -1,3 +1,4 @@
+import {canTradeWithPlayers} from './gameOptions.js';
 export const NEGOTIATION_LIMITS=Object.freeze({
   maxDepth:2,
   maxMessagesPerRoot:6,
@@ -58,7 +59,7 @@ export function syncNegotiationTurn(room) {
 
 export function negotiationOpportunity(room,slot,now) {
   const state=negotiationState(room);
-  const active=room.game?.phase==='playing'&&room.game?.turnPhase==='main'&&!room.game?.freeRoads&&!room.game?.yearOfPlentyPicks;
+  const active=canTradeWithPlayers(room.game);
   const enabled=slot?.kind==='ai'&&slot.chatEnabled!==false&&!slot.aiPaused&&!room.paused;
   const rootAvailable=!room.trade||Boolean(offeredTrade(room,slot?.id,room.trade?.id));
   const lastPublishedAt=state.lastPublishedAtBySeat[slot?.id],cooldownReady=!Number.isFinite(lastPublishedAt)||now-lastPublishedAt>=NEGOTIATION_LIMITS.cooldownMs;
@@ -197,7 +198,7 @@ export function renderNegotiation(room,actorSeatId,intent,trade=null) {
 
 /** Validate and prepare a single bounded public message without mutating the room. */
 export function prepareNegotiation(room,actorSeatId,rawIntent,{id,now}) {
-  const state=negotiationState(room),active=room.game?.phase==='playing'&&room.game?.turnPhase==='main'&&!room.game?.freeRoads&&!room.game?.yearOfPlentyPicks;
+  const state=negotiationState(room),active=canTradeWithPlayers(room.game);
   if(!active)return fail('Negotiation is unavailable outside the main phase',409);
   const normalized=normalizeIntent(room,actorSeatId,rawIntent);if(!normalized.success)return normalized;
   const {intent,targetSeatId,trade}=normalized;
