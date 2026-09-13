@@ -137,3 +137,9 @@ npm run build
 HTTP tests bind ephemeral loopback ports. Test connectors are fixtures, not silent gameplay substitutes. Full remote-host/tunnel acceptance needs the actual hosting computer and another participant's computer; local process tests alone do not prove that deployment.
 
 Production dependency audits were clear at implementation review. The inherited Vite 5/esbuild development toolchain still has two audit findings requiring a separate major-version migration. Host the production build using `npm start` or the Docker image; do not expose the Vite development server through the tunnel.
+
+## Shared-link previews
+
+Production HTML includes Open Graph and Twitter metadata for the home page, player invitations, live watch links and replays. Set `CATAN_PUBLIC_URL` to the public HTTPS origin; it supplies canonical and image URLs. Shared rooms and recordings use `noindex, noarchive`, while preview crawlers can read their public metadata. No credentials or private gameplay enter the page metadata.
+
+`npm run build` generates four 1200×630 PNGs with `client/scripts/generate-social-images.mjs`. The renderer runs only during the build; the deployed server serves static images. The bundled Cinzel font comes from [Google Fonts](https://github.com/google/fonts/tree/main/ofl/cinzel) under the included SIL Open Font License. Image artwork is generated entirely from repository code and contains no match data.
