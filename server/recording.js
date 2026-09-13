@@ -54,11 +54,12 @@ function sanitizeSlot(slot) {
 export function captureState(room) {
   return {
     gameState:clone(room.game),slots:(room.slots||[]).map(sanitizeSlot),trade:clone(room.trade),paused:!!room.paused,
-    chat:clone(room.chat||[]),cardEvents:clone(room.cardEvents||[]),lastRoll:clone(room.lastRoll||null)
+    closed:!!room.closed,chat:clone(room.chat||[]),cardEvents:clone(room.cardEvents||[]),lastRoll:clone(room.lastRoll||null)
   };
 }
 
 export function recordingStatus(room) {
+  if(room.closed)return 'closed';
   if(room.game?.phase==='finished')return room.game.winner?'won':'ended';
   if(!room.game)return 'lobby';
   if(room.interrupted)return 'interrupted';
@@ -74,7 +75,7 @@ export function createRecording(room,{id,now,partial=false,sample=false,title}={
   const state=captureState(room),status=recordingStatus(room);
   return {id,roomCode:room.code,title:title||room.name||'Catan match',formatVersion:RECORDING_FORMAT_VERSION,
     rulesVersion:RECORDING_RULES_VERSION,projectionVersion:RECORDING_PROJECTION_VERSION,status,partial:!!partial,sample:!!sample,
-    createdAt:now,startedAt:room.game?now:null,endedAt:['won','ended'].includes(status)?now:null,lastAt:now,lastSeq:0,lastElapsedMs:0,
+    createdAt:now,startedAt:room.game?now:null,endedAt:['won','ended','closed'].includes(status)?now:null,lastAt:now,lastSeq:0,lastElapsedMs:0,
     turn:0,winnerId:room.game?.winner||null,players:playerMetadata(room),initialState:state,latestState:state,events:[]};
 }
 
@@ -115,7 +116,7 @@ export function advanceRecording(recording,room,{type,actorSeatId=null,actorGene
   const cleanPayload=safeEventPayload(type,payload,room);
   const event={seq,at,elapsedMs,turn,type,actorSeatId,actorGeneration,actorName,summary,
     ...(cleanPayload?{payload:cleanPayload}:{}),patch:createPatch(recording.latestState,state)};
-  const status=recordingStatus(room),terminal=['won','ended'].includes(status);
+  const status=recordingStatus(room),terminal=['won','ended','closed'].includes(status);
   const next={...recording,status,lastAt:at,lastSeq:seq,lastElapsedMs:elapsedMs,turn,winnerId:room.game?.winner||null,
     startedAt:recording.startedAt||(room.game?at:null),endedAt:terminal?(recording.endedAt||at):null,
     players:playerMetadata(room),latestState:state};

@@ -159,3 +159,7 @@
 
 
 @media(prefers-reduced-motion:reduce){.confetti-piece{display:none}.winner-banner,.winner-trophy,.winner-text{animation:none}}
+
+.winner-banner { width:min(620px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow:auto; }
+.winner-banner .share-link-row { margin:20px auto; max-width:420px; text-align:left; }
+.winner-banner .back-to-lobby-btn { display:inline-block; margin:8px; font-size:15px; text-decoration:none; }

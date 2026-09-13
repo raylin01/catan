@@ -12,13 +12,13 @@ Finished replays open in **Omniscient** view with every hand shown as cards. Cli
 
 ## Access
 
-Recording IDs are random 256-bit unlisted identifiers. Possession permits public playback of an unfinished match. Once the match is won or permanently ended, possession also permits omniscient and individual-seat playback. A room invitation is not a replay identifier. The server sends `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, and `X-Robots-Tag: noindex, noarchive` on recording API responses.
+Recording IDs are random 256-bit unlisted identifiers. Possession permits public playback of an unfinished match. Once the match is won, manually ended, or closed after four hours of inactivity, possession also permits omniscient and individual-seat playback. A room invitation is not a replay identifier. The server sends `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, and `X-Robots-Tag: noindex, noarchive` on recording API responses.
 
 While a match is unfinished, use a current player's `Authorization: Bearer …` header to request that seat's private perspective. Authorization is checked by the server for frames, events, metrics and exports. A controller can only view private history belonging to its recorded controller generation. Spectator and host room tokens do not grant omniscient access. Never put credentials in URLs.
 
 Public and player views expose `bankAvailable` (per-resource booleans) and `bankTotal`, instead of exact bank pile counts. Exact historical pile changes would reveal another player's private discard composition. Live play uses the same disclosure policy and the bank menu shows **In stock / Empty**. Explicit omniscient replay retains full bank balances. Public board facts and legally necessary availability can still support ordinary gameplay deductions.
 
-The host's operator key grants directory and deletion access through `X-Host-Key`. There is no unauthenticated archive listing. Sharing a finished recording intentionally shares every recorded game fact, including hands and public chat. The recording excludes authentication and detailed model transcripts.
+The private operator key grants directory and deletion access through `X-Host-Key`. Room creators do not need that key to play. There is no unauthenticated archive listing. Sharing a finished recording intentionally shares every recorded game fact, including hands and public chat. The recording excludes authentication and detailed model transcripts.
 
 ## Routes
 
@@ -29,7 +29,7 @@ The host's operator key grants directory and deletion access through `X-Host-Key
 | `GET /api/replays/:id/events?after=0&limit=200&perspective=public` | Events in ascending sequence, with perspective-filtered payloads. |
 | `GET /api/replays/:id/metrics?perspective=public` | Per-event VP, road and building counts. Hidden VP is only included when that perspective permits it. |
 | `GET /api/replays/:id/export?perspective=public&gzip=1` | A downloadable UTF-8 JSONL file, optionally gzip-compressed. |
-| `DELETE /api/replays/:id` | Operator-only permanent deletion of a won or host-ended match and its saved room. |
+| `DELETE /api/replays/:id` | Operator-only permanent deletion of a won, manually ended, or inactivity-closed match and its saved room. |
 
 `perspective` accepts `public`, `omniscient`, or a recorded seat ID. Unauthorized perspectives are rejected rather than silently returning a different view. Metadata supplies the permitted perspective choices. Empty histories and partial recordings are valid. Sequence zero is the baseline before the first event.
 
@@ -52,6 +52,6 @@ Read lines in order and apply only event patches; alternatively, begin at a chec
 
 ## Analysis
 
-Use the recorded terminal status and `winnerId` for outcome analysis. `won` has a winner; a host-ended or unfinished recording does not. Partial recordings must be excluded from analyses that require the whole match. Sample recordings are labeled with `sample: true` and should be excluded from real-player statistics.
+Use the recorded terminal status and `winnerId` for outcome analysis. `won` has a winner; a manually ended, inactivity-closed, or unfinished recording does not. Partial recordings must be excluded from analyses that require the whole match. Sample recordings are labeled with `sample: true` and should be excluded from real-player statistics.
 
 For VP charts, `publicVP` tracks visible points and `totalVP` adds hidden development-card points only when authorized. `roads` counts placed road pieces; `longestRoad` is the current connected road length. Settlement and city counts reflect pieces on the board, so upgrading a settlement decreases the settlement count and increases the city count.

@@ -63,6 +63,7 @@ export function formatReplayDate(value) {
 
 export function statusLabel(recording) {
   if ((recording?.status === 'finished' || recording?.status === 'won') && recording?.winnerId) return 'Finished';
+  if (recording?.status === 'closed') return 'Room closed';
   if (recording?.status === 'finished' || recording?.status === 'ended') return 'Ended by host';
   if (recording?.status === 'paused') return 'Paused, can resume';
   if (recording?.status === 'playing' || recording?.status === 'ongoing') return 'In progress';
@@ -73,7 +74,7 @@ export function statusLabel(recording) {
 }
 
 export function isTerminalRecording(recording) {
-  return ['finished', 'won', 'ended'].includes(recording?.status);
+  return ['finished', 'won', 'ended', 'closed'].includes(recording?.status);
 }
 
 export function resourceTotal(resources) {

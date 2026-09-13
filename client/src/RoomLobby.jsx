@@ -2,11 +2,7 @@ import {PresentationControls} from './presentation/GamePresentation';
 import {AiControls, ChatModelFields, AiStatus} from './components/AiControls';
 import { useEffect, useMemo, useState } from 'react';
 import './room.css';
-
-function getInviteLink(code) {
-  if (!code || typeof window === 'undefined') return '';
-  return `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(code)}`;
-}
+import RoomShare, {AgentInstructions, EndRoomControl} from './sharing/RoomShare';
 
 function RoomLobby({
   snapshot,
@@ -21,19 +17,20 @@ function RoomLobby({
   onHostCommand,
   onReady,
   onLeaveRoom,
-  onCopyInvite,
   onResumeRoom
 }) {
-  const [mode, setMode] = useState('choose');
+  const [mode, setMode] = useState(() => new URLSearchParams(window.location.search).has('room') ? 'join' : 'choose');
   const [name, setName] = useState('');
-  const [gameCode, setGameCode] = useState('');
+  const [gameCode, setGameCode] = useState(() => new URLSearchParams(window.location.search).get('room')?.toUpperCase() || '');
   const [role, setRole] = useState('human');
   const [seatCount, setSeatCount] = useState('4');
   const [hostKey, setHostKey] = useState('');
   const [seatDrafts, setSeatDrafts] = useState({});
   const [claimName, setClaimName] = useState(session?.displayName || '');
   const [claimSeatId, setClaimSeatId] = useState('');
-  const [copyLabel, setCopyLabel] = useState('Copy invite link');
+  const [site, setSite] = useState(null);
+  const [invitation, setInvitation] = useState(null);
+  const [inviteError, setInviteError] = useState('');
 
   const code = snapshot?.code || session?.code || '';
   const slots = snapshot?.slots || [];
@@ -45,7 +42,10 @@ function RoomLobby({
   );
   const allReady = slots.length > 0 && slots.every(slot => slot.occupied && slot.ready);
   const vacantHumanSlots = slots.filter(slot => slot.kind === 'human' && !slot.occupied);
-  const inviteLink = getInviteLink(code);
+  const ended = ['won', 'ended', 'closed'].includes(snapshot?.status);
+  const inviteEnded = ['won', 'ended', 'closed'].includes(invitation?.status);
+
+  useEffect(() => {setClaimName(session?.displayName || '');}, [session?.code, session?.displayName]);
 
   useEffect(() => {
     if (!snapshot?.slots) return;
@@ -66,9 +66,24 @@ function RoomLobby({
   }, [providers, snapshot?.slots]);
 
   useEffect(() => {
-    const queryCode = new URLSearchParams(window.location.search).get('room');
-    if (queryCode && !gameCode) setGameCode(queryCode.toUpperCase());
-  }, [gameCode]);
+    const controller = new AbortController();
+    fetch('/api/site', {signal: controller.signal}).then(response => response.json()).then(result => {
+      if (result.success) setSite(result);
+    }).catch(() => {});
+    return () => controller.abort();
+  }, [mode, snapshot?.code]);
+
+  useEffect(() => {
+    setInvitation(null); setInviteError('');
+    if (snapshot || !/^[A-F0-9]{8}$/.test(gameCode)) return;
+    const controller = new AbortController();
+    fetch(`/api/rooms/${gameCode}/invitation`, {signal: controller.signal}).then(async response => {
+      const result = await response.json();
+      if (!response.ok) throw Error(result.error || 'Room unavailable');
+      setInvitation(result);
+    }).catch(error => {if (error.name !== 'AbortError') setInviteError(error.message);});
+    return () => controller.abort();
+  }, [gameCode, snapshot?.code]);
 
   const submitCreate = async event => {
     event.preventDefault();
@@ -123,22 +138,9 @@ function RoomLobby({
       seatId: slot.id,
       kind: draft.kind,
       ...(draft.kind === 'ai'
-        ? { provider: draft.provider || providers[0]?.id, model: draft.model.trim() || undefined, chatEnabled: draft.chatEnabled !== false, chatModel: draft.chatModel?.trim() || null, chatReasoning: draft.chatReasoning || null }
+        ? { provider: draft.provider || providers[0]?.id, model: draft.model.trim() || undefined, chatEnabled: draft.provider !== 'mcp' && draft.chatEnabled !== false, chatModel: draft.chatModel?.trim() || null, chatReasoning: draft.chatReasoning || null }
         : {})
     });
-  };
-
-  const copyInvite = async () => {
-    if (!inviteLink) return;
-    try {
-      await navigator.clipboard.writeText(inviteLink);
-      setCopyLabel('Copied');
-      onCopyInvite?.();
-      window.setTimeout(() => setCopyLabel('Copy invite link'), 1600);
-    } catch {
-      setCopyLabel('Copy unavailable');
-      window.setTimeout(() => setCopyLabel('Copy invite link'), 2200);
-    }
   };
 
   if (!snapshot && session?.code && loading) {
@@ -162,23 +164,21 @@ function RoomLobby({
               <p className="room-kicker">Room lobby</p>
               <h1>{snapshot.name || 'Catan room'}</h1>
               <p className="room-subtitle">
-                Invite players, choose your seats, and get ready to play.
+                {ended ? (snapshot.closeReason === 'idle' ? 'Closed after four hours without activity.' : 'This room has ended.') : 'Invite players, choose your seats, and get ready to play.'}
               </p>
-              {snapshot.replayId && <a className="room-link-button" href={`/replay/${encodeURIComponent(snapshot.replayId)}`}>View recording</a>}
+              {ended && snapshot.replayId && <a className="room-link-button" href={`/replay/${encodeURIComponent(snapshot.replayId)}`}>View recording</a>}
             </div>
             <div className="room-code-block">
               <PresentationControls/>
               <span className="room-label">Room code</span>
               <strong>{code}</strong>
-              <button type="button" className="room-secondary-button" onClick={copyInvite}>
-                {copyLabel}
-              </button>
+              <RoomShare code={code} replayId={snapshot.replayId} ended={ended}/>
             </div>
           </header>
 
           {error && <div className="room-error" role="alert">{error}</div>}
 
-          <section className="room-section" aria-labelledby="room-seats-heading">
+          {!ended && <><section className="room-section" aria-labelledby="room-seats-heading">
             <div className="room-section-heading">
               <div>
                 <h2 id="room-seats-heading">Seats</h2>
@@ -250,7 +250,7 @@ function RoomLobby({
                                 maxLength={40}
                               />
                             </label>
-                      <ChatModelFields draft={draft} onChange={(field,value)=>updateSeatDraft(slot.id,field,value)}/>
+                      {draft.provider !== 'mcp' && <ChatModelFields draft={draft} onChange={(field,value)=>updateSeatDraft(slot.id,field,value)}/>}
                           </>
                         )}
                         <button
@@ -264,6 +264,7 @@ function RoomLobby({
                       </div>
                     )}
 
+                    {slot.kind === 'ai' && !slot.occupied && <AgentInstructions key={`${slot.id}:${slot.provider}:${slot.model}`} code={code} slot={slot}/>}
                     {isHost && slot.kind === 'ai' && <AiControls slot={slot} onCommand={onHostCommand} busy={busy} showStatus={false}/>}
                     {isHost && slot.occupied && (
                       <div className="room-seat-actions">
@@ -362,7 +363,10 @@ function RoomLobby({
             )}
           </section>
 
+          </>}
+
           <footer className="room-footer">
+            {isHost && !ended && <EndRoomControl label="Close room" onEnd={() => onHostCommand('closeRoom')} busy={busy}/>}
             <span>{isHost ? 'You are the host.' : 'You are connected to this room.'}</span>
             <button type="button" className="room-link-button" onClick={onLeaveRoom}>
               Leave room
@@ -378,10 +382,11 @@ function RoomLobby({
       <div className="room-shell room-home-shell">
         <header className="room-header room-home-header">
           <div>
-            <h1>CATAN</h1>
+            <h1>Catan Online</h1>
+            <span className="room-brand-credit">by rlin</span>
             <p className="room-subtitle">Play Catan with friends and AI players.</p>
           </div>
-          <div className="room-home-tools"><PresentationControls/><a className="room-link-button" href="/replays">Recordings</a></div>
+          <div className="room-home-tools"><PresentationControls/></div>
         </header>
 
         {error && <div className="room-error" role="alert">{error}</div>}
@@ -441,18 +446,20 @@ function RoomLobby({
                 <option value="4">4 seats</option>
               </select>
             </label>
-            <label>
+            <p className="room-field-help">Rooms close after four hours without activity. Keep your host session in this browser to manage the room.</p>
+            {site && !site.available && <p role="status">All {site.maxRooms} public rooms are in use. Try again after a room ends.</p>}
+            <details className="room-operator-options"><summary>Operator override</summary><label>
               Operator key
               <input
                 type="password"
                 value={hostKey}
                 onChange={event => setHostKey(event.target.value)}
-                placeholder="Required by the room host"
+                placeholder="Optional server operator key"
                 autoComplete="off"
               />
-              <span className="room-field-help">Used only for this request and never included in the invite link.</span>
-            </label>
-            <button type="submit" className="room-primary-button" disabled={busy}>
+              <span className="room-field-help">Optional. Server operators can create a room above the public limit.</span>
+            </label></details>
+            <button type="submit" className="room-primary-button" disabled={busy || (site?.available === 0 && !hostKey.trim())}>
               {busy ? 'Creating…' : 'Create room'}
             </button>
           </form>
@@ -478,6 +485,9 @@ function RoomLobby({
                 required
               />
             </label>
+            {inviteError && <p role="status">{inviteError}</p>}
+            {invitation && <div className="room-invite-preview"><strong>{invitation.name}</strong><p>{inviteEnded ? 'This room has ended.' : `${invitation.slots.filter(slot => slot.kind === 'human' && !slot.occupied).length} human seats available`}</p>{inviteEnded && invitation.replayId ? <a href={`/replay/${invitation.replayId}`}>Watch replay</a> : <a href={`/watch/${gameCode}`}>Watch as a spectator</a>}</div>}
+
             <label>
               Your name
               <input
@@ -499,12 +509,13 @@ function RoomLobby({
             <span className="room-field-help">
               AI controllers register through the configured provider and do not use this browser form.
             </span>
-            <button type="submit" className="room-primary-button" disabled={busy}>
+            <button type="submit" className="room-primary-button" disabled={busy || inviteEnded || Boolean(inviteError)}>
               {busy ? 'Joining…' : 'Join room'}
             </button>
           </form>
         )}
 
+        <AgentInstructions/>
         <footer className="room-home-footer">
           First to 10 victory points wins. Standard rooms support 3 or 4 seats.
         </footer>

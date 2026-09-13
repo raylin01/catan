@@ -10,7 +10,7 @@ test('remote HTTP client plays setup with authenticated private views and no leg
   const url=`http://127.0.0.1:${server.address().port}`;
   try {
     const create=body=>fetch(`${url}/api/rooms`,{method:'POST',headers:{'Content-Type':'application/json','X-Host-Key':hostKey},body:JSON.stringify(body)}).then(r=>r.json());
-    assert.equal((await fetch(`${url}/api/rooms`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Host'})})).status,403);
+    assert.equal((await fetch(`${url}/api/rooms`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Public host'})})).status,200);
     const room=await create({name:'Host',seatCount:3});assert.equal(room.success,true);
     const host=new GameClient({server:url,...room}),players=[];
     for(let i=0;i<3;i++) {

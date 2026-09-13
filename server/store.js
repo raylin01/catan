@@ -40,7 +40,7 @@ export class RoomStore {
   load() {
     return this.db.prepare(`SELECT version,data FROM rooms
       WHERE NOT EXISTS (
-        SELECT 1 FROM recordings WHERE recordings.room_code=rooms.code AND recordings.status IN ('won','ended')
+        SELECT 1 FROM recordings WHERE recordings.room_code=rooms.code AND recordings.status IN ('won','ended','closed')
       )`).all().map(row=>{
       if(row.version!==1) throw Error('Unsupported saved-room version');
       return JSON.parse(row.data);

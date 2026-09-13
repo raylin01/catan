@@ -128,7 +128,7 @@ test('in-flight AI replies are rejected while the room is paused or ended',()=>{
   const reply={requestId:'late-reply',controlEpoch:ai.controlEpoch,replyToSequence:1,message:'An offer'};
   assert.equal(service.aiChatReply(roomCode,ai.token,reply).statusCode,409);
   room.paused=false;room.game={phase:'finished'};
-  assert.equal(service.aiChatReply(roomCode,ai.token,reply).statusCode,409);
+  assert.equal(service.aiChatReply(roomCode,ai.token,reply).statusCode,410);
   assert.equal(room.chat.length,1);
 });
 
@@ -146,4 +146,21 @@ test('a room pause and resume invalidate pre-pause AI work while preserving its 
   assert.equal(resumed.ai.runnerRunId,runId);assert.equal(resumed.ai.paused,false);
   assert.equal(command(service,roomCode,ai,'ready',{}, {runId,controlEpoch:initial.controlEpoch}).statusCode,409);
   assert.equal(service.aiLease(roomCode,ai.token,{runId,controlEpoch:resumed.controlEpoch}).success,true);
+});
+
+
+test('accepted AI chat receipts remain retryable after closure or an ending',()=>{
+  for(const close of [true,false]) {
+    const {service,roomCode,host,ai}=makeRoom({value:10000});
+    assert.equal(command(service,roomCode,host,'chat',{message:'Trade?'}).success,true);
+    const payload={requestId:'lost-chat-response',controlEpoch:ai.controlEpoch,replyToSequence:1,message:'I will consider it.'};
+    const accepted=service.aiChatReply(roomCode,ai.token,payload);assert.equal(accepted.success,true);
+    if(close)assert.equal(command(service,roomCode,host,'closeRoom').success,true);
+    else service.rooms.get(roomCode).game={phase:'finished'};
+    const before=structuredClone(service.rooms.get(roomCode));
+    assert.deepEqual(service.aiChatReply(roomCode,ai.token,payload),accepted);
+    assert.equal(service.aiChatReply(roomCode,ai.token,{...payload,requestId:'new-after-end'}).statusCode,410);
+    assert.equal(service.aiChatReply(roomCode,ai.token,{...payload,message:'Different reply'}).statusCode,409);
+    assert.deepEqual(service.rooms.get(roomCode),before);
+  }
 });

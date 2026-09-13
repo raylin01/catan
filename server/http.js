@@ -6,21 +6,28 @@ import {Readable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
 import {createGzip} from 'node:zlib';
 import {PROVIDERS} from './providers.js';
+import {agentGuide} from './agentGuide.js';
+import {normalizePublicUrl,requestPublicUrl,requestLimits} from './publicHosting.js';
 
 const same=(a,b)=>typeof a==='string'&&typeof b==='string'&&Buffer.byteLength(a)===Buffer.byteLength(b)&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
-export function createAppServer({service,hostKey}) {
+export function createAppServer({service,hostKey,publicUrl,siteName="Catan Online by rlin",bridgeRef="main",trustProxy=false,createLimit=5}) {
+  const canonicalOrigin=normalizePublicUrl(publicUrl);
   if(!hostKey || hostKey.length<16)throw Error('Host key must contain at least 16 characters');
   const app=express();app.disable('x-powered-by');app.use(express.json({limit:'24kb'}));
-  const buckets=new Map();
+  if(trustProxy)app.set('trust proxy',trustProxy);
+  const limits=requestLimits({createLimit});
+  app.use((_req,res,next)=>{res.set({'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});next();});
   app.use('/api',(req,res,next)=>{
     res.set({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});
     // Same-origin browser requests; remote CLIs do not send Origin.
     if(req.headers.origin){let origin;try{origin=new URL(req.headers.origin);}catch{return res.status(403).json({success:false,error:'Invalid origin'});}
       if(origin.host!==req.headers.host)return res.status(403).json({success:false,error:'Cross-origin browser request denied'});}
-    const id=req.socket.remoteAddress,now=Date.now(),bucket=buckets.get(id)||{time:now,n:0};
-    if(now-bucket.time>60000){bucket.time=now;bucket.n=0;}bucket.n++;buckets.set(id,bucket);
-    if(bucket.n>1200)return res.status(429).json({success:false,error:'Request rate exceeded'});
-    if(buckets.size>1000)for(const [key,value]of buckets)if(now-value.time>60000)buckets.delete(key);
+    const privateRoute=/^\/rooms\/([a-f0-9]{8})(?:\/(?:commands|ai\/(?:lease|heartbeat|chat\/read|chat\/reply|negotiation)))?$/i.exec(req.path);
+    const candidate=privateRoute?token(req):null;
+    const room=candidate?service.roomFor(privateRoute[1].toUpperCase()):null;
+    const verified=room&&service.authenticate(room,candidate)?candidate:null;
+    const limit=limits.request(req,verified);
+    if(!limit.allowed)return res.set('Retry-After',String(limit.retryAfter)).status(429).json({success:false,error:'Request rate exceeded; wait and retry'});
     next();
   });
   const send=(res,result)=>res.status(result.statusCode|| (result.success?200:400)).json(result);
@@ -63,9 +70,21 @@ export function createAppServer({service,hostKey}) {
     send(res,service.deleteReplay(req.params.id));
   });
   app.get('/api/providers',(_req,res)=>res.json({success:true,providers:Object.values(PROVIDERS)}));
+  app.get('/api/site',(req,res)=>res.json({success:true,name:siteName,publicUrl:requestPublicUrl(req,canonicalOrigin),inference:'external',...service.capacity()}));
+  app.get('/api/rooms/:code/watch',(req,res)=>send(res,service.watch(code(req))));
+  app.get('/api/rooms/:code/invitation',(req,res)=>send(res,service.invitation(code(req))));
+  app.get('/agent-guide.md',(req,res)=>res.type('text/markdown').set('Cache-Control','no-store').send(agentGuide({serverUrl:requestPublicUrl(req,canonicalOrigin),bridgeRef})));
+  app.get('/api/rooms/:code/agent-guide',(req,res)=>{
+    const room=service.invitation(code(req));if(!room.success)return send(res,room);
+    if(['won','ended','closed'].includes(room.status))return send(res,{success:false,statusCode:410,error:'This room has ended. Open its replay instead.'});
+    if(req.query.seat!==undefined&&typeof req.query.seat!=='string')return send(res,{success:false,statusCode:400,error:'Invalid AI seat'});
+    res.type('text/markdown').set('Content-Disposition',`attachment; filename="catan-${room.code}-agent.md"`).send(agentGuide({serverUrl:requestPublicUrl(req,canonicalOrigin),room,seatId:req.query.seat,bridgeRef}));
+  });
   app.post('/api/rooms',(req,res)=>{
-    if(!same(req.headers['x-host-key'],hostKey))return send(res,{success:false,statusCode:403,error:'Enter the host key from the hosting computer'});
-    send(res,service.create(req.body));
+    const privileged=operator(req);
+    if(req.headers['x-host-key']&&!privileged)return send(res,{success:false,statusCode:403,error:'The operator key is incorrect'});
+    if(!privileged){const limit=limits.create(req);if(!limit.allowed)return res.set('Retry-After',String(limit.retryAfter)).status(429).json({success:false,error:'Too many rooms created. Wait a few minutes before creating another.'});}
+    send(res,service.create(req.body,{operator:privileged}));
   });
   app.post('/api/rooms/:code/join',(req,res)=>send(res,service.join(code(req),req.body)));
   app.get('/api/rooms/:code',(req,res)=>send(res,service.observe(code(req),token(req))));
@@ -80,5 +99,8 @@ export function createAppServer({service,hostKey}) {
   app.use(express.static(fileURLToPath(new URL('../client/dist/',import.meta.url)),{setHeaders(res){res.setHeader('Referrer-Policy','no-referrer');}}));
   app.get('*',(_req,res)=>res.sendFile(fileURLToPath(new URL('../client/dist/index.html',import.meta.url))));
   app.use((err,_req,res,_next)=>res.status(err.status===413?413:400).json({success:false,error:err.status===413?'Request too large':'Invalid request'}));
-  return createServer(app);
+  const server=createServer(app);
+  const expiry=setInterval(()=>service.expireInactiveRooms(),60000);expiry.unref();
+  server.once('close',()=>clearInterval(expiry));
+  return server;
 }
