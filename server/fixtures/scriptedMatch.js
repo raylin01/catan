@@ -1,4 +1,5 @@
 import * as G from '../gameLogic.js';
+import {cardTypesFor, combinedHand} from '../../shared/cardTypes.js';
 
 const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
 const COSTS = {
@@ -85,6 +86,58 @@ function chooseScenarioChoice(view) {
   })[0];
 }
 
+function chooseCityChoice(view) {
+  if (view.decision?.type === 'chooseCards') {
+    return {type:'resolveCitiesKnightsChoice',payload:{choiceId:view.decision.choiceId,
+      cards:chooseCardBundle(view.decision.count,view.decision.cards,view.decision.allowedCards)}};
+  }
+  const actions=view.legalActions.filter(action=>action.type==='resolveCitiesKnightsChoice');
+  const choice=view.gameState.pendingChoice,hand=combinedHand(ownPlayer(view));
+  return actions.sort((a,b)=>{
+    const score=action=>{
+      const option=choice?.options.find(option=>option.id===action.payload.optionId);
+      if (option?.id==='finish'||option?.id==='remove') return -100;
+      if (option?.id==='science') return 5;
+      return deficit(desiredCost(view),hand,option?.id) || 0;
+    };
+    return score(b)-score(a);
+  })[0];
+}
+
+function chooseCardBundle(count, available, types) {
+  let remaining=count;
+  const cards={};
+  for (const type of [...types].sort((a,b)=>(available[b]||0)-(available[a]||0))) {
+    const amount=Math.min(remaining,available[type]||0);
+    if(amount)cards[type]=amount;
+    remaining-=amount;
+  }
+  if(remaining)throw new Error('Scripted card choice could not satisfy the server decision');
+  return cards;
+}
+
+function chooseCityAction(view) {
+  const state=view.gameState.citiesKnights;
+  if(!state)return null;
+  const player=ownPlayer(view),actions=view.legalActions;
+  const progress=best(actions,'playProgressCard');
+  if(progress)return progress;
+  if(view.gameState.turnPhase!=='main')return null;
+  const knights=Object.values(state.knights).filter(knight=>knight.ownerId===player.id);
+  const activate=best(actions,'activateKnight');
+  if(activate)return activate;
+  const strength=knights.reduce((sum,knight)=>sum+knight.strength,0);
+  if(strength<Math.max(2,countsOnBoard(view).city)) {
+    const knight=best(actions,'promoteKnight')||best(actions,'recruitKnight');
+    if(knight)return knight;
+  }
+  const improve=best(actions,'improveCity',payload=>
+    (payload.track==='science'?10:0)-player.cityImprovements[payload.track]);
+  if(improve)return improve;
+  if(Object.values(combinedHand(player)).reduce((sum,n)=>sum+n,0)>7)return best(actions,'buildCityWall');
+  return null;
+}
+
 function best(actions, type, score = () => 0) {
   return actions
     .filter(action => action.type === type)
@@ -112,11 +165,11 @@ function desiredCost(view) {
 }
 
 function deficit(cost, hand, resource) {
-  return Math.max(0, (cost[resource] || 0) - hand[resource]);
+  return Math.max(0, (cost[resource] || 0) - (hand[resource] || 0));
 }
 
 function chooseBankTrade(view, cost) {
-  const hand = ownPlayer(view).resources;
+  const hand = combinedHand(ownPlayer(view));
   const actions = view.legalActions.filter(action => action.type === 'bankTrade');
   return actions
     .sort((a, b) => {
@@ -130,16 +183,7 @@ function chooseBankTrade(view, cost) {
 }
 
 function chooseDiscard(view) {
-  let remaining = view.decision.count;
-  const result = Object.fromEntries(RESOURCES.map(resource => [resource, 0]));
-  const ordered = [...RESOURCES].sort((a, b) => view.decision.resources[b] - view.decision.resources[a]);
-  for (const resource of ordered) {
-    const amount = Math.min(remaining, view.decision.resources[resource]);
-    result[resource] = amount;
-    remaining -= amount;
-  }
-  if (remaining !== 0) throw new Error('Scripted discard could not satisfy the server decision');
-  return result;
+  return chooseCardBundle(view.decision.count,view.decision.resources,cardTypesFor(view.gameState));
 }
 
 function normalizeStopAfter(stopAfter) {
@@ -367,7 +411,7 @@ export function playScriptedMatch({
       const actor = actorFor(state.pendingChoice?.actorId || state.players[state.currentPlayerIndex].id);
       if (!actor) throw new Error('Setup selected an unknown scripted seat');
       const view = observe(actor);
-      const scenarioChoice=chooseScenarioChoice(view)||best(view.legalActions,'placePort');
+      const scenarioChoice=chooseCityChoice(view)||chooseScenarioChoice(view)||best(view.legalActions,'placePort');
       if(scenarioChoice){command(actor,view,scenarioChoice.type,scenarioChoice.payload);continue;}
       const settlement = best(view.legalActions, 'placeSettlement', payload => scoreVertex(view.gameState, payload.vertexKey)
         +(state.seafarers?G.getVertexAdjacentHexes(state,payload.vertexKey).filter(hex=>hex.terrain==='sea'||hex.terrain==='fog').length*6:0));
@@ -421,9 +465,11 @@ export function playScriptedMatch({
       }
 
       if(game.pendingChoice) {
-        const actor=actorFor(game.pendingChoice.actorId),view=observe(actor),action=chooseScenarioChoice(view);
+        const actor=actorFor(game.pendingChoice.actorId),view=observe(actor),action=chooseCityChoice(view)||chooseScenarioChoice(view);
         if(!action)throw new Error('Scenario choice has no legal continuation');
-        command(actor,view,action.type,action.payload);continue;
+        command(actor,view,action.type,action.payload);
+        if(game.pendingChoice.kind==='card:alchemyOther')turns++;
+        continue;
       }
 
       if (game.turnPhase === 'discard') {
@@ -483,6 +529,8 @@ export function playScriptedMatch({
       }
 
       if (game.turnPhase === 'roll') {
+        const cityCard=chooseCityAction(view);
+        if(cityCard){command(actor,view,cityCard.type,cityCard.payload);continue;}
         const devPriority = ['knight', 'yearOfPlenty', 'monopoly', 'roadBuilding'];
         const dev = devPriority
           .map(card => view.legalActions.find(action => action.type === 'playDevCard' && action.payload.cardType === card))
@@ -506,6 +554,9 @@ export function playScriptedMatch({
       }
 
       if (game.turnPhase !== 'main') throw new Error(`Unknown game phase ${game.turnPhase}`);
+
+      const cityAction=chooseCityAction(view);
+      if(cityAction){command(actor,view,cityAction.type,cityAction.payload);continue;}
 
       if (!chatSent) {
         command(actor, view, 'chat', {message: 'The sample table is ready to trade.'});

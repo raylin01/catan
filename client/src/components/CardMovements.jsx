@@ -6,11 +6,11 @@ import {useGamePresentation} from '../presentation/GamePresentation';
 import './CardMovements.css';
 
 const labels = {rollDice:'Production', discardCards:'Discarded', bankTrade:'Bank trade', tradeConfirm:'Player trade', chooseRobberCard:'Robber', placeSettlement:'Settlement', placeRoad:'Road', upgradeToCity:'City', buyDevCard:'Development card', playDevCard:'Development card', yearOfPlentyPick:'Year of Plenty'};
-const names = {brick:'brick',lumber:'lumber',wool:'wool',grain:'grain',ore:'ore',development:'development card'};
+const names = {paper:'paper',coin:'coin',cloth:'cloth commodity',progressScience:'science progress card',progressTrade:'trade progress card',progressPolitics:'politics progress card',brick:'brick',lumber:'lumber',wool:'wool',grain:'grain',ore:'ore',development:'development card'};
 
 function point(seat, resource, ownSeat) {
   const selector = seat === 'bank' ? '[data-card-bank]' : seat === ownSeat
-    ? (resource && resource !== 'development' ? `[data-hand-resource="${CSS.escape(resource)}"]` : '[data-own-hand]')
+    ? (resource && resource !== 'development' && !resource.startsWith('progress') ? `[data-hand-resource="${CSS.escape(resource)}"]` : '[data-own-hand]')
     : `[data-player-hand="${CSS.escape(seat)}"]`;
   const replayHand = seat !== 'bank' && seat !== ownSeat ? document.querySelector(`[data-replay-hand="${CSS.escape(seat)}"]`) : null;
   const rect = (replayHand || document.querySelector(selector))?.getBoundingClientRect();

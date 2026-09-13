@@ -1,6 +1,7 @@
 import GameIcon from '../components/GameIcon';
 
 export const REPLAY_EVENT_ICONS = {
+  recruitKnight:'knight',promoteKnight:'knight',activateKnight:'knight',moveKnight:'knight',driveRobber:'robber',buildCityWall:'wall',improveCity:'city',playProgressCard:'devCard',resolveCitiesKnightsChoice:'compass',offerCommercialHarbor:'trade',knight:'knight',progress:'devCard',wall:'wall',improvement:'city',
   'victory-point': 'trophy',
   'longest-road': 'road',
   'largest-army': 'knight',

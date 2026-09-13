@@ -66,3 +66,9 @@ test('a confirmed ship relocation retains its source-to-destination motion vecto
   assert.equal(getBoardTransitions(null,after).shipMoves.size,0);
   assert.equal(getBoardTransitions(after,after).shipMoves.size,0);
 });
+
+test('Invention swaps number discs between their actual hex centers without replaying hydration',()=>{
+ const old=createBoardSnapshot([],[],null,{hexes:{'0,0':{q:0,r:0,terrain:'forest',number:3},'1,0':{q:1,r:0,terrain:'hills',number:5}}});
+ const next=createBoardSnapshot([],[],null,{hexes:{'0,0':{q:0,r:0,terrain:'forest',number:5},'1,0':{q:1,r:0,terrain:'hills',number:3}}});
+ const motion=getBoardTransitions(old,next);assert.equal(motion.numberMoves.size,2);assert.ok(motion.numberMoves.get('0,0').x>0);assert.ok(motion.numberMoves.get('1,0').x<0);assert.equal(getBoardTransitions(null,next).numberMoves.size,0);assert.equal(getBoardTransitions(next,next).numberMoves.size,0);
+});

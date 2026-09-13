@@ -20,7 +20,8 @@
  * submits any actual move through the authoritative action API.
  */
 
-export const RESOURCE_NAMES = Object.freeze(['brick', 'lumber', 'wool', 'grain', 'ore']);
+import {ALL_HAND_CARDS} from '../shared/cardTypes.js';
+export const RESOURCE_NAMES = ALL_HAND_CARDS;
 export const PROPOSAL_TYPES = Object.freeze([
   'tradeOffer', 'tradeCounter', 'tradeAccept', 'tradeReject', 'tradeConfirm', 'tradeCancel',
   'tradeInterest', 'robberTarget', 'placeSettlement', 'placeRoad', 'upgradeToCity'
@@ -33,11 +34,11 @@ export const MAX_MESSAGE_LENGTH = 500;
 export const MAX_IDENTIFIER_LENGTH = 128;
 export const MAX_LOCATION_LENGTH = 160;
 export const MAX_RESOURCE_QUANTITY = 95;
-export const MAX_RESOURCE_TOTAL = 95;
+export const MAX_RESOURCE_TOTAL = 174;
 
 const PHASES = new Set(['waiting', 'setup', 'playing', 'finished']);
-const TURN_PHASES = new Set(['roll', 'discard', 'robber', 'robberPick', 'yearOfPlenty', 'main', 'specialBuild']);
-const TERRAIN_NAMES = new Set(['forest', 'hills', 'pasture', 'fields', 'mountains', 'desert']);
+const TURN_PHASES = new Set(['roll', 'discard', 'robber', 'robberPick', 'yearOfPlenty', 'main', 'specialBuild','portPlacement','pirateSeven']);
+const TERRAIN_NAMES = new Set(['forest', 'hills', 'pasture', 'fields', 'mountains', 'desert','gold','sea','fog']);
 const BUILDINGS = new Set(['settlement', 'city']);
 const PUBLIC_EVENT_TYPES = new Set([
   'start', 'placeSettlement', 'placeRoad', 'upgradeToCity', 'rollDice', 'discardCards',
@@ -220,7 +221,7 @@ function normalizeEdges(source, players) {
     if (!key || seen.has(key)) continue;
     const edge = isRecord(rawEdge) ? rawEdge : {};
     const ownerSeatId = normalizeOwner(edge.ownerSeatId ?? edge.owner, players);
-    result.push({key, road: edge.road === true, ...(ownerSeatId ? {ownerSeatId} : {})});
+    result.push({key, road: edge.road === true, ...(edge.ship===true?{ship:true,warship:edge.warship===true}:{}), ...(ownerSeatId ? {ownerSeatId} : {})});
     seen.add(key);
   }
   return result.slice(0, 512);

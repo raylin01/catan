@@ -6,7 +6,7 @@ import './Seafarers.css';
 
 export function SeafarersChoice({game, playerId, legalActions, onAction, paused}) {
   const choice = game.pendingChoice;
-  if (!choice) return null;
+  if (!choice || choice.expansion==='cities_knights') return null;
   const mine = choice.actorId === playerId;
   const validOptions = new Set(legalActions.filter(action => action.type === 'resolveSeafarersChoice' && action.payload.choiceId === choice.id).map(action=>action.payload.optionId));
   const spatial = (choice.options || []).some(option => option.edgeKey || option.vertexKey || option.hexKey);

@@ -65,3 +65,22 @@ test('a development draw delivers a concealed card to every observer without lea
   room.game.players[0].newDevCards=[];
   assert.equal(appendCardEvent(room,purchased,'endTurn'),null,'moving new cards to ready cards is not a draw');
 });
+
+test('commodity identities stay private while progress colors and instant VP draws remain public',()=>{
+  const science={id:'private-card-id',type:'alchemy',color:'science'},printing={id:'printing-id',type:'printing',color:'science'};
+  const before={bank:pool(),citiesKnights:{commodityBank:{paper:12,coin:12,cloth:12},progressDecks:{science:[science,printing],trade:[],politics:[]}},
+    players:[{id:'a',resources:pool(),commodities:{paper:0,coin:0,cloth:0},progressCards:[],progressVictoryCards:[]}]};
+  const room={revision:1,slots:[{id:'a',generation:2}],game:structuredClone(before)};
+  room.game.citiesKnights.commodityBank.paper-=2;room.game.players[0].commodities.paper+=2;
+  room.game.players[0].progressCards.push(room.game.citiesKnights.progressDecks.science.shift());
+  room.game.citiesKnights.progressDecks.science.shift();
+  room.game.players[0].progressVictoryCards.push({type:'printing',color:'science'});
+  appendCardEvent(room,before,'rollDice','city-roll');
+  const own=projectCardEvents(room,{seatId:'a',generation:2})[0];
+  assert.deepEqual(own.transfers,[{from:'bank',to:'a',count:2,resource:'paper'},{from:'bank',to:'a',count:2,resource:'progressScience'}]);
+  const publicReceipt=projectCardEvents(room,{role:'spectator'})[0];
+  assert.deepEqual(publicReceipt.transfers,[{from:'bank',to:'a',count:2},{from:'bank',to:'a',count:2,resource:'progressScience'}]);
+  assert.equal(JSON.stringify(publicReceipt).includes('alchemy'),false);
+  assert.equal(JSON.stringify(publicReceipt).includes('private-card-id'),false);
+  assert.deepEqual(projectCardEvents(room,{seatId:'a',generation:3})[0],publicReceipt);
+});

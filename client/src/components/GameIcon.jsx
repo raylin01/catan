@@ -28,6 +28,12 @@ function resolveName(name) {
 
 function iconShape(name) {
   switch (resolveName(name)) {
+    case 'paper': return <><path d="M6 3h13v15H7c-4 0-4-5-1-5V3Z" fill="currentColor" opacity=".4"/><path d="M6 13h12M9 6h7M9 9h7M7 18h12M6 13c-3 0-3 5 1 5"/></>;
+    case 'coin': return <><ellipse cx="12" cy="16" rx="8" ry="4" fill="currentColor" opacity=".6"/><ellipse cx="12" cy="11" rx="8" ry="4" fill="currentColor" opacity=".5"/><ellipse cx="12" cy="6" rx="8" ry="4" fill="currentColor" opacity=".7"/><path d="M4 6v10M20 6v10M10 5h4M12 4v4"/></>;
+    case 'science': return <><path d="M9 3h6M10 3v7l-6 9q0 2 3 2h10q3 0 3-2l-6-9V3M7 15h10"/><path d="m7 16-2 4h14l-2-4Z" fill="currentColor" opacity=".6"/><circle cx="10" cy="13" r=".7"/></>;
+    case 'politics': return <><path d="M4 4 12 2l8 2v8q-2 6-8 10-6-4-8-10Z" fill="currentColor" opacity=".5"/><path d="M12 5v13M7 10h10"/></>;
+    case 'barbarian': return <><path d="M2 15h20l-5 6H7Z" fill="currentColor" opacity=".8"/><path d="M12 15V3M13 4h7l-2 8h-5ZM3 8l4 3M4 6v4"/><circle cx="8" cy="17" r="1"/><circle cx="13" cy="17" r="1"/><circle cx="18" cy="17" r="1"/></>;
+    case 'metropolis': return <><path d="M3 20V8l5 3 4-8 4 8 5-3v12Z" fill="currentColor" opacity=".6"/><path d="M3 17h18M9 20v-5h6v5"/></>;
     case 'ship':
     case 'pirate':
     case 'warship':

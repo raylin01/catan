@@ -1,3 +1,4 @@
+import CitiesKnightsBoardLayer from './CitiesKnightsBoardLayer';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './HexBoard.css';
 import BoardViewport from './BoardViewport';
@@ -12,7 +13,7 @@ import { createBoardSnapshot, getBoardTransitions, motionDuration } from './boar
 const HEX_SIZE = 50;
 const BOARD_GUTTER = 62;
 const COAST_NEIGHBORS = [[1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1]];
-const EMPTY_ACTIVE_MOTION = { roads: new Set(), settlements: new Set(), cities: new Set(), robber: null, pirate:null, tokens:false, revealed:new Set(), shipMoves:new Map() };
+const EMPTY_ACTIVE_MOTION = { roads: new Set(), settlements: new Set(), cities: new Set(), robber: null, pirate:null, tokens:false, revealed:new Set(), shipMoves:new Map(),numberMoves:new Map() };
 
 const activateWithKeyboard = (event, callback) => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -90,7 +91,8 @@ function HexBoard({
   robber,
   pirate,
   seafarers,
-  pendingChoice,
+  pendingChoice,initialCity,
+  citiesKnights,knightSource,onSelectKnight,onMultipleCityActions,
   shipSource,
   onSelectShip,
   onSeaAction,
@@ -354,7 +356,8 @@ function HexBoard({
   const pieceTransitionKey = [
     ...transitions.roads,
     ...transitions.settlements,
-    ...transitions.cities
+    ...transitions.cities,
+    ...(transitions.numberMoves?.keys()||[])
   ].sort().join(',');
   const pieceMotionDuration = motionDuration(playbackRate, 520);
   const robberMotionDuration = motionDuration(playbackRate, 440);
@@ -376,7 +379,8 @@ function HexBoard({
       pirate:transitions.pirate ? pirate : current.pirate,
       tokens:transitions.tokens || current.tokens,
       revealed:new Set([...current.revealed,...(transitions.revealed||[])]),
-      shipMoves:new Map([...current.shipMoves,...(transitions.shipMoves||[])])
+      shipMoves:new Map([...current.shipMoves,...(transitions.shipMoves||[])]),
+      numberMoves:new Map([...current.numberMoves,...(transitions.numberMoves||[])])
     }));
     if (pieceTransitionKey) playSound('piece');
     if (transitions.robber || transitions.pirate) playSound('robber');
@@ -393,15 +397,15 @@ function HexBoard({
   const showEdgePlaceholders = canPlaceAtEdge() || (!paused && (['ship','port','moveShip'].includes(selectedAction) || pendingChoice?.options?.some(option=>option.edgeKey)));
   const spatialChoice = (field,keys) => {
     if(paused || !pendingChoice)return null;
-    const option=pendingChoice.options?.find(item=>keys.includes(item[field]));
-    const action=option && legalActions.find(candidate=>candidate.type==='resolveSeafarersChoice' && candidate.payload.choiceId===pendingChoice.id && candidate.payload.optionId===option.id);
+    const options=pendingChoice.options?.filter(item=>keys.includes(item[field])) || [];
+    const option=options.length===1?options[0]:null;
+    const action=option && legalActions.find(candidate=>candidate.type===(pendingChoice.expansion==='cities_knights'?'resolveCitiesKnightsChoice':'resolveSeafarersChoice') && candidate.payload.choiceId===pendingChoice.id && candidate.payload.optionId===option.id);
     return action ? {action,label:option.label}:null;
   };
   const edgeAction = keys => {
     if (paused) return null;
     if (pendingChoice) {
-      const option=pendingChoice.options?.find(item=>keys.includes(item.edgeKey));
-      return option && legalActions.find(action=>action.type==='resolveSeafarersChoice' && action.payload.choiceId===pendingChoice.id && action.payload.optionId===option.id);
+      return spatialChoice('edgeKey',keys)?.action;
     }
     const type=selectedAction==='ship'?'placeShip':selectedAction==='port'?'placePort':selectedAction==='moveShip'?'moveShip':'placeRoad';
     return legalActions.find(action=>action.type===type && (type==='moveShip' ? action.payload.fromEdgeKey===shipSource && keys.includes(action.payload.toEdgeKey) : keys.includes(action.payload.edgeKey)));
@@ -556,7 +560,7 @@ function HexBoard({
               {hex.terrain==='fog' && <g className="fog-token" pointerEvents="none"><circle cx={pos.x} cy={pos.y} r="12" fill="#597c824d" stroke="#d6e1d880"/><text x={pos.x} y={pos.y+5} textAnchor="middle" fontFamily="Georgia,serif" fontSize="17" fill="#e2e6d8">?</text></g>}
               {/* Number token */}
               {hex.number && (
-                <g className={`number-token ${hex.number === 6 || hex.number === 8 ? 'number-token--hot' : ''}`} filter="url(#token-shadow)">
+                <g className={`number-token ${transitions.numberMoves?.has(key)||activeMotion.numberMoves.has(key)?'is-moving':''} ${hex.number === 6 || hex.number === 8 ? 'number-token--hot' : ''}`} filter="url(#token-shadow)" style={{'--number-from-x':`${(transitions.numberMoves?.get(key)||activeMotion.numberMoves.get(key))?.x||0}px`,'--number-from-y':`${(transitions.numberMoves?.get(key)||activeMotion.numberMoves.get(key))?.y||0}px`}}>
                   <circle cx={pos.x} cy={pos.y + .8} r="17" fill="#a1967b" />
                   <circle cx={pos.x} cy={pos.y} r="16.5" fill="#f2e7c9" stroke="#b9ab8b" strokeWidth=".6" />
                   <text
@@ -597,7 +601,7 @@ function HexBoard({
           if (!legalAction) return null;
           const legalKey = legalAction.payload.edgeKey;
           const place = () => legalAction.type==='placeRoad' ? onPlaceRoad(legalKey) : onSeaAction(legalAction);
-          const label = legalAction.type==='placeShip' ? 'Place ship here' : legalAction.type==='moveShip' ? 'Move ship here' : legalAction.type==='placePort' ? 'Place harbor here' : legalAction.type==='resolveSeafarersChoice' ? 'Place portable harbor here' : 'Place road here';
+          const label = legalAction.type==='placeShip' ? 'Place ship here' : legalAction.type==='moveShip' ? 'Move ship here' : legalAction.type==='placePort' ? 'Place harbor here' : legalAction.type.startsWith('resolve') ? pendingChoice.options.find(o=>o.id===legalAction.payload.optionId)?.label || 'Choose this edge' : 'Place road here';
           return (
             <g
               key={`click-${id}`}
@@ -685,9 +689,9 @@ function HexBoard({
               {vertex.building === 'settlement' && (
                 <g 
                   className={`settlement ${canUpgrade ? 'upgradeable' : ''} ${transitions.settlements.has(id) || activeMotion.settlements.has(id) ? 'is-new' : ''}`}
-                  role={canUpgrade ? 'button' : undefined}
+                  role={canUpgrade ? 'button' : vertex.pillagedNoPiece ? 'img' : undefined}
                   tabIndex={canUpgrade ? 0 : undefined}
-                  aria-label={canUpgrade ? `Upgrade ${owner?.name || 'your'} settlement to a city` : undefined}
+                  aria-label={vertex.pillagedNoPiece ? canUpgrade ? 'Restore pillaged city' : `${owner?.name || 'Player'} pillaged city lying on its side` : canUpgrade ? `Upgrade ${owner?.name || 'your'} settlement to a city` : undefined}
                   onClick={() => canUpgrade && onUpgradeToCity(cityAction.payload.vertexKey)}
                   onKeyDown={event => canUpgrade && activateWithKeyboard(event, () => onUpgradeToCity(cityAction.payload.vertexKey))}
                 >
@@ -697,6 +701,12 @@ function HexBoard({
                     <circle className="upgrade-choice-ring" cx={pos.x} cy={pos.y} r="17" />
                     <path className="upgrade-chevron" d={`M${pos.x - 5} ${pos.y - 22} L${pos.x} ${pos.y - 27} L${pos.x + 5} ${pos.y - 22}`} />
                   </>}
+                  {vertex.pillagedNoPiece ? <g transform={`translate(${pos.x} ${pos.y}) rotate(-90) scale(.78)`}>
+                    <path className="building-side" d="M-13 5H12L9 11H-10Z" fill={owner?.color||'#c44'}/>
+                    <path className="building-face" d="M-13 9V-3L-7-9L-1-3V-14H7V-7H12V9Z" fill={owner?.color||'#c44'}/>
+                    <path className="building-highlight" d="M-10-2L-7-5L-3-1M2-11H5M9-4V4"/>
+                    <g className="building-windows"><rect x="-9" y="3" width="3" height="6" rx=".5"/><rect x="3" y="-4" width="3" height="4" rx=".5"/></g>
+                  </g> : <>
                   <ellipse className="building-contact-shadow" cx={pos.x + 1.5} cy={pos.y + 10} rx="12" ry="4" />
                   <path
                     className="building-side"
@@ -710,11 +720,12 @@ function HexBoard({
                   />
                   <path className="building-highlight" d={`M${pos.x - 7} ${pos.y - 1} L${pos.x} ${pos.y - 8} L${pos.x + 7} ${pos.y - 1} M${pos.x - 6} ${pos.y + 1} V${pos.y + 5}`} />
                   <rect className="building-door" x={pos.x - 2} y={pos.y + 2} width="4" height="6" rx=".7" />
+                  </>}
                   {canUpgrade && <g className="upgrade-preview" transform={`translate(${pos.x} ${pos.y - 7})`}>
                     <path d="M-13 9V-3L-7-9L-1-3V-14H7V-7H12V9Z" fill={owner?.color || '#c44'} />
                     <path d="M-9 0L-7-3L-4 0M2-10H5M9-3V4" className="upgrade-preview-detail" />
                   </g>}
-                  <title>{`${owner?.name || `Player ${vertex.owner + 1}`} settlement${canUpgrade ? '; upgrade available' : ''}`}</title>
+                  <title>{`${owner?.name || `Player ${vertex.owner + 1}`} ${vertex.pillagedNoPiece?'pillaged city on its side; restore before upgrading another settlement':'settlement'}${canUpgrade ? '; upgrade available' : ''}`}</title>
                 </g>
               )}
               
@@ -749,7 +760,7 @@ function HexBoard({
                   className="vertex-placeholder"
                   role="button"
                   tabIndex={0}
-                  aria-label="Place settlement here"
+                  aria-label={initialCity?'Place starting city here':'Place settlement here'}
                   onClick={() => onPlaceSettlement(settlementAction.payload.vertexKey)}
                   onKeyDown={event => activateWithKeyboard(event, () => onPlaceSettlement(settlementAction.payload.vertexKey))}
                 >
@@ -763,6 +774,7 @@ function HexBoard({
           );
         })}
 
+        <CitiesKnightsBoardLayer bounds={bounds} hexes={hexes} pendingChoice={pendingChoice} playbackRate={playbackRate} state={citiesKnights} players={players} legalActions={legalActions} selectedAction={selectedAction} source={knightSource} onSelectSource={onSelectKnight} onAction={onSeaAction} onMultiple={onMultipleCityActions} paused={paused} animate={animate} resetKey={resetKey}/>
         {/* Ports */}
         {ports.map((port) => {
           // Get positions of the two vertices this port connects to

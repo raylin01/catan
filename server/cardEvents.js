@@ -1,6 +1,8 @@
 import {randomUUID} from 'node:crypto';
+import {ALL_HAND_CARDS,combinedHand} from '../shared/cardTypes.js';
 
-const RESOURCES=['brick','lumber','wool','grain','ore'];
+const PROGRESS_BACKS={science:'progressScience',trade:'progressTrade',politics:'progressPolitics'};
+const RESOURCES=[...ALL_HAND_CARDS,...Object.values(PROGRESS_BACKS)];
 const BANK='bank';
 
 function cardsInHand(player) {
@@ -9,8 +11,13 @@ function cardsInHand(player) {
 
 function balances(game) {
   if(!game)return null;
-  const result=new Map([[BANK,game.bank||{}]]);
-  for(const player of game.players||[])result.set(player.id,player.resources||{});
+  const progressBank=Object.fromEntries(Object.entries(PROGRESS_BACKS).map(([color,back])=>[back,game.citiesKnights?.progressDecks?.[color]?.length||0]));
+  const result=new Map([[BANK,{...game.bank,...game.citiesKnights?.commodityBank,...progressBank}]]);
+  for(const player of game.players||[]) {
+    const cards=[...(player.progressCards||[]),...(player.progressVictoryCards||[])];
+    result.set(player.id,{...combinedHand(player),...Object.fromEntries(Object.entries(PROGRESS_BACKS)
+      .map(([color,back])=>[back,cards.filter(card=>card.color===color).length]))});
+  }
   return result;
 }
 
@@ -70,7 +77,7 @@ export function projectCardEvents(room,member) {
       const involved=member.seatId&&(transfer.from===member.seatId||transfer.to===member.seatId);
       const ownsHistory=involved&&event.audienceGenerations?.[member.seatId]===member.generation;
       const projected={from:transfer.from,to:transfer.to,count:transfer.count};
-      if(ownsHistory||transfer.resource==='development') {
+      if(ownsHistory||transfer.resource==='development'||Object.values(PROGRESS_BACKS).includes(transfer.resource)) {
         projected.resource=transfer.resource;
         transfers.push(projected);
       } else {

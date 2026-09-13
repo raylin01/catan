@@ -173,8 +173,8 @@ test('reader schema has finite proposal types and explicit batch/quantity bounds
   assert.equal(types.includes('placeRoad'), true);
   assert.equal(types.includes('upgradeToCity'), true);
   const trade = rows.find(row => row.properties.type.enum?.[0] === 'tradeOffer');
-  assert.deepEqual(trade.properties.give.required, ['brick', 'lumber', 'wool', 'grain', 'ore']);
-  assert.deepEqual(trade.properties.get.required, ['brick', 'lumber', 'wool', 'grain', 'ore']);
+  assert.deepEqual(trade.properties.give.required, ['brick', 'lumber', 'wool', 'grain', 'ore','paper','coin','cloth']);
+  assert.deepEqual(trade.properties.get.required, ['brick', 'lumber', 'wool', 'grain', 'ore','paper','coin','cloth']);
   assert.equal('minProperties' in trade.properties.give, false);
   assert.equal('maxProperties' in trade.properties.give, false);
 });

@@ -1,9 +1,10 @@
 import {RESOURCE_NAMES} from './chat-policy.js';
+import {cardTypesFor,combinedHand} from '../shared/cardTypes.js';
 
 const resources = new Set(RESOURCE_NAMES);
 // Conservative wake-up threshold: at least one advertised resource can cover
 // a shortage for one standard build. Multi-build speculation stays silent.
-const BUILD_TARGETS = {brick:1,lumber:1,wool:1,grain:2,ore:3};
+const BUILD_TARGETS = {brick:1,lumber:1,wool:1,grain:2,ore:3,paper:1,coin:1,cloth:1};
 const record = value => value && typeof value === 'object' && !Array.isArray(value);
 const names = value => Array.isArray(value) && value.length > 0 && value.length <= 2
   && new Set(value).size === value.length && value.every(item => resources.has(item));
@@ -13,6 +14,7 @@ export function projectNegotiations(view, incoming = [], now = Date.now()) {
   const game = view.gameState, seat = view.seatId;
   if (game?.phase !== 'playing' || game.turnPhase !== 'main' || game.playerTradingAllowed === false || view.paused) return [];
   const players = game.players || [], own = players.find(player => player.id === seat);
+  const hand=combinedHand(own), availableTypes=cardTypesFor(game);
   const active = players[game.currentPlayerIndex]?.id;
   const seen = new Set(), result = [];
   for (const item of Array.isArray(incoming) ? incoming.slice(-24) : []) {
@@ -29,8 +31,10 @@ export function projectNegotiations(view, incoming = [], now = Date.now()) {
     if (intent.kind === 'interest') {
       if (!names(intent.wants) || !names(intent.offers)
         || intent.wants.some(name => intent.offers.includes(name))
-        || !intent.wants.some(name => (own?.resources?.[name] || 0) > 0)
-        || !intent.offers.some(name => (own?.resources?.[name] || 0) < BUILD_TARGETS[name])) continue;
+        || [...intent.wants,...intent.offers].some(name=>!availableTypes.includes(name))
+        || !intent.wants.some(name => (hand[name] || 0) > 0)
+        || !intent.offers.some(name => (hand[name] || 0) < (['paper','coin','cloth'].includes(name)
+          ? (own?.cityImprovements?.[{paper:'science',coin:'politics',cloth:'trade'}[name]]||0)+1 : BUILD_TARGETS[name]))) continue;
       safe = {kind: 'interest', wants: [...intent.wants], offers: [...intent.offers],
         to: intent.to ?? null, replyToId: intent.replyToId ?? null};
     } else if (intent.kind === 'offer') {
@@ -59,6 +63,7 @@ export function projectNegotiationWindow(view) {
 const resourceArray = {type: 'array', items: {type: 'string', enum: RESOURCE_NAMES}, minItems: 1, maxItems: 2};
 export function negotiationSchemaFor(view) {
   const game = view.gameState;
+  const selectedResources={...resourceArray,items:{type:'string',enum:cardTypesFor(game)}};
   if (!view.negotiation || game?.phase !== 'playing' || game.turnPhase !== 'main' || game.playerTradingAllowed === false) return {type: 'null'};
   const incoming = view.negotiation.canReply === true
     ? projectNegotiations(view, view.negotiations).filter(item=>item.depth<2) : [];
@@ -67,7 +72,7 @@ export function negotiationSchemaFor(view) {
   const seats = (game.players || []).map(player => player.id).filter(id => id !== view.seatId);
   const parentSchema = canStart ? {type: ['string', 'null'], enum: [...parents, null]} : {type: 'string', enum: parents};
   if (canStart && !view.trade && seats.length) choices.push({type: 'object', additionalProperties: false,
-    properties: {kind: {type: 'string', enum: ['interest']}, wants: resourceArray, offers: resourceArray,
+    properties: {kind: {type: 'string', enum: ['interest']}, wants: selectedResources, offers: selectedResources,
       to: {type: ['string', 'null'], enum: [...seats, null]}, replyToId: {type:'null'}},
     required: ['kind', 'wants', 'offers', 'to', 'replyToId']});
   for (const parent of incoming) {

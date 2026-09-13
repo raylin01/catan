@@ -1,6 +1,9 @@
 import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import * as G from './gameLogic.js';
 import * as SF from './seafarersCore.js';
+import * as CK from './citiesKnightsCore.js';
+import {cardTypesFor,combinedHand} from '../shared/cardTypes.js';
+import {CITIES_KNIGHTS_CARDS} from '../shared/citiesKnights.js';
 import {executeAction,playerView,legalActions} from './actions.js';
 import {PROVIDERS} from './providers.js';
 import {appendCardEvent,projectCardEvents} from './cardEvents.js';
@@ -13,10 +16,9 @@ const secret=()=>randomBytes(32).toString('base64url');
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const clone=value=>structuredClone(value);
 const fail=(error,statusCode=400)=>({success:false,error,statusCode});
-const resourceNames=['brick','lumber','wool','grain','ore'];
 const cleanName=value=>typeof value==='string' && value.trim().length>0 && value.trim().length<=40 && !/[\x00-\x1f\x7f]/.test(value) ? value.trim() : null;
-const pack=value=>value && typeof value==='object' && !Array.isArray(value) && Object.keys(value).every(k=>resourceNames.includes(k)) && Object.values(value).every(n=>Number.isSafeInteger(n)&&n>=0&&n<=95) && Object.values(value).some(n=>n>0);
-const affordable=(p,amounts)=>Object.entries(amounts).every(([r,n])=>p.resources[r]>=n);
+const pack=(value,game)=>value && typeof value==='object' && !Array.isArray(value) && Object.keys(value).every(k=>cardTypesFor(game).includes(k)) && Object.values(value).every(n=>Number.isSafeInteger(n)&&n>=0&&n<=95) && Object.values(value).some(n=>n>0);
+const affordable=(player,amounts)=>Object.entries(amounts).every(([card,count])=>(combinedHand(player)[card]||0)>=count);
 export const ROOM_CAPACITY=16;
 export const ROOM_INACTIVITY_MS=4*60*60*1000;
 const terminal=room=>['won','ended','closed'].includes(recordingStatus(room));
@@ -266,8 +268,12 @@ export class RoomService {
     if(room.game&&!room.closed&&!room.paused&&member.seatId){
       const index=room.game.players.findIndex(p=>p.id===member.seatId);
       const discard=room.game.discardingPlayers?.find(d=>d.playerIndex===index);
-      if(discard)decision={type:'discardCards',count:discard.cardsToDiscard,resources:clone(room.game.players[index].resources)};
-      else if(choices.length)decision={type:'chooseAction',...(gameState.pendingChoice?.actorId===member.seatId?{kind:gameState.pendingChoice.kind,prompt:gameState.pendingChoice.label}:{})};
+      if(discard)decision={type:'discardCards',count:discard.cardsToDiscard,resources:combinedHand(room.game.players[index])};
+      else if(gameState.pendingChoice?.actorId===member.seatId&&gameState.pendingChoice.selection==='cards') {
+        const choice=gameState.pendingChoice;
+        decision={type:'chooseCards',choiceId:choice.id,count:choice.count,allowedCards:choice.allowedCards,
+          cards:clone(choice.availableCards??combinedHand(room.game.players[index])),kind:choice.kind,prompt:choice.label};
+      } else if(choices.length)decision={type:'chooseAction',...(gameState.pendingChoice?.actorId===member.seatId?{kind:gameState.pendingChoice.kind,prompt:gameState.pendingChoice.label}:{})};
     }
     const pending=room.game?.pendingRobberPick;
     const robberPick=pending?{id:pending.id,thiefId:pending.thiefId,victimId:pending.victimId,count:pending.cards.length,
@@ -456,7 +462,12 @@ export class RoomService {
         gainsBySeat:Object.fromEntries(copy.game.players.map((player,index)=>[player.id,clone(result.resourceGains?.[index]||{})]))};
       copy.revision++;
       appendCardEvent(copy,beforeGame,type,type==='rollDice'?copy.lastRoll?.id:null);
-      const labels={placePort:'placed a harbor',claimWonder:'claimed a wonder',buildWonder:'built a wonder level',attackFortress:'attacked their pirate fortress',placeShip:'built a ship',moveShip:'moved a ship',movePirate:'moved the pirate',resolveSeafarersChoice:'resolved a scenario choice',configureGame:'changed the lobby rules',ready:'readied their seat',advanceSetup:'advanced setup',chat:'sent a message',configureSeat:'configured a seat',finishFreeRoads:'finished placing free roads',yearOfPlentyPick:'chose a Year of Plenty resource',start:'started the game',placeSettlement:'built a settlement',placeRoad:'built a road',upgradeToCity:'built a city',rollDice:'rolled the dice',discardCards:'discarded cards',moveRobber:'moved the robber',chooseRobberCard:'stole a resource card',buyDevCard:'bought a development card',playDevCard:'played a development card',bankTrade:'traded with the bank',endTurn:'ended their turn',tradeOffer:'offered a trade',tradeCounter:'made a counteroffer',tradeAccept:'accepted a trade offer',tradeReject:'rejected a trade offer',tradeConfirm:'confirmed a trade',tradeCancel:'cancelled a trade',leave:'left their seat',removeController:'removed a seat controller',pause:'paused the game',resume:'resumed the game',aiPause:'paused an AI seat',aiResume:'resumed an AI seat',aiCancel:'cancelled an AI decision',endGame:'ended the game',closeRoom:'closed the room'};
+      const playedProgress=type==='playProgressCard'?beforeGame?.players?.find(player=>player.id===member.seatId)?.progressCards?.find(card=>card.id===payload.cardId):null;
+      const labels={placePort:'placed a harbor',claimWonder:'claimed a wonder',buildWonder:'built a wonder level',attackFortress:'attacked their pirate fortress',placeShip:'built a ship',moveShip:'moved a ship',movePirate:'moved the pirate',resolveSeafarersChoice:'resolved a scenario choice',configureGame:'changed the lobby rules',ready:'readied their seat',advanceSetup:'advanced setup',chat:'sent a message',configureSeat:'configured a seat',finishFreeRoads:'finished placing free roads',yearOfPlentyPick:'chose a Year of Plenty resource',start:'started the game',placeSettlement:'built a settlement',placeRoad:'built a road',upgradeToCity:'built a city',rollDice:'rolled the dice',discardCards:'discarded cards',moveRobber:'moved the robber',chooseRobberCard:'stole a card',buyDevCard:'bought a development card',playDevCard:'played a development card',bankTrade:'traded with the bank',endTurn:'ended their turn',tradeOffer:'offered a trade',tradeCounter:'made a counteroffer',tradeAccept:'accepted a trade offer',tradeReject:'rejected a trade offer',tradeConfirm:'confirmed a trade',tradeCancel:'cancelled a trade',leave:'left their seat',removeController:'removed a seat controller',pause:'paused the game',resume:'resumed the game',aiPause:'paused an AI seat',aiResume:'resumed an AI seat',aiCancel:'cancelled an AI decision',endGame:'ended the game',closeRoom:'closed the room'};
+      Object.assign(labels,{buildCityWall:'built a city wall',improveCity:'improved a city',recruitKnight:'recruited a knight',
+        promoteKnight:'promoted a knight',activateKnight:'activated a knight',moveKnight:'moved a knight',driveRobber:copy.game?.pirate!==beforeGame?.pirate?'drove away the pirate':'drove away the robber',
+        playProgressCard:playedProgress?`played ${CITIES_KNIGHTS_CARDS[playedProgress.type]?.name||'a progress card'}`:'played a progress card',
+        offerCommercialHarbor:'offered a harbor exchange',resolveCitiesKnightsChoice:'resolved a Cities & Knights choice'});
       if(labels[type])copy.events=[...(copy.events||[]),{id:randomUUID(),at:this.now(),actor:member.name,type,summary:`${member.name} ${labels[type]}`}].slice(-200);
       const response={success:true,revision:copy.revision};
       // Return private effects only to the authenticated actor, never the event stream.
@@ -467,7 +478,8 @@ export class RoomService {
       const keys=Object.keys(copy.receipts);for(const k of keys.slice(0,Math.max(0,keys.length-2000)))delete copy.receipts[k];
       copy.lastActivityAt=this.now();
       this.persist(copy,{type,actorSeatId:member.seatId||null,actorGeneration:member.generation||null,actorName:member.name,
-        summary:labels[type]?`${member.name} ${labels[type]}`:`${member.name} performed ${type}`,payload});
+        summary:labels[type]?`${member.name} ${labels[type]}`:`${member.name} performed ${type}`,
+        payload:playedProgress?{cardType:playedProgress.type}:payload});
       if(member.role==='ai')this.markAiTool(copy,member);return clone(response);
     } catch(error) {
       const storage=error?.message==='Recording is unavailable'||error?.code?.startsWith?.('SQLITE_')||error?.code?.startsWith?.('ERR_SQLITE_');
@@ -671,6 +683,7 @@ export class RoomService {
   }
   tradeAction(room,seatId,type,p) {
     const game=room.game;
+    const resourceNames=cardTypesFor(game);
     if(!canTradeWithPlayers(game))return fail('Player trading is unavailable now');
     const active=game.players[game.currentPlayerIndex].id,player=game.players.find(x=>x.id===seatId);
     if(type==='tradeOffer'||type==='tradeCounter') {
@@ -678,7 +691,7 @@ export class RoomService {
       if(type==='tradeCounter'&&(!previous||previous.id!==p.tradeId||previous.status!=='offered'||seatId!==previous.to||p.to!==previous.from))return fail('Trade is no longer available');
       const targetSlot=room.slots.find(s=>s.id===p.to);
       const targetMember=targetSlot?.controller?room.members[targetSlot.controller]:null;
-      if(!player||!pack(p.give)||!pack(p.get)||!game.players.some(x=>x.id===p.to)||targetMember?.seatId!==p.to||targetMember?.generation!==targetSlot.generation||p.to===seatId)return fail('Specify an occupied partner and positive resource quantities');
+      if(!player||!pack(p.give,game)||!pack(p.get,game)||!game.players.some(x=>x.id===p.to)||targetMember?.seatId!==p.to||targetMember?.generation!==targetSlot.generation||p.to===seatId)return fail('Specify an occupied partner and positive card quantities');
       if(seatId!==active&&p.to!==active)return fail('Trades must involve the active player');
       if(resourceNames.some(r=>p.give[r]>0&&p.get[r]>0))return fail('Do not offer and request the same resource');
       if(!affordable(player,p.give))return fail('You do not have the offered resources');
@@ -693,7 +706,8 @@ export class RoomService {
       else if(type==='tradeConfirm'&&seatId===t.from&&t.status==='accepted') {
         const from=game.players.find(x=>x.id===t.from),to=game.players.find(x=>x.id===t.to);
         if(!affordable(from,t.give)||!affordable(to,t.get))return fail('The trade is no longer affordable');
-        for(const r of resourceNames){const delta=(t.give[r]||0)-(t.get[r]||0);from.resources[r]-=delta;to.resources[r]+=delta;}
+        CK.transferCards(game,from,to,t.give);
+        CK.transferCards(game,to,from,t.get);
         room.trade=null;
       } else return fail('You cannot perform that trade action');
     }

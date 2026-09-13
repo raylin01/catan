@@ -4,6 +4,12 @@ import GameIcon from './GameIcon';
 
 // Centralized info data for all game elements
 const INFO_DATA = {
+  paper:{icon:'paper',title:'Paper',description:'A city beside a producing forest receives one lumber and one paper. Spend paper to improve Science.'},
+  coin:{icon:'coin',title:'Coin',description:'A city beside producing mountains receives one ore and one coin. Spend coin to improve Politics.'},
+  commodityCloth:{icon:'cloth',title:'Cloth commodity',description:'A city beside a producing pasture receives one wool and one cloth card. Spend cloth to improve Trade. This card is separate from Seafarers village cloth tokens.'},
+  progressCards:{icon:'devCard',title:'Progress cards',description:'Science, Trade and Politics improvements unlock progress cards when the matching event die and red die produce. Keep up to four cards; play Alchemy before rolling and other cards during your action phase. Victory-point cards remain face up.'},
+  ckKnights:{icon:'knight',title:'Knights',description:'Active knights defend Catan with strength 1, 2 or 3. Recruit and promote for wool and ore; activate for grain. An active knight can move, displace a weaker rival or drive away an adjacent robber or pirate, then deactivates. Knights activated this turn cannot act yet.'},
+
   ships: {icon:'ship',title:'Ships',description:'Cost 1 lumber and 1 wool. Extend a shipping route from your ship or coastal building. Once per action phase, move an eligible open ship built in an earlier phase. Roads and ships join only at your own building.',cost:[{icon:'lumber',amount:1},{icon:'wool',amount:1}]},
   gold: {icon:'gold',title:'Gold fields',description:'Choose any resource when this number produces: one for a settlement, two for a city. Gold is not held as a resource.'},
   sea: {icon:'sea',title:'Sea',description:'Build ships along sea edges. Ships beside the pirate cannot be built or moved.'},

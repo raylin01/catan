@@ -1,3 +1,4 @@
+import GameIcon from './GameIcon';
 import { useEffect, useRef, useState } from 'react';
 import { useGamePresentation } from '../presentation/GamePresentation';
 import './DiceDisplay.css';
@@ -30,7 +31,7 @@ function Die({ value, index, rollId, tumbling }) {
   </span>;
 }
 
-function DiceDisplay({ roll, rollId, onRightClick, animate = true, duration = 900 }) {
+function DiceDisplay({ citiesKnights, roll, rollId, onRightClick, animate = true, duration = 900 }) {
   const [tumbling, setTumbling] = useState(false);
   const { playSound } = useGamePresentation();
   const animatedRollId = useRef(null);
@@ -63,8 +64,8 @@ function DiceDisplay({ roll, rollId, onRightClick, animate = true, duration = 90
     if (!onRightClick) return;
     event.preventDefault();
     onRightClick(event, 'diceRoll', {
-      title: `Dice Roll: ${roll.total}`,
-      description: isSeven
+      title: `Dice roll: ${roll.total}${citiesKnights?.eventDie?` · ${citiesKnights.eventDie} event`:''}`,
+      description: citiesKnights ? `Red die ${roll.die1}, white die ${roll.die2}. ${citiesKnights.eventDie==='barbarian'?'The barbarians advance one space.':'The matching improvement track and red die determine progress-card draws.'} ${isSeven?'Players exceeding their hand limit discard half; each city wall protects two extra cards.':`Tiles numbered ${roll.total} produce resources and city commodities.`}` : isSeven
         ? 'Rolling a 7 activates the robber. Players with 8 or more cards discard half, then the current player moves the robber and steals.'
         : `Hexes numbered ${roll.total} produce resources for adjacent settlements and cities.`,
       number: roll.total,
@@ -77,16 +78,17 @@ function DiceDisplay({ roll, rollId, onRightClick, animate = true, duration = 90
     title={onRightClick ? 'Right-click for roll details' : undefined}
     style={{ '--dice-duration': `${motionDuration}ms` }}
     role="status" aria-live="polite" aria-busy={tumbling}
-    aria-label={`Rolled ${roll.die1} and ${roll.die2}, total ${roll.total}${isSeven ? '. Robber activated.' : '.'}`}
+    aria-label={`Rolled ${roll.die1} and ${roll.die2}, total ${roll.total}${citiesKnights?.eventDie?`, ${citiesKnights.eventDie} event`:''}${isSeven ? citiesKnights&&!citiesKnights.barbarian.attacked?'. Resolve required discards.':'. Robber activated.' : '.'}`}
   >
-    <div className="dice-container">
+    <div className={`dice-container ${citiesKnights?'ck-dice':''}`}>
       <span className="dice-tray-mark" aria-hidden="true" />
       <Die value={roll.die1} index={1} rollId={rollId} tumbling={tumbling} />
       <Die value={roll.die2} index={2} rollId={rollId} tumbling={tumbling} />
+      {citiesKnights?.eventDie&&<span key={`${rollId}-event`} className={`ck-event-die track-${citiesKnights.eventDie} ${tumbling?'is-tumbling':''}`} role="img" aria-label={`${citiesKnights.eventDie} event die`}><GameIcon name={citiesKnights.eventDie} size={30}/></span>}
     </div>
     <div className="dice-result" aria-hidden="true">
       <span className="dice-total">{roll.total}</span>
-      {isSeven && <span className="robber-alert">Robber</span>}
+      {isSeven && <span className="robber-alert">{citiesKnights&&!citiesKnights.barbarian.attacked?'Seven':'Robber'}</span>}
     </div>
   </div>;
 }
