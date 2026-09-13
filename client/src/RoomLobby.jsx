@@ -29,6 +29,8 @@ function RoomLobby({
   const [gameCode, setGameCode] = useState('');
   const [role, setRole] = useState('human');
   const [seatCount, setSeatCount] = useState('4');
+  const [extension56, setExtension56] = useState(false);
+  const [roomRules, setRoomRules] = useState({ seatCount: '4', extension56: false });
   const [hostKey, setHostKey] = useState('');
   const [seatDrafts, setSeatDrafts] = useState({});
   const [claimName, setClaimName] = useState(session?.displayName || '');
@@ -46,6 +48,14 @@ function RoomLobby({
   const allReady = slots.length > 0 && slots.every(slot => slot.occupied && slot.ready);
   const vacantHumanSlots = slots.filter(slot => slot.kind === 'human' && !slot.occupied);
   const inviteLink = getInviteLink(code);
+  const roomExtension56 = snapshot?.gameOptions?.extension56 === true;
+  const roomSeatCount = snapshot?.seatCount || slots.length;
+  const rulesChanged = roomRules.seatCount !== String(roomSeatCount) || roomRules.extension56 !== roomExtension56;
+
+  useEffect(() => {
+    if (!snapshot) return;
+    setRoomRules({ seatCount: String(snapshot.seatCount || snapshot.slots?.length || 4), extension56: snapshot.gameOptions?.extension56 === true });
+  }, [snapshot?.code, snapshot?.seatCount, snapshot?.slots?.length, snapshot?.gameOptions?.extension56]);
 
   useEffect(() => {
     if (!snapshot?.slots) return;
@@ -77,6 +87,7 @@ function RoomLobby({
       name: name.trim(),
       seatCount: Number(seatCount),
       seats: Array.from({ length: Number(seatCount) }, () => ({ kind: 'human' })),
+      gameOptions: { version: 1, extension56, expansions: [], scenario: 'base' },
       hostKey: hostKey.trim()
     });
   };
@@ -177,6 +188,39 @@ function RoomLobby({
           </header>
 
           {error && <div className="room-error" role="alert">{error}</div>}
+
+          <section className="room-section room-rules-section" aria-labelledby="room-rules-heading">
+            <div className="room-section-heading">
+              <div>
+                <h2 id="room-rules-heading">Game rules</h2>
+                <p>{roomExtension56 ? `Base game · 5–6 player extension · ${roomSeatCount} seats` : `Base game · ${roomSeatCount} seats`}</p>
+              </div>
+            </div>
+            {isHost && (
+              <div className="room-rules-controls">
+                <label className="room-rules-switch">
+                  <input
+                    type="checkbox"
+                    checked={roomRules.extension56}
+                    onChange={event => setRoomRules({ extension56: event.target.checked, seatCount: event.target.checked ? '5' : '4' })}
+                    disabled={busy}
+                  />
+                  <span>5–6 player extension</span>
+                </label>
+                <label className="room-rules-seat-count">
+                  Seats
+                  <select value={roomRules.seatCount} onChange={event => setRoomRules(previous => ({ ...previous, seatCount: event.target.value }))} disabled={busy}>
+                    {(roomRules.extension56 ? [5, 6] : [3, 4]).map(count => <option key={count} value={count}>{count} seats</option>)}
+                  </select>
+                </label>
+                <button type="button" className="room-secondary-button" disabled={!rulesChanged || busy} onClick={() => onHostCommand('configureGame', {
+                  seatCount: Number(roomRules.seatCount),
+                  gameOptions: { version: 1, extension56: roomRules.extension56, expansions: [], scenario: 'base' }
+                })}>Save rules</button>
+                <p className="room-field-help">Changing rules clears every ready status. The extension uses paired action phases; the extra player can trade with the bank, but not with other players.</p>
+              </div>
+            )}
+          </section>
 
           <section className="room-section" aria-labelledby="room-seats-heading">
             <div className="room-section-heading">
@@ -435,12 +479,15 @@ function RoomLobby({
               />
             </label>
             <label>
+              <span className="room-rules-switch"><input type="checkbox" checked={extension56} onChange={event => { setExtension56(event.target.checked); setSeatCount(event.target.checked ? '5' : '4'); }}/><span>5–6 player extension</span></span>
+            </label>
+            <label>
               Seats
               <select value={seatCount} onChange={event => setSeatCount(event.target.value)}>
-                <option value="3">3 seats</option>
-                <option value="4">4 seats</option>
+                {(extension56 ? [5, 6] : [3, 4]).map(count => <option key={count} value={count}>{count} seats</option>)}
               </select>
             </label>
+            {extension56 && <span className="room-field-help">Paired action phases use the larger board. The extra player cannot trade with other players during their phase.</span>}
             <label>
               Operator key
               <input
@@ -506,7 +553,7 @@ function RoomLobby({
         )}
 
         <footer className="room-home-footer">
-          First to 10 victory points wins. Standard rooms support 3 or 4 seats.
+          First to 10 victory points wins. Base games support 3–4 seats, or 5–6 with the extension.
         </footer>
       </div>
     </main>

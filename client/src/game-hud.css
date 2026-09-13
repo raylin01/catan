@@ -15,6 +15,8 @@
 }
 .game-hud .table-wordmark { font-size: 21px; letter-spacing: .15em; color: #e4d4ad; }
 .game-hud .turn-indicator { flex: 1; justify-content: center; gap: 10px; }
+.game-hud .turn-indicator:has(.turn-pair-context) { flex-wrap: wrap; column-gap: 10px; row-gap: 1px; }
+.game-hud .turn-pair-context { flex-basis: 100%; color: var(--hud-muted); font-size: 10px; text-align: center; }
 .game-hud .status-message { font-size: 13px; color: var(--hud-ink); font-weight: 450; }
 .game-hud .current-player-badge {
   background: none; color: var(--hud-ink); border: 0; border-radius: 0;
@@ -32,6 +34,7 @@
   background: #142831d6; border: 1px solid var(--hud-line); border-radius: 3px;
   box-shadow: 0 6px 18px #08182024;
 }
+.game-hud .player-roster.large-roster { width:min(1440px,calc(100% - 48px)); }
 .game-hud .player-panel {
   position: relative; display: flex; flex-direction: column;
   min-width: 0; padding: 9px 14px 8px; margin: 0;
@@ -122,6 +125,7 @@
 .game-hud .hand-action h4 { display:none; }
 .game-hud .hand-action .action-btn { font-size:11px; min-height:32px; background:transparent; border-color:transparent; padding:4px 0; color:#c4cebf; box-shadow:none; }
 .game-hud .action-panel .special-action { background:#263c3deb; color:#eddfb9; border:1px solid #b9a477; font-size:12px; }
+.game-hud .paired-action-note { margin: 0; padding: 8px 9px; border-left: 2px solid #c6aa70; color: #d8d3be; background: #24383c; font-size: 11px; line-height: 1.45; }
 .game-hud .action-panel button:focus-visible { outline:2px solid #f1d69c; outline-offset:3px; }
 .game-hud .chat-toggle { min-height:36px; background:#142830b3; border:1px solid var(--hud-line); border-radius:3px; font-size:12px; }
 
@@ -183,6 +187,12 @@
   .game-hud.replay-game-board .right-sidebar { width:230px; }
   .game-hud.replay-game-board .board-container { padding:0; }
 }
+@media(min-width:761px) and (max-width:1440px) and (min-height:681px) {
+  .game-hud .player-roster.large-roster { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .game-hud .player-roster.large-roster .player-panel { border-bottom:1px solid var(--hud-line); }
+  .game-hud .player-roster.large-roster .player-panel:nth-child(3n) { border-right:0; }
+  .game-hud .player-roster.large-roster .player-panel:nth-last-child(-n+3) { border-bottom:0; }
+}
 /* On shallow laptop windows, the roster uses spare width instead of taking
    height away from the island. Actions keep their own scroll area. */
 @media(min-width:761px) and (max-height:680px) {
@@ -199,6 +209,7 @@
   .game-hud .game-header { padding:8px 12px; gap:8px; flex-wrap:wrap; }
   .game-hud .game-header .turn-indicator { order:3; flex-basis:100%; justify-content:flex-start; text-align:left; }
   .game-hud .status-message { font-size:12px; }
+  .game-hud .turn-pair-context { text-align:left; }
   .game-hud .game-header .presentation-controls { margin-left:auto; }
   .game-hud .player-roster { width:calc(100% - 20px); grid-template-columns:repeat(2,minmax(0,1fr)); margin:0 0 6px; }
   .game-hud .player-panel { padding:7px 9px; border-bottom:1px solid var(--hud-line); }

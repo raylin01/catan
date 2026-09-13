@@ -263,6 +263,7 @@ function sanitizeProjectedFacts(value) {
   return {
     phase: enumValue(source.phase, PHASES),
     turnPhase: enumValue(source.turnPhase, TURN_PHASES),
+    ...(source.playerTradingAllowed === false ? {playerTradingAllowed: false} : {}),
     paused: source.paused === true,
     currentPlayerId,
     ...(winnerSeatId ? {winnerSeatId} : {}),
@@ -303,6 +304,7 @@ export function projectPublicState(value = {}) {
   return {
     phase: enumValue(game.phase, PHASES),
     turnPhase: enumValue(game.turnPhase, TURN_PHASES),
+    ...(game.playerTradingAllowed === false ? {playerTradingAllowed: false} : {}),
     paused: root.paused === true || game.paused === true,
     ...(currentPlayerId && seatIds.has(currentPlayerId) ? {currentPlayerId} : {}),
     ...(winnerSeatId && seatIds.has(winnerSeatId) ? {winnerSeatId} : {}),
@@ -403,6 +405,7 @@ function validTradeParties(authorSeatId, targetSeatId, facts, seats) {
 
 function normalizeTradeProposal(candidate, base, facts, seats) {
   const type = base.type;
+  if (facts.playerTradingAllowed === false) return null;
   if (type === 'tradeOffer' || type === 'tradeCounter') {
     const to = boundedString(candidate.to, MAX_IDENTIFIER_LENGTH);
     const give = normalizeCounts(candidate.give);
@@ -436,6 +439,7 @@ function normalizeTradeProposal(candidate, base, facts, seats) {
 function normalizeProposal(candidate, base, facts) {
   const seats = validSeats(facts);
   if (base.type === 'tradeInterest') {
+    if (facts.playerTradingAllowed === false) return null;
     const direction = enumValue(candidate.direction, TRADE_INTEREST_DIRECTIONS);
     if (!direction || !Array.isArray(candidate.resources) || candidate.resources.length < 1
       || candidate.resources.length > RESOURCE_NAMES.length) return null;
@@ -609,6 +613,7 @@ export function projectSpeakerContext({publicState = {}, confirmedOutcomes = [],
   const publicFacts = {
     phase: facts.phase,
     turnPhase: facts.turnPhase,
+    ...(facts.playerTradingAllowed === false ? {playerTradingAllowed: false} : {}),
     paused: facts.paused,
     ...(facts.currentPlayerId ? {currentPlayerId: facts.currentPlayerId} : {}),
     ...(facts.winnerSeatId ? {winnerSeatId: facts.winnerSeatId} : {}),

@@ -149,40 +149,6 @@
   background: var(--accent-copper);
 }
 
-/* Special Build Phase indicator */
-.special-build-indicator {
-  background: linear-gradient(135deg, rgba(106, 153, 78, 0.2) 0%, rgba(74, 124, 62, 0.2) 100%);
-  border: 1px solid #6a994e;
-  border-radius: 8px;
-  padding: 0.6rem 0.8rem;
-  color: #8fb974;
-  font-weight: 600;
-  font-size: 0.9rem;
-  text-align: center;
-  margin-bottom: 0.5rem;
-  animation: specialBuildGlow 1.5s ease-in-out infinite;
-}
-
-@keyframes specialBuildGlow {
-  0%, 100% { box-shadow: 0 0 5px rgba(106, 153, 78, 0.3); }
-  50% { box-shadow: 0 0 15px rgba(106, 153, 78, 0.5); }
-}
-
-.special-build-indicator .no-trade-hint {
-  display: block;
-  font-size: 0.75rem;
-  font-weight: normal;
-  color: var(--text-muted);
-  margin-top: 0.2rem;
-}
-
-.action-section h4 .disabled-hint {
-  font-size: 0.65rem;
-  color: var(--text-muted);
-  font-weight: normal;
-  font-style: italic;
-}
-
 
 
 .action-btn{gap:8px}.action-btn>.game-icon{flex-shrink:0}.action-btn .cost{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.action-btn .cost>span{display:inline-flex;align-items:center;gap:2px}

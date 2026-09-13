@@ -128,6 +128,16 @@ const DEV_CARD_DISTRIBUTION = [
   ...Array(2).fill(DEV_CARDS.MONOPOLY)
 ];
 
+// The extension contributes 6 knights and one of each action card. It does
+// not add victory-point cards (25 base + 9 extension = 34 cards).
+const DEV_CARD_DISTRIBUTION_EXTENDED = [
+  ...DEV_CARD_DISTRIBUTION,
+  ...Array(6).fill(DEV_CARDS.KNIGHT),
+  DEV_CARDS.ROAD_BUILDING,
+  DEV_CARDS.YEAR_OF_PLENTY,
+  DEV_CARDS.MONOPOLY
+];
+
 /** Player colors: Red, Blue, Orange, Teal, Green, Purple (supports up to 6 players) */
 export const PLAYER_COLORS = ['#e63946', '#457b9d', '#f4a261', '#2a9d8f', '#6a994e', '#9d4edd'];
 
@@ -154,7 +164,7 @@ const HEX_POSITIONS_STANDARD = [
 
 /** 
  * 5-6 player expansion hex positions (30 hexes total)
- * Larger board arranged as: 3+4+5+6+5+4+3 hexes per row
+ * The 2025 rulebook's seven-row island: 3+4+5+6+5+4+3 hexes.
  */
 const HEX_POSITIONS_EXTENDED = [
   // Row 1 (top) - 3 hexes
@@ -202,6 +212,25 @@ const NUMBER_TOKENS_EXTENDED = [
   8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12, 12
 ];
 
+// Official A–Zc order: Encyclopædia Catanica vol. 1 p.121, retained by
+// the 2025 extension's counterclockwise variable setup (CN3082 p.4).
+const EXTENDED_NUMBER_SEQUENCE = [2,5,4,6,3,9,8,11,11,10,6,3,8,4,8,10,11,12,10,5,4,9,5,9,12,3,2,6];
+const EXTENDED_SPIRAL = [
+  [0,-3],[-1,-2],[-2,-1],[-3,0],[-3,1],[-3,2],[-3,3],[-2,3],[-1,3],
+  [0,2],[1,1],[2,0],[2,-1],[2,-2],[2,-3],[1,-3],
+  [0,-2],[-1,-1],[-2,0],[-2,1],[-2,2],[-1,2],[0,1],[1,0],[1,-1],[1,-2],
+  [0,-1],[-1,0],[-1,1],[0,0]
+];
+
+/** Start at the upper-left corner, spiral inward, and skip both deserts. */
+export function assignExtendedNumbers(hexes) {
+  let index = 0;
+  for (const [q,r] of EXTENDED_SPIRAL) {
+    const hex = hexes[hexKey(q,r)];
+    hex.number = hex.terrain === 'desert' ? null : EXTENDED_NUMBER_SEQUENCE[index++];
+  }
+}
+
 // ============================================================================
 // PORT CONFIGURATION
 // ============================================================================
@@ -237,7 +266,8 @@ const PORT_POSITIONS_STANDARD = [
   { vertices: ['v_-2_0_4', 'v_-2_0_5'], type: 'LUMBER' }
 ];
 
-// Extended port positions for 5-6 players (11 ports)
+// Extended coast has the nine base ports plus one 3:1 and one wool 2:1
+// port. The extra two ports come from the 5-6 frame inserts.
 const PORT_POSITIONS_EXTENDED = [
   // Top edge ports
   { vertices: ['v_0_-3_0', 'v_0_-3_5'], type: 'GENERIC' },
@@ -252,7 +282,7 @@ const PORT_POSITIONS_EXTENDED = [
   { vertices: ['v_-1_3_3', 'v_-2_3_2'], type: 'GENERIC' },
   { vertices: ['v_-3_3_3', 'v_-3_3_4'], type: 'LUMBER' },
   // Left edge ports
-  { vertices: ['v_-3_2_4', 'v_-3_1_3'], type: 'GENERIC' },
+  { vertices: ['v_-3_2_4', 'v_-3_1_3'], type: 'WOOL' },
   { vertices: ['v_-3_0_4', 'v_-3_0_5'], type: 'GENERIC' }
 ];
 
@@ -752,7 +782,8 @@ export function getAdjacentVertices(vKey, hexes) {
  * @param gameId - Unique game identifier (usually a 6-char code)
  * @param hostPlayer - Player object {id, name} for the host
  * @param isExtended - Whether to use 5-6 player expansion board
- * @param enableSpecialBuild - Whether to enable special building phase (5-6 player rule)
+ * @param enableSpecialBuild - Retained for callers loading older games. New
+ *   extended games always use the 2025 paired-player turn.
  * @returns Complete game state object
  */
 export function createGame(gameId, hostPlayer, isExtended = false, enableSpecialBuild = true) {
@@ -764,9 +795,7 @@ export function createGame(gameId, hostPlayer, isExtended = false, enableSpecial
   const MAX_PLAYERS = isExtended ? 6 : 4;
   
   // Extended game has more development cards
-  const devCards = isExtended 
-    ? [...DEV_CARD_DISTRIBUTION, ...DEV_CARD_DISTRIBUTION.slice(0, 9)] // Add 9 more cards (34 total)
-    : [...DEV_CARD_DISTRIBUTION];
+  const devCards = isExtended ? DEV_CARD_DISTRIBUTION_EXTENDED : DEV_CARD_DISTRIBUTION;
   
   // Shuffle terrain and numbers
   const shuffledTerrain = shuffle(TERRAIN_DISTRIBUTION);
@@ -794,6 +823,8 @@ export function createGame(gameId, hostPlayer, isExtended = false, enableSpecial
     }
   });
   
+  if (isExtended) assignExtendedNumbers(hexes);
+
   // Create vertex and edge maps
   const vertices = {};
   const edges = {};
@@ -826,10 +857,14 @@ export function createGame(gameId, hostPlayer, isExtended = false, enableSpecial
     phase: 'waiting', // waiting, setup, playing, finished
     setupPhase: 0, // 0: first settlements, 1: second settlements (reverse)
     currentPlayerIndex: 0,
-    turnPhase: 'roll', // roll, main, robber, discard, specialBuild
+    turnPhase: 'roll', // roll, main, robber, discard; legacy saves may have specialBuild
     isExtended, // 5-6 player extension flag
     maxPlayers: MAX_PLAYERS,
-    enableSpecialBuild, // Whether special building phase is enabled (optional rule)
+    enableSpecialBuild, // Legacy setting, ignored by newly created extended games
+    pairedTurnRules: isExtended, // Distinguishes current rules from old saved games
+    productionPlayerIndex: 0, // The rolling player for this paired turn
+    turnRole: 'primary', // primary rolls; paired has an Action phase only
+    playerTradingAllowed: false,
     specialBuildingPhase: false, // True during special building phase
     specialBuildIndex: 0, // Which player is currently in special build phase
     ports, // Port locations and types
@@ -914,6 +949,9 @@ export function startGame(game) {
   if (game.players.length < 2) {
     return { success: false, error: 'Need at least 2 players' };
   }
+  if (game.pairedTurnRules && game.players.length < 5) {
+    return { success: false, error: 'The 5–6 player game needs at least 5 players' };
+  }
   
   // Randomize player order
   const playerOrder = game.players.map((_, idx) => idx);
@@ -934,6 +972,11 @@ export function startGame(game) {
   game.phase = 'setup';
   game.setupPhase = 0;
   game.currentPlayerIndex = 0;
+  if (game.pairedTurnRules) {
+    game.productionPlayerIndex = 0;
+    game.turnRole = 'primary';
+  }
+  refreshPlayerTradingAllowed(game);
   
   return { success: true, turnOrder: game.players.map(p => ({ id: p.id, name: p.name, turnOrder: p.turnOrder })) };
 }
@@ -974,6 +1017,7 @@ export function shuffleBoard(game) {
     }
   });
   
+  if (game.isExtended) assignExtendedNumbers(game.hexes);
   game.robber = desertHex;
   
   return { success: true };
@@ -1002,6 +1046,12 @@ export function rollDice(game, playerId) {
   if (game.turnPhase !== 'roll') {
     return { success: false, error: 'Cannot roll now' };
   }
+  if (game.pairedTurnRules && game.turnRole !== 'primary') {
+    return { success: false, error: 'Only the primary player rolls dice' };
+  }
+
+  checkWinner(game);
+  if (game.phase === 'finished') return { success: true, winner: game.winner };
   
   const die1 = Math.floor(Math.random() * 6) + 1;
   const die2 = Math.floor(Math.random() * 6) + 1;
@@ -1029,11 +1079,13 @@ export function rollDice(game, playerId) {
     } else {
       game.turnPhase = 'robber';
     }
+    refreshPlayerTradingAllowed(game);
     return { success: true, roll: game.diceRoll, resourceGains: null };
   } else {
     // Distribute resources
     const gains = distributeResources(game, total);
     game.turnPhase = 'main';
+    refreshPlayerTradingAllowed(game);
     return { success: true, roll: game.diceRoll, resourceGains: gains };
   }
 }
@@ -1206,14 +1258,15 @@ export function moveRobber(game, playerId, hexKey, stealFromPlayerId) {
       thiefId: player.id,
       victimId: victim.id,
       cards: shuffle(cards),
-      resumePhase: game.hasRolledThisTurn ? 'main' : 'roll'
+      resumePhase: game.hasRolledThisTurn || (game.pairedTurnRules && game.turnRole === 'paired') ? 'main' : 'roll'
     };
     game.turnPhase = 'robberPick';
     return { success: true, robberPick: { id: game.pendingRobberPick.id, count: cards.length } };
   }
 
   game.pendingRobberPick = null;
-  game.turnPhase = game.hasRolledThisTurn ? 'main' : 'roll';
+  game.turnPhase = game.hasRolledThisTurn || (game.pairedTurnRules && game.turnRole === 'paired') ? 'main' : 'roll';
+  refreshPlayerTradingAllowed(game);
   return { success: true };
 }
 
@@ -1245,6 +1298,7 @@ export function chooseRobberCard(game, playerId, cardId) {
   };
   game.pendingRobberPick = null;
   game.turnPhase = pending.resumePhase;
+  refreshPlayerTradingAllowed(game);
   return { success: true, stolenInfo };
 }
 
@@ -1697,6 +1751,7 @@ export function playDevCard(game, playerId, cardType, params = {}) {
   
   // Mark that a dev card was played this turn
   game.devCardPlayedThisTurn = true;
+  refreshPlayerTradingAllowed(game);
   
   return { success: true };
 }
@@ -1732,6 +1787,7 @@ export function yearOfPlentyPick(game, playerId, resource) {
   player.resources[resource]++;
   game.bank[resource]--;
   game.yearOfPlentyPicks--;
+  refreshPlayerTradingAllowed(game);
   
   return { success: true };
 }
@@ -1854,6 +1910,9 @@ export function proposeTrade(game, playerId, offer, request) {
   if (game.turnPhase !== 'main') {
     return { success: false, error: 'Cannot trade now' };
   }
+  if (!isPlayerTradingAllowed(game)) {
+    return { success: false, error: 'Player trades are unavailable during the paired action phase' };
+  }
   
   const player = game.players[playerIndex];
 
@@ -1887,6 +1946,9 @@ export function proposeTrade(game, playerId, offer, request) {
 export function respondToTrade(game, playerId, accept) {
   if (game.phase !== 'playing' || game.turnPhase !== 'main') {
     return { success: false, error: 'Cannot trade now' };
+  }
+  if (!isPlayerTradingAllowed(game)) {
+    return { success: false, error: 'Player trades are unavailable during the paired action phase' };
   }
 
   if (!game.tradeOffer) {
@@ -1970,6 +2032,9 @@ export function cancelTrade(game, playerId) {
   if (!game.tradeOffer) {
     return { success: false, error: 'No trade offer' };
   }
+  if (!isPlayerTradingAllowed(game)) {
+    return { success: false, error: 'Player trades are unavailable during the paired action phase' };
+  }
   
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   if (playerIndex !== game.tradeOffer.from) {
@@ -1984,11 +2049,23 @@ export function cancelTrade(game, playerId) {
 // TURN MANAGEMENT
 // ============================================================================
 
+/** Player-to-player trades are confined to the primary player's Action phase. */
+export function isPlayerTradingAllowed(game) {
+  return game?.phase === 'playing' && game.turnPhase === 'main' &&
+    (!game.pairedTurnRules || game.turnRole === 'primary') &&
+    !game.freeRoads && !game.yearOfPlentyPicks && !game.pendingRobberPick;
+}
+
+export function refreshPlayerTradingAllowed(game) {
+  game.playerTradingAllowed = isPlayerTradingAllowed(game);
+  return game.playerTradingAllowed;
+}
+
 /** 
  * End the current player's turn
  * - Moves new dev cards to playable cards
  * - Resets turn-based flags
- * - In 5-6 player games: initiates Special Building Phase
+ * - In new 5-6 player games: primary -> paired -> next primary
  * - Advances to next player
  */
 export function endTurn(game, playerId) {
@@ -2009,6 +2086,17 @@ export function endTurn(game, playerId) {
   if (game.turnPhase !== 'main') {
     return { success: false, error: 'Cannot end turn now' };
   }
+  if (game.freeRoads || game.yearOfPlentyPicks || game.pendingRobberPick) {
+    return { success: false, error: 'Complete the current card action first' };
+  }
+
+  // A player who enters an Action phase holding ten hidden points wins there.
+  // Also settle a victory missed by an older saved game before advancing.
+  checkWinner(game);
+  if (game.phase === 'finished') {
+    refreshPlayerTradingAllowed(game);
+    return { success: true, winner: game.winner };
+  }
   
   // Move new dev cards to regular cards
   const player = game.players[playerIndex];
@@ -2021,6 +2109,24 @@ export function endTurn(game, playerId) {
   game.yearOfPlentyPicks = 0;
   game.devCardPlayedThisTurn = false;
   game.hasRolledThisTurn = false;
+
+  if (game.pairedTurnRules) {
+    if (game.turnRole === 'primary') {
+      game.currentPlayerIndex = (game.productionPlayerIndex + 3) % game.players.length;
+      game.turnRole = 'paired';
+      game.turnPhase = 'main';
+    } else {
+      game.productionPlayerIndex = (game.productionPlayerIndex + 1) % game.players.length;
+      game.currentPlayerIndex = game.productionPlayerIndex;
+      game.turnRole = 'primary';
+      game.turnPhase = 'roll';
+      game.diceRoll = null;
+    }
+    refreshPlayerTradingAllowed(game);
+    checkWinner(game);
+    refreshPlayerTradingAllowed(game);
+    return { success: true, turnRole: game.turnRole, winner: game.winner };
+  }
   
   // In 5-6 player games, start Special Building Phase (if enabled)
   if (game.isExtended && game.players.length > 4 && game.enableSpecialBuild) {
@@ -2032,6 +2138,7 @@ export function endTurn(game, playerId) {
       game.specialBuildIndex = (game.specialBuildIndex + 1) % game.players.length;
     }
     game.turnPhase = 'specialBuild';
+    refreshPlayerTradingAllowed(game);
     return { success: true, specialBuildingPhase: true };
   }
   
@@ -2040,6 +2147,7 @@ export function endTurn(game, playerId) {
   game.turnPhase = 'roll';
   game.diceRoll = null;
   checkWinner(game);
+  refreshPlayerTradingAllowed(game);
   
   return { success: true };
 }
@@ -2049,6 +2157,9 @@ export function endTurn(game, playerId) {
  * Advances to next player or ends the phase if all players have gone
  */
 export function endSpecialBuild(game, playerId) {
+  if (game.pairedTurnRules) {
+    return { success: false, error: 'Special building is not used in this edition' };
+  }
   if (game.phase !== 'playing') {
     return { success: false, error: 'Game is not active' };
   }
@@ -2085,6 +2196,7 @@ export function endSpecialBuild(game, playerId) {
 
 /** Check if a player can currently act in the special building phase */
 export function canSpecialBuild(game, playerId) {
+  if (game.pairedTurnRules) return false;
   if (!game.specialBuildingPhase) return false;
   const playerIndex = game.players.findIndex(p => p.id === playerId);
   return game.specialBuildIndex === playerIndex;
@@ -2103,7 +2215,7 @@ function canPlayerBuildNow(game, playerId) {
   }
   
   // Special building phase
-  if (game.specialBuildingPhase && game.specialBuildIndex === playerIndex) {
+  if (!game.pairedTurnRules && game.specialBuildingPhase && game.specialBuildIndex === playerIndex) {
     return true;
   }
   
@@ -2147,6 +2259,12 @@ export function advanceSetup(game, playerId) {
       // Setup complete
       game.phase = 'playing';
       game.turnPhase = 'roll';
+      if (game.pairedTurnRules) {
+        game.productionPlayerIndex = 0;
+        game.turnRole = 'primary';
+      }
+      checkWinner(game);
+      refreshPlayerTradingAllowed(game);
     }
   }
   
@@ -2470,6 +2588,7 @@ export function getPlayerView(game, playerId) {
   
   return {
     ...game,
+    playerTradingAllowed: isPlayerTradingAllowed(game),
     players: game.players.map((p, idx) => ({
       ...p,
       // After game over, show everyone's dev cards; during game, only show own cards

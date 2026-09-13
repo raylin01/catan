@@ -628,13 +628,13 @@ function LiveApp() {
     }, 4000);
   }, []);
 
-  const handleCreateRoom = useCallback(async ({ name, seatCount, seats, hostKey }) => {
+  const handleCreateRoom = useCallback(async ({ name, seatCount, seats, gameOptions, hostKey }) => {
     setBusy(true);
     setError(null);
     try {
       const response = await requestJson('/api/rooms', {
         method: 'POST',
-        body: { name, seatCount, seats },
+        body: { name, seatCount, seats, gameOptions },
         headers: hostKey ? { 'X-Host-Key': hostKey } : undefined
       });
       const token = getToken(response);

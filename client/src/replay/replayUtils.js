@@ -92,7 +92,7 @@ export function clampSeq(value, lastSeq) {
 }
 
 export function playerColor(player, index = 0) {
-  return player?.color || ['#d96855', '#4f94b5', '#dc9b51', '#63a892'][index % 4];
+  return player?.color || ['#d96855', '#4f94b5', '#dc9b51', '#63a892', '#87a958', '#a77ac7'][index % 6];
 }
 
 export function safeFilename(value) {
