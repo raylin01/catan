@@ -316,7 +316,7 @@ export class RoomService {
     if(member.seatId && generation!==member.generation)return fail('Seat controller changed',409);
     const copy=clone(room),beforeGame=room.game?clone(room.game):null;let result={success:true};
     try {
-      const hostTypes=['configureGame','configureSeat','start','removeController','pause','resume','endGame','closeRoom'];
+      const hostTypes=['configureGame','configureSeat','aiSetChat','start','removeController','pause','resume','endGame','closeRoom'];
       if(hostTypes.includes(type)&&member.role!=='host')return fail('Only the host can do that',403);
       const slot=copy.slots.find(s=>s.id===member.seatId);
       const aiControlType=['aiPause','aiResume','aiCancel'].includes(type);
@@ -333,6 +333,12 @@ export class RoomService {
         if(!target.controller)return fail('AI seat has no attached controller');
         if(member.role!=='host'&&member.seatId!==target.id)return fail('You cannot control that AI seat',403);
         result=applyAiControl(target,{aiPause:'pause',aiResume:'resume',aiCancel:'cancel'}[type],this.now());
+      } else if(type==='aiSetChat') {
+        if(Object.keys(payload).some(key=>!['seatId','enabled'].includes(key))||typeof payload.enabled!=='boolean')return fail('Choose whether AI chat is enabled');
+        const target=copy.slots.find(candidate=>candidate.id===payload.seatId&&candidate.kind==='ai');
+        if(!target)return fail('Choose an AI seat');
+        // Chat permission changes do not replace the controller or cancel gameplay.
+        target.chatEnabled=payload.enabled;
       } else if(type==='configureGame') {
         if(copy.game)return fail('Game options are locked after start');
         if(Object.keys(payload).some(key=>!['seatCount','gameOptions'].includes(key)))return fail('Invalid game configuration');
@@ -463,7 +469,7 @@ export class RoomService {
       copy.revision++;
       appendCardEvent(copy,beforeGame,type,type==='rollDice'?copy.lastRoll?.id:null);
       const playedProgress=type==='playProgressCard'?beforeGame?.players?.find(player=>player.id===member.seatId)?.progressCards?.find(card=>card.id===payload.cardId):null;
-      const labels={placePort:'placed a harbor',claimWonder:'claimed a wonder',buildWonder:'built a wonder level',attackFortress:'attacked their pirate fortress',placeShip:'built a ship',moveShip:'moved a ship',movePirate:'moved the pirate',resolveSeafarersChoice:'resolved a scenario choice',configureGame:'changed the lobby rules',ready:'readied their seat',advanceSetup:'advanced setup',chat:'sent a message',configureSeat:'configured a seat',finishFreeRoads:'finished placing free roads',yearOfPlentyPick:'chose a Year of Plenty resource',start:'started the game',placeSettlement:'built a settlement',placeRoad:'built a road',upgradeToCity:'built a city',rollDice:'rolled the dice',discardCards:'discarded cards',moveRobber:'moved the robber',chooseRobberCard:'stole a card',buyDevCard:'bought a development card',playDevCard:'played a development card',bankTrade:'traded with the bank',endTurn:'ended their turn',tradeOffer:'offered a trade',tradeCounter:'made a counteroffer',tradeAccept:'accepted a trade offer',tradeReject:'rejected a trade offer',tradeConfirm:'confirmed a trade',tradeCancel:'cancelled a trade',leave:'left their seat',removeController:'removed a seat controller',pause:'paused the game',resume:'resumed the game',aiPause:'paused an AI seat',aiResume:'resumed an AI seat',aiCancel:'cancelled an AI decision',endGame:'ended the game',closeRoom:'closed the room'};
+      const labels={aiSetChat:'changed AI chat access',placePort:'placed a harbor',claimWonder:'claimed a wonder',buildWonder:'built a wonder level',attackFortress:'attacked their pirate fortress',placeShip:'built a ship',moveShip:'moved a ship',movePirate:'moved the pirate',resolveSeafarersChoice:'resolved a scenario choice',configureGame:'changed the lobby rules',ready:'readied their seat',advanceSetup:'advanced setup',chat:'sent a message',configureSeat:'configured a seat',finishFreeRoads:'finished placing free roads',yearOfPlentyPick:'chose a Year of Plenty resource',start:'started the game',placeSettlement:'built a settlement',placeRoad:'built a road',upgradeToCity:'built a city',rollDice:'rolled the dice',discardCards:'discarded cards',moveRobber:'moved the robber',chooseRobberCard:'stole a card',buyDevCard:'bought a development card',playDevCard:'played a development card',bankTrade:'traded with the bank',endTurn:'ended their turn',tradeOffer:'offered a trade',tradeCounter:'made a counteroffer',tradeAccept:'accepted a trade offer',tradeReject:'rejected a trade offer',tradeConfirm:'confirmed a trade',tradeCancel:'cancelled a trade',leave:'left their seat',removeController:'removed a seat controller',pause:'paused the game',resume:'resumed the game',aiPause:'paused an AI seat',aiResume:'resumed an AI seat',aiCancel:'cancelled an AI decision',endGame:'ended the game',closeRoom:'closed the room'};
       Object.assign(labels,{buildCityWall:'built a city wall',improveCity:'improved a city',recruitKnight:'recruited a knight',
         promoteKnight:'promoted a knight',activateKnight:'activated a knight',moveKnight:'moved a knight',driveRobber:copy.game?.pirate!==beforeGame?.pirate?'drove away the pirate':'drove away the robber',
         playProgressCard:playedProgress?`played ${CITIES_KNIGHTS_CARDS[playedProgress.type]?.name||'a progress card'}`:'played a progress card',
@@ -529,7 +535,7 @@ export class RoomService {
     const afterNegotiationSequence=payload.afterNegotiationSequence??0;
     if(!Number.isSafeInteger(afterNegotiationSequence)||afterNegotiationSequence<0)return fail('Invalid negotiation sequence');
     const fenced=fenceAiCommand(actor.slot,payload,this.now());if(!fenced.success)return fenced;
-    const messages=(room.chat||[]).filter(message=>(message.authorRole||'human')==='human'&&(message.sequence||0)>afterSequence);
+    const messages=actor.slot.chatEnabled?(room.chat||[]).filter(message=>(message.authorRole||'human')==='human'&&(message.sequence||0)>afterSequence):[];
     const page=messages.slice(0,50);
     const negotiationPage=actor.slot.chatEnabled
       ?readNegotiations(room,actor.slot.id,afterNegotiationSequence,this.now())

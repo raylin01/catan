@@ -55,6 +55,7 @@ export const REPLAY_EVENT_ICONS = {
   tradeConfirm: 'trade',
   tradeCancel: 'trade',
   aiChatReply: 'chat',
+  aiSetChat: 'chat',
   leave: 'players',
   aiCancel: 'players',
   endTurn: 'endTurn',

@@ -164,3 +164,51 @@ test('accepted AI chat receipts remain retryable after closure or an ending',()=
     assert.deepEqual(service.rooms.get(roomCode),before);
   }
 });
+
+test('host can toggle external AI chat during play without replacing or pausing the seat',()=>{
+  const now={value:10000},{service,store,roomCode,host,ai}=makeRoom(now,{chatEnabled:false});
+  // Exercise the same direct-controller transport used by external agents.
+  service.rooms.get(roomCode).slots[0].provider='mcp';
+  const one=service.join(roomCode,{name:'One',role:'human'}),two=service.join(roomCode,{name:'Two',role:'human'});
+  for(const actor of [ai,one,two])assert.equal(command(service,roomCode,actor,'ready').success,true);
+  assert.equal(command(service,roomCode,host,'start').success,true);
+  assert.equal(command(service,roomCode,one,'chat',{message:'Interested in trading brick?'}).success,true);
+  const before=structuredClone(service.rooms.get(roomCode)),view=service.observe(roomCode,host.token);
+  const envelope={requestId:'enable-chat-live',revision:view.revision,type:'aiSetChat',payload:{seatId:ai.seatId,enabled:true}};
+  const enabled=service.command(roomCode,host.token,envelope);assert.equal(enabled.success,true);
+  assert.deepEqual(service.command(roomCode,host.token,envelope),enabled);
+  const after=service.rooms.get(roomCode);
+  assert.deepEqual(after.game,before.game);assert.deepEqual(after.members,before.members);
+  assert.deepEqual({...after.slots[0],chatEnabled:false},before.slots[0]);
+  assert.deepEqual(after.slots.slice(1),before.slots.slice(1));
+  const own=service.observe(roomCode,ai.token);assert.equal(own.success,true);assert.deepEqual(own.chat,[]);
+  const read=service.aiChatRead(roomCode,ai.token,{controlEpoch:own.controlEpoch,afterSequence:0});
+  assert.equal(read.chatEnabled,true);assert.equal(read.messages.length,1);
+  const reply={requestId:'direct-live-reply',controlEpoch:own.controlEpoch,replyToSequence:read.messages[0].sequence,message:'I will check the available trades.'};
+  assert.equal(service.aiChatReply(roomCode,ai.token,reply).success,true);
+  assert.equal(command(service,roomCode,host,'aiSetChat',{seatId:ai.seatId,enabled:false}).success,true);
+  const disabled=service.aiChatRead(roomCode,ai.token,{controlEpoch:own.controlEpoch,afterSequence:0});
+  assert.equal(disabled.chatEnabled,false);assert.deepEqual(disabled.messages,[]);assert.deepEqual(disabled.negotiations,[]);
+  assert.equal(service.aiChatReply(roomCode,ai.token,{...reply,requestId:'disabled-reply'}).statusCode,409);
+  assert.equal(service.aiChatReply(roomCode,ai.token,reply).success,true,'accepted receipts remain retryable after disabling');
+  const restored=new RoomService({store,now:()=>now.value});
+  assert.equal(restored.observe(roomCode,ai.token).slots[0].chatEnabled,false);
+  const recording=service.recordings.get(before.recordingId);
+  const events=recording.events.filter(event=>event.type==='aiSetChat');
+  assert.deepEqual(events.map(event=>event.payload),[{seatId:ai.seatId,enabled:true},{seatId:ai.seatId,enabled:false}]);
+  assert.equal(recording.latestState.slots[0].chat.enabled,false);
+});
+
+test('live AI chat controls reject non-hosts and malformed or cross-room targets without mutation',()=>{
+  const {service,roomCode,host,ai}=makeRoom({value:10000},{chatEnabled:false});
+  const human=service.join(roomCode,{name:'Human',role:'human'}),spectator=service.join(roomCode,{name:'Viewer',role:'spectator'});
+  const other=makeRoom({value:10000});
+  const before=structuredClone(service.rooms.get(roomCode));
+  for(const actor of [ai,human,spectator])assert.equal(command(service,roomCode,actor,'aiSetChat',{seatId:ai.seatId,enabled:true}).statusCode,403);
+  for(const payload of [{seatId:human.seatId,enabled:true},{seatId:other.ai.seatId,enabled:true},{seatId:ai.seatId,enabled:'true'},{seatId:ai.seatId},{seatId:ai.seatId,enabled:true,model:'forged'}]) {
+    assert.equal(command(service,roomCode,host,'aiSetChat',payload).success,false);
+  }
+  assert.deepEqual(service.rooms.get(roomCode),before);
+  assert.equal(command(service,roomCode,host,'closeRoom').success,true);
+  assert.equal(command(service,roomCode,host,'aiSetChat',{seatId:ai.seatId,enabled:true}).statusCode,410);
+});
