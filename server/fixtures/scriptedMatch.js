@@ -61,6 +61,30 @@ function scoreRoad(game, edgeKey) {
     .map(vertex => scoreVertex(game, vertex)));
 }
 
+function scoreShip(view, edgeKey) {
+  const match = /^e_(-?\d+)_(-?\d+)_(\d)$/.exec(edgeKey);
+  if (!match) return -Infinity;
+  const [,q,r,direction] = match.map(Number);
+  const adjacent = [G.vertexKey(q,r,direction),G.vertexKey(q,r,(direction+1)%6)]
+    .flatMap(vertex=>G.getVertexAdjacentHexes(view.gameState,vertex));
+  const home = view.gameState.seafarers?.homeRegions?.[view.seatId] || [];
+  const goals = Object.values(view.gameState.hexes).filter(hex=>hex.terrain==='fog'
+    || (hex.terrain!=='sea' && hex.region && !home.includes(hex.region)));
+  if (!goals.length) return scoreRoad(view.gameState,edgeKey);
+  const distance = Math.min(...adjacent.flatMap(hex=>goals.map(target=>Math.max(
+    Math.abs(hex.q-target.q),Math.abs(hex.r-target.r),Math.abs(hex.q+hex.r-target.q-target.r)))));
+  return 100-distance*10+adjacent.filter(hex=>hex.terrain==='fog').length*20;
+}
+
+function chooseScenarioChoice(view) {
+  const actions=view.legalActions.filter(action=>action.type==='resolveSeafarersChoice');
+  const hand=ownPlayer(view)?.resources || {};
+  return actions.sort((a,b)=>{
+    const missing=action=>deficit(desiredCost(view),hand,action.payload.optionId);
+    return missing(b)-missing(a);
+  })[0];
+}
+
 function best(actions, type, score = () => 0) {
   return actions
     .filter(action => action.type === type)
@@ -340,15 +364,19 @@ export function playScriptedMatch({
 
     while (observe(host).gameState?.phase === 'setup') {
       const state = observe(host).gameState;
-      const actor = actorFor(state.players[state.currentPlayerIndex].id);
+      const actor = actorFor(state.pendingChoice?.actorId || state.players[state.currentPlayerIndex].id);
       if (!actor) throw new Error('Setup selected an unknown scripted seat');
       const view = observe(actor);
-      const settlement = best(view.legalActions, 'placeSettlement', payload => scoreVertex(view.gameState, payload.vertexKey));
+      const scenarioChoice=chooseScenarioChoice(view)||best(view.legalActions,'placePort');
+      if(scenarioChoice){command(actor,view,scenarioChoice.type,scenarioChoice.payload);continue;}
+      const settlement = best(view.legalActions, 'placeSettlement', payload => scoreVertex(view.gameState, payload.vertexKey)
+        +(state.seafarers?G.getVertexAdjacentHexes(state,payload.vertexKey).filter(hex=>hex.terrain==='sea'||hex.terrain==='fog').length*6:0));
       if (settlement) {
         command(actor, view, settlement.type, settlement.payload);
         continue;
       }
-      const road = best(view.legalActions, 'placeRoad', payload => scoreRoad(view.gameState, payload.edgeKey));
+      const road = (state.seafarers&&best(view.legalActions,'placeShip',payload=>scoreShip(view,payload.edgeKey)))
+        ||best(view.legalActions, 'placeRoad', payload => scoreRoad(view.gameState, payload.edgeKey));
       if (road) {
         command(actor, view, road.type, road.payload);
         continue;
@@ -392,6 +420,12 @@ export function playScriptedMatch({
         break;
       }
 
+      if(game.pendingChoice) {
+        const actor=actorFor(game.pendingChoice.actorId),view=observe(actor),action=chooseScenarioChoice(view);
+        if(!action)throw new Error('Scenario choice has no legal continuation');
+        command(actor,view,action.type,action.payload);continue;
+      }
+
       if (game.turnPhase === 'discard') {
         let discarded = false;
         for (const bot of bots) {
@@ -417,7 +451,7 @@ export function playScriptedMatch({
       if (game.turnPhase === 'roll' && turnMemory.get(currentId)) turnMemory.get(currentId).paidRoad = false;
 
       if (game.turnPhase === 'robber') {
-        const moves = view.legalActions.filter(action => action.type === 'moveRobber');
+        const moves = view.legalActions.filter(action => action.type === 'moveRobber'||action.type === 'movePirate');
         const move = moves.find(action => action.payload.stealFromPlayerId) || moves[0];
         if (!move) throw new Error('Robber has no legal destination');
         command(actor, view, move.type, move.payload);
@@ -439,7 +473,8 @@ export function playScriptedMatch({
         continue;
       }
       if (game.freeRoads > 0) {
-        const road = best(view.legalActions, 'placeRoad', payload => scoreRoad(view.gameState, payload.edgeKey));
+        const road = (game.seafarers&&best(view.legalActions,'placeShip',payload=>scoreShip(view,payload.edgeKey)))
+          ||best(view.legalActions, 'placeRoad', payload => scoreRoad(view.gameState, payload.edgeKey));
         const finish = best(view.legalActions, 'finishFreeRoads');
         const action = road || finish;
         if (!action) throw new Error('Road Building has no resolution');
@@ -521,6 +556,8 @@ export function playScriptedMatch({
       }
 
       const memory = turnMemory.get(currentId);
+      const ship=game.seafarers&&best(view.legalActions,'placeShip',payload=>scoreShip(view,payload.edgeKey));
+      if(ship&&memory&&!memory.paidRoad){command(actor,view,ship.type,ship.payload);memory.paidRoad=true;continue;}
       const road = best(view.legalActions, 'placeRoad', payload => scoreRoad(view.gameState, payload.edgeKey));
       if (road && memory && !memory.paidRoad && countsOnBoard(view).settlement === 0) {
         command(actor, view, road.type, road.payload);

@@ -2,7 +2,7 @@ import {useEffect, useRef, useState} from 'react';
 import GameIcon from './GameIcon';
 import './GameLog.css';
 
-const EVENT_ICONS = {rollDice: 'dice', placeSettlement: 'settlement', placeRoad: 'road', upgradeToCity: 'city', moveRobber: 'robber', stealResource: 'robber', discardResources: 'cards', bankTrade: 'bank', proposeTrade: 'trade', acceptTrade: 'trade', executeTrade: 'trade', tradeConfirm: 'trade', tradeOffer: 'trade', tradeAccept: 'trade', tradeReject: 'trade', tradeCancel: 'trade', buyDevelopmentCard: 'devCard', playDevelopmentCard: 'devCard', endTurn: 'compass', start: 'players'};
+const EVENT_ICONS = {placeShip:'ship',moveShip:'ship',movePirate:'pirate',placePort:'port',resolveSeafarersChoice:'compass',claimWonder:'wonder',buildWonder:'wonder',attackFortress:'fortress',rollDice: 'dice', placeSettlement: 'settlement', placeRoad: 'road', upgradeToCity: 'city', moveRobber: 'robber', stealResource: 'robber', discardResources: 'cards', bankTrade: 'bank', proposeTrade: 'trade', acceptTrade: 'trade', executeTrade: 'trade', tradeConfirm: 'trade', tradeOffer: 'trade', tradeAccept: 'trade', tradeReject: 'trade', tradeCancel: 'trade', buyDevelopmentCard: 'devCard', playDevelopmentCard: 'devCard', endTurn: 'compass', start: 'players'};
 
 export default function GameLog({events, players}) {
   const [open, setOpen] = useState(false);
