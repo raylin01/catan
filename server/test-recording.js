@@ -245,7 +245,8 @@ test('terminal checkpoint failure rolls back the archive and retry receipt befor
   assert.deepEqual(service.command(created.code,created.token,command),accepted);
   assert.equal(store.getRecording(created.replayId).lastSeq,before+1);
   assert.equal(service.observe(created.code,created.token).gameState.phase,'finished');
-  assert.equal(service.join(created.code,{name:'Archive visitor'}).success,true);
+  assert.equal(service.join(created.code,{name:'Archive visitor'}).statusCode,410);
+  assert.equal(service.watch(created.code).replayId,created.replayId);
   assert.equal(service.rooms.size,0);assert.equal(service.recordings.size,0);assert.equal(service.presence.size,0);
   store.close();
 });

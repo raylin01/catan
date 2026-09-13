@@ -11,11 +11,11 @@ const keyPath=resolve(dataDir,'host-key');
 if(!process.env.CATAN_HOST_KEY&&!existsSync(keyPath))writeFileSync(keyPath,randomBytes(32).toString('base64url'),{mode:0o600,flag:'wx'});
 const hostKey=process.env.CATAN_HOST_KEY||readFileSync(keyPath,'utf8').trim();
 const store=new RoomStore(resolve(dataDir,'rooms.sqlite'));
-const service=new RoomService({store,maxActive:Number(process.env.CATAN_MAX_ACTIVE||1)});
-const server=createAppServer({service,hostKey});
+const service=new RoomService({store,maxRooms:Number(process.env.CATAN_MAX_ROOMS||16)});
+const server=createAppServer({service,hostKey,publicUrl:process.env.CATAN_PUBLIC_URL,siteName:process.env.CATAN_SITE_NAME||'Catan Online by rlin',bridgeRef:process.env.CATAN_BRIDGE_REF||'main',trustProxy:process.env.CATAN_TRUST_PROXY||false});
 server.listen(Number(process.env.PORT||3001),process.env.HOST||'127.0.0.1',()=>{
  console.log(`Catan is listening on http://${process.env.HOST||'127.0.0.1'}:${server.address().port}`);
- console.log(`Host key file: ${keyPath} (enter its contents only in the host create-room form)`);
+ console.log(`Host key file: ${keyPath} (optional operator capacity override and recording administration)`);
 });
 const stop=()=>server.close(()=>{store.close();process.exit(0);});
 process.on('SIGTERM',stop);process.on('SIGINT',stop);

@@ -175,17 +175,15 @@ test('provider definitions are injected and controller removal supports human/AI
   assert.equal(service.observe(lobby.code,human.token).statusCode,401);
 });
 
-test('one active-game limit permits multiple lobbies and releases after endGame',()=>{
-  const service=new RoomService({maxActive:1});
+test('multiple admitted lobbies can start games concurrently and ending one frees a room slot',()=>{
+  const service=new RoomService();
   const first=makeLobby(service,{name:'First'}),second=makeLobby(service,{name:'Second'});
   fillHumanLobby(service,first);fillHumanLobby(service,second);
   startRoom(service,first);
-  const before=structuredClone(service.rooms.get(second.code));
-  const blocked=issue(service,second.code,second.host,'start');
-  assert.equal(blocked.statusCode,409);
-  assert.deepEqual(service.rooms.get(second.code),before);
-  assert.equal(issue(service,first.code,first.host,'endGame').success,true);
   startRoom(service,second);
+  assert.equal(service.capacity().activeRooms,2);
+  assert.equal(issue(service,first.code,first.host,'endGame').success,true);
+  assert.equal(service.capacity().activeRooms,1);
 });
 
 test('structured trades require target confirmation and settle atomically',()=>{

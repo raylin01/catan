@@ -16,14 +16,14 @@ const sessionPath=resolve(options.session||'.catan-session.json');
 let session;
 const save=async()=>{await mkdir(dirname(sessionPath),{recursive:true,mode:0o700});const temporary=`${sessionPath}.${randomUUID()}.tmp`;await writeFile(temporary,JSON.stringify(session),{mode:0o600,flag:'wx'});await rename(temporary,sessionPath);};
 const load=async()=>{session=JSON.parse(await readFile(sessionPath,'utf8'));return new GameClient(session);};
-async function join(args) {
-  const provider=args.provider||'codex';if(!connectors.has(provider))throw Error('Connector is not implemented');
+async function join(args,defaultProvider='codex') {
+  const provider=args.provider||defaultProvider;if(provider!=='mcp'&&!connectors.has(provider))throw Error('Connector is not implemented');
   const selectedReasoning=reasoning(args.reasoning);
   const selectedTimeout=decisionTimeout(args['decision-timeout-ms']);
   if(!session){try{await load();}catch(error){if(error.code!=='ENOENT')throw error;}}
   if(session?.token){
     try{const prior=await new GameClient(session).observe();
-      if(prior.seatId&&prior.gameState?.phase!=='finished')throw Error('This session already controls a seat. Use run, leave that seat, or choose another --session file');
+      if(prior.seatId&&prior.gameState?.phase!=='finished')throw Error('This session already controls a seat. Use its existing session, leave that seat, or choose another --session file');
     }catch(error){if(error.status!==401&&error.status!==404)throw error;}
   }
   const server=options.server||session?.server;if(!server)throw Error('Specify --server https://your-game-host');
@@ -37,7 +37,7 @@ async function join(args) {
 async function mcp() {
   try{await load();}catch{/* Join tool creates a new session. */}
   const tools=[
-    {name:'catan_join',description:'Join a vacant remote AI seat by room code. Does not take over an occupied seat.',inputSchema:{type:'object',properties:{code:{type:'string'},name:{type:'string'},provider:{type:'string'},model:{type:'string'},reasoning:{type:'string',enum:[...reasoningValues]},seatId:{type:'string'}},required:['code','name'],additionalProperties:false}},
+    {name:'catan_join',description:'Join a vacant remote AI seat by room code. Defaults to the external MCP provider and does not take over an occupied seat.',inputSchema:{type:'object',properties:{code:{type:'string'},name:{type:'string'},provider:{type:'string',enum:['mcp','codex']},model:{type:'string'},reasoning:{type:'string',enum:[...reasoningValues]},seatId:{type:'string'}},required:['code','name'],additionalProperties:false}},
     {name:'catan_observe',description:'Read your private player view, legal choices, required decisions and structured trades. No free-form chat.',inputSchema:{type:'object',properties:{},additionalProperties:false}},
     {name:'catan_act',description:'Submit one action against an observed revision and generation. Use a unique requestId; reuse it unchanged for network retries.',inputSchema:{type:'object',properties:{type:{type:'string'},payload:{type:'object'},revision:{type:'integer'},generation:{type:'integer'},controlEpoch:{type:'integer'},requestId:{type:'string'}},required:['type','payload','revision','generation','controlEpoch','requestId'],additionalProperties:false}},
   ];
@@ -53,7 +53,7 @@ async function mcp() {
       else if(request.method==='tools/call') {
         try {
           const {name,arguments:args={}}=request.params;let value;
-          if(name==='catan_join')value=await join(args);
+          if(name==='catan_join')value=await join(args,'mcp');
           else {const client=await load();
             if(name==='catan_observe')value=await client.observe();
             else if(name==='catan_act')value=await client.request('/commands',args);
@@ -68,13 +68,15 @@ async function mcp() {
 }
 
 async function main(){
-  if(command==='join'){const connector=connectors.get(options.provider||'codex');if(!connector)throw Error('Unknown connector');await connector.ready();console.log(JSON.stringify(await join(options)));}
+  if(command==='join'){const provider=options.provider||'codex',connector=connectors.get(provider);if(provider!=='mcp'&&!connector)throw Error('Unknown connector');if(connector)await connector.ready();console.log(JSON.stringify(await join(options)));}
   else if(command==='observe')console.log(JSON.stringify(await(await load()).observe()));
   else if(command==='act'){
     const client=await load();const envelope=JSON.parse(options.command||'{}');
     console.log(JSON.stringify(await client.request('/commands',envelope)));
   } else if(command==='run') {
-    const client=await load(),connector=connectors.get(session.provider);if(!connector)throw Error('Connector unavailable');
+    const client=await load();
+    if(session.provider==='mcp')throw Error('External MCP seats have no automatic runner. Configure a local STDIO MCP server with: node bridge/cli.js mcp --server '+session.server+' --session '+sessionPath);
+    const connector=connectors.get(session.provider);if(!connector)throw Error('Connector unavailable');
     session.decisionTimeoutMs=decisionTimeout(options['decision-timeout-ms']??session.decisionTimeoutMs);
     await save();
     const controller=new AbortController();process.once('SIGINT',()=>controller.abort());process.once('SIGTERM',()=>controller.abort());
@@ -85,6 +87,6 @@ async function main(){
       negotiationCursor:session.negotiationCursor||0,pendingNegotiations:session.pendingNegotiations||[],negotiationWait:session.negotiationWait||null,
       signal:controller.signal,save:async (memory,state)=>{Object.assign(session,state,{memory});await save();}});
   } else if(command==='mcp')await mcp();
-  else console.log('Catan bridge\n  join --server https://game.example --code ROOM --name Codex [--model MODEL] [--reasoning EFFORT] [--decision-timeout-ms 300000] [--session FILE]\n  run [--session FILE] [--decision-timeout-ms 300000]\n  observe [--session FILE]\n  act --command JSON_ENVELOPE [--session FILE]\n  mcp --server https://game.example [--session FILE]\nEach AI seat must use its own session file.');
+  else console.log('Catan bridge\n  join --server https://game.example --code ROOM --name NAME [--provider codex|mcp] [--model MODEL] [--reasoning EFFORT] [--decision-timeout-ms 300000] [--session FILE]\n  run [--session FILE] [--decision-timeout-ms 300000] (Codex seats only)\n  observe [--session FILE]\n  act --command JSON_ENVELOPE [--session FILE]\n  mcp --server https://game.example [--session FILE] (catan_join defaults to mcp)\nEach AI seat must use its own session file.');
 }
 main().catch(error=>{if(error.name!=='AbortError'){console.error(error.message);process.exitCode=1;}});

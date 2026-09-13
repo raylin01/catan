@@ -2,6 +2,8 @@ import {AiControls, ChatModelFields} from './components/AiControls';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import RoomLobby from './RoomLobby';
+import WatchPage from './sharing/WatchPage';
+import RoomShare,{EndRoomControl,AgentInstructions} from './sharing/RoomShare';
 import GameBoard from './components/GameBoard';
 import RoomTradePanel from './components/RoomTradePanel';
 import ReplayPage from './replay/ReplayPage';
@@ -250,7 +252,7 @@ function createRoomAdapter() {
   };
 }
 
-function HostToolbar({ paused, busy, onCommand, slots = [], providers = [], phase }) {
+function HostToolbar({ code,  paused, busy, onCommand, slots = [], providers = [], phase }) {
   const [seatDrafts, setSeatDrafts] = useState({});
   const gameEnded = phase === 'finished';
 
@@ -287,7 +289,7 @@ function HostToolbar({ paused, busy, onCommand, slots = [], providers = [], phas
       seatId: slot.id,
       kind: draft.kind,
       ...(draft.kind === 'ai'
-        ? { provider: draft.provider || providers[0]?.id, model: draft.model.trim() || undefined, chatEnabled: draft.chatEnabled !== false, chatModel: draft.chatModel?.trim() || null, chatReasoning: draft.chatReasoning || null }
+        ? { provider: draft.provider || providers[0]?.id, model: draft.model.trim() || undefined, chatEnabled: draft.provider !== 'mcp' && draft.chatEnabled !== false, chatModel: draft.chatModel?.trim() || null, chatReasoning: draft.chatReasoning || null }
         : {})
     });
     setSeatDrafts(previous => ({
@@ -314,14 +316,7 @@ function HostToolbar({ paused, busy, onCommand, slots = [], providers = [], phas
             >
               {paused ? 'Resume room' : 'Pause room'}
             </button>
-            <button
-              type="button"
-              className="room-danger-button"
-              onClick={() => onCommand('endGame')}
-              disabled={busy}
-            >
-              End game
-            </button>
+            <EndRoomControl onEnd={()=>onCommand('endGame')} busy={busy}/>
           </div>
         )}
       </div>
@@ -346,6 +341,7 @@ function HostToolbar({ paused, busy, onCommand, slots = [], providers = [], phas
                     {slot.kind === 'ai' ? ` · ${providerName || 'AI'}${slot.model ? ` · ${slot.model}` : ''}` : ' · Human'}
                   </p>
                 </div>
+                {slot.kind === 'ai' && !slot.occupied && <AgentInstructions key={`${slot.id}:${slot.provider}:${slot.model}`} code={code} slot={slot}/>}
                 <AiControls slot={slot} onCommand={onCommand} busy={busy}/>
                 <div className="room-host-seat-controls">
                   <label>
@@ -383,7 +379,7 @@ function HostToolbar({ paused, busy, onCommand, slots = [], providers = [], phas
                           maxLength={40}
                         />
                       </label>
-                      <ChatModelFields draft={draft} onChange={(field,value)=>updateSeatDraft(slot.id,field,value)}/>
+                      {draft.provider !== 'mcp' && <ChatModelFields draft={draft} onChange={(field,value)=>updateSeatDraft(slot.id,field,value)}/>}
                     </>
                   )}
                   <button
@@ -794,7 +790,7 @@ function LiveApp() {
     const currentSession = activeSession;
     if (currentSession?.playerToken) {
       const result = await issueCommand('leave', {}, { asHost: false });
-      if (!result.success && result.statusCode !== 401) return;
+      if (!result.success && ![401, 410].includes(result.statusCode)) return;
     }
 
     setSession(previous => {
@@ -820,8 +816,9 @@ function LiveApp() {
     setError(null);
   }, [activeSession, clearRequestedRoom, issueCommand]);
 
-  const hostControls = activeSession?.hostToken && boardState ? (
+  const hostControls = activeSession?.hostToken && boardState && boardState.phase !== 'finished' ? (
     <HostToolbar
+      code={snapshot?.code}
       paused={Boolean(snapshot?.paused)}
       busy={busy}
       onCommand={handleHostCommand}
@@ -836,7 +833,7 @@ function LiveApp() {
     [snapshot?.slots]
   );
   const canClaimSeat = Boolean(
-    boardState
+    boardState && boardState.phase !== 'finished'
       && activeSession?.code
       && !activeSession.seatId
       && (activeRole === 'host' || activeRole === 'spectator')
@@ -902,10 +899,12 @@ function LiveApp() {
             <span>{activeRole === 'spectator' || activeRole === 'host' ? 'Spectator view' : 'Human player'}</span>
             {snapshot?.paused && <span>Paused by host</span>}
           </div>
+          <RoomShare code={snapshot?.code} replayId={snapshot?.replayId} ended={boardState.phase === 'finished'}/>
           <button type="button" className="room-link-button" onClick={handleLeaveRoom}>Leave room</button>
           {snapshot?.replayId && <a className="room-link-button" href={`/replay/${encodeURIComponent(snapshot.replayId)}`}>View replay</a>}
         </div>
         {error && <div className="room-error room-live-error" role="alert">{error}</div>}
+        {boardState.phase === 'finished' && snapshot?.replayId && <section className="room-postgame"><div><h2>{boardState.winner ? `${boardState.players.find(player=>player.id===boardState.winner)?.name || 'A player'} won` : 'Game ended'}</h2><p>{snapshot.closeReason==='idle'?'This room closed after four hours without activity. ':' '}The recording is saved. Anyone with its replay link can view all hands.</p></div><a className="room-primary-button" href={`/replay/${encodeURIComponent(snapshot.replayId)}`}>Watch replay</a></section>}
         {hostControls}
         {liveClaimSeatForm}
         <GameBoard
@@ -915,6 +914,8 @@ function LiveApp() {
           gameState={boardState}
           playerId={session?.seatId || null}
           gameCode={snapshot?.code}
+          replayId={snapshot?.replayId}
+          readOnlyChat={boardState.phase === 'finished'}
           chatMessages={chatMessages}
           onLeaveGame={handleLeaveRoom}
           addNotification={addNotification}
@@ -941,6 +942,8 @@ function LiveApp() {
 function App() {
   const path = window.location.pathname;
   const goHome = () => window.location.assign('/');
+  const watch=/^\/watch\/([A-Fa-f0-9]{8})\/?$/.exec(path);
+  if(watch)return <WatchPage code={watch[1].toUpperCase()}/>;
   if (path === '/replays' || path === '/replays/') {
     return <ReplayArchive onBack={goHome} onOpen={id => window.location.assign(`/replay/${encodeURIComponent(id)}`)} />;
   }

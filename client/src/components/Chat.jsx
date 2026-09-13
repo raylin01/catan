@@ -13,7 +13,7 @@ function WindowIcon({kind}) {
   </svg>;
 }
 
-export default function Chat({messages, onSend, onClose, open = true}) {
+export default function Chat({messages, onSend, onClose, open = true, readOnly = false}) {
   const [input, setInput] = useState('');
   const [layout, setLayout] = useState(() => {
     try { return fitChatLayout(JSON.parse(localStorage.getItem(CHAT_LAYOUT_KEY)), viewport()); }
@@ -109,13 +109,13 @@ export default function Chat({messages, onSend, onClose, open = true}) {
       </div>)}
     </div>
     {unread > 0 && <button className="chat-new-messages" type="button" onClick={showLatest}>{unread} new {unread === 1 ? 'message' : 'messages'} ↓</button>}
-    <form className="chat-input" onSubmit={event => {
+    {!readOnly && <form className="chat-input" onSubmit={event => {
       event.preventDefault();
       if (input.trim()) { onSend(input.trim()); setInput(''); showLatest(); }
     }}>
       <input type="text" value={input} onChange={event => setInput(event.target.value)} placeholder="Message the table…" aria-label="Chat message" maxLength={200}/>
       <button type="submit" disabled={!input.trim()}>Send</button>
-    </form>
+    </form>}
     <button type="button" className="chat-resize-handle" aria-label="Resize chat" aria-describedby="chat-window-help" title="Drag to resize · arrow keys when focused" {...manipulation('resize')}><WindowIcon kind="resize"/></button>
   </div>;
 }

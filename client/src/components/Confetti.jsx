@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import './Confetti.css';
 import GameIcon from './GameIcon';
+import {CopyLink} from '../sharing/RoomShare';
 
 const CONFETTI_COLORS = [
   '#e63946', // red
@@ -13,7 +14,7 @@ const CONFETTI_COLORS = [
   '#e74c3c', // bright red
 ];
 
-function Confetti({ winner, onBackToLobby }) {
+function Confetti({ winner, onBackToLobby, replayId }) {
   const [confetti, setConfetti] = useState([]);
 
   useEffect(() => {
@@ -62,6 +63,8 @@ function Confetti({ winner, onBackToLobby }) {
         <div className="winner-subtitle">
           Victory achieved with {(winner?.victoryPoints || 10) + (winner?.hiddenVictoryPoints || 0)} points!
         </div>
+        {replayId && <CopyLink label="Share replay" path={`/replay/${encodeURIComponent(replayId)}`}/>}
+        {replayId && <a className="back-to-lobby-btn" href={`/replay/${encodeURIComponent(replayId)}`}>Watch replay</a>}
         {onBackToLobby && (
           <button className="back-to-lobby-btn" onClick={onBackToLobby}>
             Back to lobby
