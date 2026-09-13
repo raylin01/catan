@@ -38,6 +38,8 @@ function GameBoard({
   tradePanel = null,
   replay = null,
   playbackRate = 1,
+  readOnlyChat = false,
+  replayId = null,
   presentationKey
 }) {
   const isReplay = Boolean(replay);
@@ -817,6 +819,7 @@ function GameBoard({
           key={chatIdentity}
           open={showChat}
           messages={chatMessages}
+          readOnly={readOnlyChat}
           onSend={handleSendChat}
           onClose={() => setShowChat(false)}
         />
@@ -836,6 +839,7 @@ function GameBoard({
         <Confetti 
           winner={gameState.players.find(p => p.id === gameState.winner)}
           onBackToLobby={onLeaveGame}
+          replayId={replayId}
         />
       )}
     </div>

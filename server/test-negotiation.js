@@ -398,3 +398,19 @@ test('receipts are idempotent and recording persistence is atomic on failure',()
   const failed=publish(other,other.bots[0],intent);
   assert.equal(failed.statusCode,500);assert.deepEqual(other.room(),before);assert.deepEqual(other.service.recordingFor(other.room().recordingId),beforeRecording);
 });
+
+
+test('accepted negotiation receipts remain retryable after terminal host actions',()=>{
+  for(const action of ['endGame','closeRoom']) {
+    const f=fixture(),[a]=f.bots,view=f.service.observe(f.code,a.token);
+    const payload={requestId:'lost-negotiation-response',controlEpoch:view.controlEpoch,runId:a.runId,revision:view.revision,generation:view.generation,
+      intent:{kind:'interest',wants:['ore'],offers:['brick'],to:null,replyToId:null}};
+    const accepted=f.service.aiNegotiate(f.code,a.token,payload);assert.equal(accepted.success,true);
+    assert.equal(act(f,f.host,action).success,true);
+    const before=structuredClone(f.room());
+    assert.deepEqual(f.service.aiNegotiate(f.code,a.token,payload),accepted);
+    assert.equal(f.service.aiNegotiate(f.code,a.token,{...payload,requestId:'new-after-end'}).statusCode,410);
+    assert.equal(f.service.aiNegotiate(f.code,a.token,{...payload,intent:{...payload.intent,wants:['grain']}}).statusCode,409);
+    assert.deepEqual(f.room(),before);
+  }
+});

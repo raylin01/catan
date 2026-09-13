@@ -12,14 +12,22 @@ const hash=value=>createHash('sha256').update(value).digest('hex');
 const clone=value=>structuredClone(value);
 const fail=(error,statusCode=400)=>({success:false,error,statusCode});
 const resourceNames=['brick','lumber','wool','grain','ore'];
-const cleanName=value=>typeof value==='string' && value.trim().length>0 && value.trim().length<=40 ? value.trim() : null;
+const cleanName=value=>typeof value==='string' && value.trim().length>0 && value.trim().length<=40 && !/[\x00-\x1f\x7f]/.test(value) ? value.trim() : null;
 const pack=value=>value && typeof value==='object' && !Array.isArray(value) && Object.keys(value).every(k=>resourceNames.includes(k)) && Object.values(value).every(n=>Number.isSafeInteger(n)&&n>=0&&n<=95) && Object.values(value).some(n=>n>0);
 const affordable=(p,amounts)=>Object.entries(amounts).every(([r,n])=>p.resources[r]>=n);
+export const ROOM_CAPACITY=16;
+export const ROOM_INACTIVITY_MS=4*60*60*1000;
+const terminal=room=>['won','ended','closed'].includes(recordingStatus(room));
+const meaningfulRecordingEvent=event=>!['aiLease','aiHeartbeat','crashgap','partialBaseline'].includes(event.type);
 
 export class RoomService {
-  constructor({store,maxActive=1,providers=PROVIDERS,now=Date.now}={}) {
-    this.store=store;this.durableJournal=store?.durableRecordingJournal===true;this.maxActive=maxActive;this.providers=providers;this.now=now;this.rooms=new Map();this.recordings=new Map();this.presence=new Map();this.aiToolActivity=new Map();this.legalCache=new Map();
+  constructor({store,maxRooms=ROOM_CAPACITY,inactivityMs=ROOM_INACTIVITY_MS,providers=PROVIDERS,now=Date.now}={}) {
+    this.store=store;this.durableJournal=store?.durableRecordingJournal===true;
+    this.maxRooms=Number.isSafeInteger(maxRooms)&&maxRooms>0?maxRooms:ROOM_CAPACITY;
+    this.inactivityMs=Number.isSafeInteger(inactivityMs)&&inactivityMs>0?inactivityMs:ROOM_INACTIVITY_MS;
+    this.providers=providers;this.now=now;this.rooms=new Map();this.recordings=new Map();this.presence=new Map();this.aiToolActivity=new Map();this.legalCache=new Map();
     for(const room of store?.load()||[]) {
+      if(terminal(room))continue;
       const recovered=room.game&&['setup','playing'].includes(room.game.phase);
       if(recovered){room.paused=true;room.interrupted=true;}
       for(const slot of room.slots)if(slot.kind==='ai')initializeAiSlot(slot);
@@ -31,17 +39,24 @@ export class RoomService {
       room.chatSequence=Math.max(room.chatSequence||0,chatSequence);
       room.negotiationState=negotiationState(room);
       if(!room.recordingId)room.recordingId=secret();
+      if(!Number.isFinite(room.lastActivityAt)) {
+        const existing=this.recordingFor(room.recordingId);
+        const events=existing?this.eventsFor(room.recordingId):[];
+        room.lastActivityAt=events.filter(meaningfulRecordingEvent).at(-1)?.at??existing?.lastAt??existing?.createdAt??this.now();
+      }
       this.rooms.set(room.code,room);
       const existing=this.recordingFor(room.recordingId);
       if(!existing) {
         const recording=createRecording(room,{id:room.recordingId,now:this.now(),partial:true,title:room.name});
         this.persistRecording(room,recording,{type:'partialBaseline',summary:'Recording began from a saved room'});
       } else if(recovered)this.persist(room,{type:'crashgap',summary:'Server recovery paused the active match'});
+      else this.persist(room);
     }
+    this.expireInactiveRooms();
   }
   roomFor(code){return this.rooms.get(code)||this.store?.loadRoom?.(code)||null;}
   retainRoom(room) {
-    if(this.durableJournal&&['won','ended'].includes(recordingStatus(room))) {
+    if(this.durableJournal&&terminal(room)) {
       this.rooms.delete(room.code);this.recordings.delete(room.recordingId);this.legalCache.delete(room.code);
       for(const key of Object.keys(room.members))this.presence.delete(key);
       for(const key of this.aiToolActivity.keys())if(key.startsWith(`${room.code}:`))this.aiToolActivity.delete(key);
@@ -74,6 +89,44 @@ export class RoomService {
     if(eventSpec)return this.persist(room,eventSpec);
     this.store?.save(room);this.retainRoom(room);
   }
+  closeSnapshot(room,reason) {
+    room.closed=true;room.closedAt=this.now();room.closeReason=reason;
+    if(room.game){room.game.phase='finished';room.game.winner=null;room.game.pendingRobberPick=null;room.game.discardingPlayers=[];}
+    room.trade=null;room.paused=false;room.interrupted=false;
+    for(const aiSlot of room.slots.filter(slot=>slot.kind==='ai')) {
+      initializeAiSlot(aiSlot);aiSlot.controlEpoch++;aiSlot.runnerLease=null;
+    }
+  }
+  closeRoom(room,{reason='manual',actorName=null}={}) {
+    if(terminal(room))return false;
+    const copy=clone(room);
+    this.closeSnapshot(copy,reason);copy.revision++;
+    this.persist(copy,{type:'closeRoom',actorName,summary:reason==='idle'?'Room closed after four hours without activity':`${actorName||'Host'} closed the room`});
+    return true;
+  }
+  expireInactiveRooms() {
+    const expired=[];
+    for(const room of this.rooms.values()) {
+      if(!terminal(room)&&Number.isFinite(room.lastActivityAt)&&this.now()-room.lastActivityAt>=this.inactivityMs) {
+        this.closeRoom(room,{reason:'idle'});expired.push(room.code);
+      }
+    }
+    return expired;
+  }
+  capacity() {
+    this.expireInactiveRooms();
+    const activeRooms=[...this.rooms.values()].filter(room=>!terminal(room)).length;
+    return {success:true,maxRooms:this.maxRooms,activeRooms,available:Math.max(0,this.maxRooms-activeRooms),inactivityMs:this.inactivityMs};
+  }
+  invitation(code) {
+    this.expireInactiveRooms();
+    code=typeof code==='string'?code.toUpperCase():code;
+    const room=this.roomFor(code);if(!room)return fail('Room not found',404);
+    const status=recordingStatus(room);
+    return {success:true,code:room.code,name:room.name,status,seatCount:room.slots.length,
+      ...(['won','ended','closed'].includes(status)?{replayId:room.recordingId}:{}),
+      slots:room.slots.map(({id,kind,name,controller,ready,provider,model})=>({id,kind,name,occupied:!!controller,ready:!!ready,provider:provider||null,model:model||null}))};
+  }
   authenticate(room,token){return typeof token==='string'&&token.length<=200 ? room.members[hash(token)] : undefined;}
   aiConfiguration(input,existing={},providerId) {
     const chatEnabled=input.chatEnabled??existing.chatEnabled??true;
@@ -93,7 +146,7 @@ export class RoomService {
   }
   markAiTool(room,member) {
     const slot=room.slots.find(candidate=>candidate.id===member.seatId);
-    if(slot&&(!this.durableJournal||!['won','ended'].includes(recordingStatus(room)))&&!leaseIsLive(slot,this.now()))this.aiToolActivity.set(`${room.code}:${slot.id}:${slot.generation}`,{lastActivityAt:this.now()});
+    if(slot&&(!this.durableJournal||!['won','ended','closed'].includes(recordingStatus(room)))&&!leaseIsLive(slot,this.now()))this.aiToolActivity.set(`${room.code}:${slot.id}:${slot.generation}`,{lastActivityAt:this.now()});
   }
   toolActivity(room,slot){return this.aiToolActivity.get(`${room.code}:${slot.id}:${slot.generation}`)||null;}
   cachedLegalActions(room,member) {
@@ -116,14 +169,15 @@ export class RoomService {
     if(definition.modelSelection===false&&selectedModel)return null;
     return {provider:definition.id,model:selectedModel};
   }
-  create(options={}) {
+  create(options={},context={}) {
     if(!options||typeof options!=='object'||Array.isArray(options))return fail('Invalid room configuration');
+    this.expireInactiveRooms();
     const {name,seatCount=3,seats,sample=false,title}=options;
     if(!cleanName(name)||![3,4].includes(seatCount)) return fail('Enter a name and choose 3 or 4 seats');
     if(seats!==undefined&&!Array.isArray(seats))return fail('Seats must be an array');
     if(seats?.length>seatCount)return fail('Too many seat configurations');
     if(seats?.some(seat=>!seat||typeof seat!=='object'||Array.isArray(seat)))return fail('Invalid seat configuration');
-    if([...this.rooms.values()].filter(room=>!['won','ended'].includes(recordingStatus(room))).length>=50) return fail('Room capacity reached',429);
+    if(context?.operator!==true&&[...this.rooms.values()].filter(room=>!terminal(room)).length>=this.maxRooms)return fail('Room capacity reached',429);
     let code;do {code=randomBytes(5).toString('hex').slice(0,8).toUpperCase();}while(this.rooms.has(code)||this.store?.hasRoom?.(code));
     const token=secret();
     const slots=[];
@@ -144,14 +198,16 @@ export class RoomService {
       }
       slots.push(slot);
     }
-    const room={code,recordingId:secret(),revision:0,name:cleanName(name),slots,members:{[hash(token)]:{role:'host',name:cleanName(name)}},game:null,trade:null,chat:[],chatSequence:0,receipts:{},cardEventSequence:0,cardEvents:[],paused:false,interrupted:false};
+    const room={code,recordingId:secret(),revision:0,name:cleanName(name),slots,members:{[hash(token)]:{role:'host',name:cleanName(name)}},game:null,trade:null,chat:[],chatSequence:0,receipts:{},cardEventSequence:0,cardEvents:[],paused:false,interrupted:false,lastActivityAt:this.now()};
     const recording=createRecording(room,{id:room.recordingId,now:this.now(),sample:sample===true,title:cleanName(title)||room.name});
     this.persistRecording(room,recording,{type:'lobbyCreated',actorName:room.name,summary:`${room.name} created the lobby`});
     return {success:true,code,token,role:'host',replayId:room.recordingId};
   }
   join(code,options={}) {
+    this.expireInactiveRooms();
     const normalizedCode=typeof code==='string'?code.toUpperCase():code;
     const room=this.roomFor(normalizedCode);if(!room)return fail('Room not found',404);
+    if(terminal(room))return fail('Room has ended',410);
     if(!options||typeof options!=='object'||Array.isArray(options))return fail('Invalid join request');
     const {name,role='spectator',seatId,provider,model}=options;
     if(!cleanName(name)||!['human','ai','spectator'].includes(role))return fail('Invalid name or role');
@@ -173,24 +229,32 @@ export class RoomService {
       Object.assign(member,{seatId:slot.id,generation:slot.generation,provider:selected?.provider||null,model:selected?.model||null});
       if(copy.game){const player=copy.game.players.find(p=>p.id===slot.id);if(!player)return fail('Seat is not part of this game',409);player.name=member.name;}
     }
-    copy.members[key]=member;copy.revision++;this.persist(copy,{type:'join',actorSeatId:member.seatId||null,actorGeneration:member.generation||null,
+    copy.members[key]=member;copy.revision++;copy.lastActivityAt=this.now();this.persist(copy,{type:'join',actorSeatId:member.seatId||null,actorGeneration:member.generation||null,
       actorName:member.name,summary:member.seatId?`${member.name} joined a playing seat`:`${member.name} joined as a spectator`,
       payload:{role,seatId:member.seatId||null,kind:role,provider:member.provider||null,model:member.model||null}});
     return {success:true,code:normalizedCode,token,role,seatId:member.seatId,generation:member.generation,
       replayId:copy.recordingId,...(role==='ai'?{controlEpoch:joinedSlot.controlEpoch}:{})};
   }
   observe(code,token) {
+    return this.#view(code,token,false);
+  }
+  watch(code) {
+    return this.#view(code,null,true);
+  }
+  #view(code,token,anonymous) {
+    this.expireInactiveRooms();
     code=typeof code==='string'?code.toUpperCase():code;
     const room=this.roomFor(code);if(!room)return fail('Room not found',404);
-    const member=this.authenticate(room,token);if(!member)return fail('Controller credential is invalid or revoked',401);
-    const key=hash(token),now=this.now();
-    if(!this.durableJournal||!['won','ended'].includes(recordingStatus(room)))this.presence.set(key,now);
+    const member=anonymous?{role:'spectator',name:'Spectator'}:this.authenticate(room,token);
+    if(!member)return fail('Controller credential is invalid or revoked',401);
+    const key=anonymous?null:hash(token),now=this.now();
+    if(!anonymous&&(!this.durableJournal||!terminal(room)))this.presence.set(key,now);
     if(member.role==='ai')this.markAiTool(room,member);
     const ownSlot=member.seatId?room.slots.find(slot=>slot.id===member.seatId):null;
     const gameState=room.game?clone(playerView(room.game,member.seatId)):null;
-    const choices=room.game&&room.game.phase!=='finished'&&!room.paused&&member.seatId?this.cachedLegalActions(room,member):[];
+    const choices=room.game&&room.game.phase!=='finished'&&!room.closed&&!room.paused&&member.seatId?this.cachedLegalActions(room,member):[];
     let decision=null;
-    if(room.game&&!room.paused&&member.seatId){
+    if(room.game&&!room.closed&&!room.paused&&member.seatId){
       const index=room.game.players.findIndex(p=>p.id===member.seatId);
       const discard=room.game.discardingPlayers?.find(d=>d.playerIndex===index);
       if(discard)decision={type:'discardCards',count:discard.cardsToDiscard,resources:clone(room.game.players[index].resources)};
@@ -201,13 +265,17 @@ export class RoomService {
       ...(member.seatId===pending.thiefId?{cardIds:pending.cards.map(card=>card.id)}:{})}:null;
     const slots=room.slots.map(slot=>{
       const {controller,runnerLease,lastAiReplyAt,lastAiReplyToSequence,...publicSlot}=slot;
+      if(anonymous)return {id:slot.id,kind:slot.kind,name:slot.name,occupied:!!controller,ready:!!slot.ready,
+        provider:slot.provider||null,model:slot.model||null,connected:!!controller&&now-(this.presence.get(controller)||0)<15000};
       return {...publicSlot,occupied:!!controller,connected:!!controller&&now-(this.presence.get(controller)||0)<15000,
         ...(slot.kind==='ai'?{ai:projectAiStatus(slot,now,this.toolActivity(room,slot))}:{})};
     });
     const ownAi=member.role==='ai'&&ownSlot?{...projectAiStatus(ownSlot,now,this.toolActivity(room,ownSlot)),
       ...(ownSlot.runnerLease?.runId?{runnerRunId:ownSlot.runnerLease.runId}:{})}:null;
     const publicChat=(room.chat||[]).map((message,index)=>({...message,sequence:message.sequence??index+1,authorRole:message.authorRole||'human'}));
-    return {success:true,code,replayId:room.recordingId,revision:room.revision,role:member.role,host:member.role==='host',seatId:member.seatId||null,generation:member.generation||0,
+    return {success:true,code,...(!anonymous||terminal(room)?{replayId:room.recordingId}:{}),revision:room.revision,role:member.role,host:member.role==='host',seatId:member.seatId||null,generation:member.generation||0,
+      name:room.name,status:recordingStatus(room),closed:!!room.closed,closeReason:room.closeReason||null,lastActivityAt:room.lastActivityAt||null,
+      expiresAt:terminal(room)?null:(room.lastActivityAt||now)+this.inactivityMs,
       paused:room.paused,slots,ai:ownAi,controlEpoch:ownAi?.controlEpoch,
       negotiation:member.role==='ai'&&ownSlot?negotiationOpportunity(room,ownSlot,now):null,
       gameState,legalActions:choices,decision,trade:clone(room.trade),events:clone(room.events||[]),chat:member.role==='ai'?[]:clone(publicChat),
@@ -215,6 +283,7 @@ export class RoomService {
       robberPick,cardEvents:projectCardEvents(room,member),cardEventSequence:room.cardEventSequence||0};
   }
   command(code,token,command={}) {
+    this.expireInactiveRooms();
     code=typeof code==='string'?code.toUpperCase():code;
     const room=this.roomFor(code);if(!room)return fail('Room not found',404);
     const member=this.authenticate(room,token);if(!member)return fail('Controller credential is invalid or revoked',401);
@@ -226,11 +295,12 @@ export class RoomService {
     try {fingerprint=hash(JSON.stringify({type,payload,generation,controlEpoch,runId}));}
     catch {return fail('Invalid command envelope');}
     if(room.receipts[receiptKey])return room.receipts[receiptKey].fingerprint===fingerprint?clone(room.receipts[receiptKey].result):fail('Request ID already used for another command',409);
+    if(terminal(room))return fail('Room has ended',410);
     if(revision!==room.revision)return fail('Game changed; observe before acting',409);
     if(member.seatId && generation!==member.generation)return fail('Seat controller changed',409);
     const copy=clone(room),beforeGame=room.game?clone(room.game):null;let result={success:true};
     try {
-      const hostTypes=['configureSeat','start','removeController','pause','resume','endGame'];
+      const hostTypes=['configureSeat','start','removeController','pause','resume','endGame','closeRoom'];
       if(hostTypes.includes(type)&&member.role!=='host')return fail('Only the host can do that',403);
       const slot=copy.slots.find(s=>s.id===member.seatId);
       const aiControlType=['aiPause','aiResume','aiCancel'].includes(type);
@@ -268,7 +338,6 @@ export class RoomService {
         if(copy.game)return fail('Game already started');
         const invalidSeat=copy.slots.some(s=>!s.controller||!s.ready||copy.members[s.controller]?.seatId!==s.id||copy.members[s.controller]?.generation!==s.generation);
         if(invalidSeat)return fail('Every seat must be occupied and ready');
-        if([...this.rooms.values()].filter(r=>r.game&&['setup','playing'].includes(r.game.phase)).length>=this.maxActive)return fail('Another game is active',409);
         copy.game=G.createGame(code,{id:copy.slots[0].id,name:copy.slots[0].name});
         for(const s of copy.slots.slice(1))G.addPlayer(copy.game,{id:s.id,name:s.name});
         result=G.startGame(copy.game);
@@ -318,6 +387,7 @@ export class RoomService {
         }
       }
       else if(type==='endGame') {if(!copy.game||!['setup','playing'].includes(copy.game.phase))return fail('Game is not active');copy.game.phase='finished';copy.game.pendingRobberPick=null;copy.game.discardingPlayers=[];copy.trade=null;copy.paused=false;copy.interrupted=false;}
+      else if(type==='closeRoom') {if(terminal(copy))return fail('Room is already finished',409);this.closeSnapshot(copy,'manual');}
       else if(type==='chat') {
         if(member.role==='ai')return fail('AI connectors use structured trades');
         if(typeof payload.message!=='string'||!payload.message.trim()||payload.message.length>500)return fail('Message must contain 1–500 characters');
@@ -347,7 +417,7 @@ export class RoomService {
         gainsBySeat:Object.fromEntries(copy.game.players.map((player,index)=>[player.id,clone(result.resourceGains?.[index]||{})]))};
       copy.revision++;
       appendCardEvent(copy,beforeGame,type,type==='rollDice'?copy.lastRoll?.id:null);
-      const labels={ready:'readied their seat',advanceSetup:'advanced setup',chat:'sent a message',configureSeat:'configured a seat',finishFreeRoads:'finished placing free roads',yearOfPlentyPick:'chose a Year of Plenty resource',start:'started the game',placeSettlement:'built a settlement',placeRoad:'built a road',upgradeToCity:'built a city',rollDice:'rolled the dice',discardCards:'discarded cards',moveRobber:'moved the robber',chooseRobberCard:'stole a resource card',buyDevCard:'bought a development card',playDevCard:'played a development card',bankTrade:'traded with the bank',endTurn:'ended their turn',tradeOffer:'offered a trade',tradeCounter:'made a counteroffer',tradeAccept:'accepted a trade offer',tradeReject:'rejected a trade offer',tradeConfirm:'confirmed a trade',tradeCancel:'cancelled a trade',leave:'left their seat',removeController:'removed a seat controller',pause:'paused the game',resume:'resumed the game',aiPause:'paused an AI seat',aiResume:'resumed an AI seat',aiCancel:'cancelled an AI decision',endGame:'ended the game'};
+      const labels={ready:'readied their seat',advanceSetup:'advanced setup',chat:'sent a message',configureSeat:'configured a seat',finishFreeRoads:'finished placing free roads',yearOfPlentyPick:'chose a Year of Plenty resource',start:'started the game',placeSettlement:'built a settlement',placeRoad:'built a road',upgradeToCity:'built a city',rollDice:'rolled the dice',discardCards:'discarded cards',moveRobber:'moved the robber',chooseRobberCard:'stole a resource card',buyDevCard:'bought a development card',playDevCard:'played a development card',bankTrade:'traded with the bank',endTurn:'ended their turn',tradeOffer:'offered a trade',tradeCounter:'made a counteroffer',tradeAccept:'accepted a trade offer',tradeReject:'rejected a trade offer',tradeConfirm:'confirmed a trade',tradeCancel:'cancelled a trade',leave:'left their seat',removeController:'removed a seat controller',pause:'paused the game',resume:'resumed the game',aiPause:'paused an AI seat',aiResume:'resumed an AI seat',aiCancel:'cancelled an AI decision',endGame:'ended the game',closeRoom:'closed the room'};
       if(labels[type])copy.events=[...(copy.events||[]),{id:randomUUID(),at:this.now(),actor:member.name,type,summary:`${member.name} ${labels[type]}`}].slice(-200);
       const response={success:true,revision:copy.revision};
       // Return private effects only to the authenticated actor, never the event stream.
@@ -356,6 +426,7 @@ export class RoomService {
       if(result.stolenInfo)response.stolenInfo=clone(result.stolenInfo);
       copy.receipts[receiptKey]={fingerprint,result:clone(response)};
       const keys=Object.keys(copy.receipts);for(const k of keys.slice(0,Math.max(0,keys.length-2000)))delete copy.receipts[k];
+      copy.lastActivityAt=this.now();
       this.persist(copy,{type,actorSeatId:member.seatId||null,actorGeneration:member.generation||null,actorName:member.name,
         summary:labels[type]?`${member.name} ${labels[type]}`:`${member.name} performed ${type}`,payload});
       if(member.role==='ai')this.markAiTool(copy,member);return clone(response);
@@ -366,8 +437,10 @@ export class RoomService {
   }
   recordedAiStatus(slot){return {status:slot.runnerLease?.status||'stopped',error:slot.runnerLease?.error?'AI runner reported an error':null};}
   aiLease(code,token,payload={}) {
+    this.expireInactiveRooms();
     code=typeof code==='string'?code.toUpperCase():code;
     const room=this.roomFor(code);if(!room)return fail('Room not found',404);
+    if(terminal(room))return fail('Room has ended',410);
     const member=this.authenticate(room,token);if(!member)return fail('Controller credential is invalid or revoked',401);
     if(member.role!=='ai')return fail('An AI playing seat is required',403);
     const copy=clone(room),actor=this.aiActor(copy,token);if(!actor)return fail('Seat controller changed',409);
@@ -378,8 +451,10 @@ export class RoomService {
       summary:wasAttached?`${member.name} AI status changed to ${actor.slot.runnerLease.status}`:`${member.name} attached an AI runner`}:null);return {...result,controlEpoch:actor.slot.controlEpoch};
   }
   aiHeartbeat(code,token,payload={}) {
+    this.expireInactiveRooms();
     code=typeof code==='string'?code.toUpperCase():code;
     const room=this.roomFor(code);if(!room)return fail('Room not found',404);
+    if(terminal(room))return fail('Room has ended',410);
     const member=this.authenticate(room,token);if(!member)return fail('Controller credential is invalid or revoked',401);
     if(member.role!=='ai')return fail('An AI playing seat is required',403);
     const copy=clone(room),actor=this.aiActor(copy,token);if(!actor)return fail('Seat controller changed',409);
@@ -391,8 +466,10 @@ export class RoomService {
     return {...result,controlEpoch:actor.slot.controlEpoch};
   }
   aiChatRead(code,token,payload={}) {
+    this.expireInactiveRooms();
     code=typeof code==='string'?code.toUpperCase():code;
     const room=this.roomFor(code);if(!room)return fail('Room not found',404);
+    if(terminal(room))return fail('Room has ended',410);
     const member=this.authenticate(room,token);if(!member)return fail('Controller credential is invalid or revoked',401);
     if(member.role!=='ai')return fail('An AI playing seat is required',403);
     const actor=this.aiActor(room,token);if(!actor)return fail('Seat controller changed',409);
@@ -410,6 +487,7 @@ export class RoomService {
       ...negotiationPage,chatEnabled:actor.slot.chatEnabled,chatModel:actor.slot.chatModel||actor.slot.model,chatReasoning:actor.slot.chatReasoning};
   }
   aiNegotiate(code,token,payload={}) {
+    this.expireInactiveRooms();
     code=typeof code==='string'?code.toUpperCase():code;
     const room=this.roomFor(code);if(!room)return fail('Room not found',404);
     const member=this.authenticate(room,token);if(!member)return fail('Controller credential is invalid or revoked',401);
@@ -420,6 +498,7 @@ export class RoomService {
     const key=hash(token),receiptKey=`${key}:${requestId}`;
     let fingerprint;try{fingerprint=hash(JSON.stringify({kind:'aiNegotiation',controlEpoch,runId,revision,generation,intent}));}catch{return fail('Invalid AI negotiation request');}
     if(room.receipts[receiptKey])return room.receipts[receiptKey].fingerprint===fingerprint?clone(room.receipts[receiptKey].result):fail('Request ID already used for another command',409);
+    if(terminal(room))return fail('Room has ended',410);
     if(revision!==room.revision)return fail('Game changed; observe before acting',409);
     if(generation!==member.generation)return fail('Seat controller changed',409);
     const copy=clone(room),actor=this.aiActor(copy,token);if(!actor)return fail('Seat controller changed',409);
@@ -432,7 +511,7 @@ export class RoomService {
     copy.chatSequence=(copy.chatSequence||0)+1;
     copy.chat.push({id:prepared.metadata.id,sequence:copy.chatSequence,authorRole:'ai',playerName:member.name,playerId:actor.slot.id,
       message:prepared.message,timestamp:now,negotiation:clone(prepared.metadata)});
-    copy.chat=copy.chat.slice(-100);copy.revision++;
+    copy.chat=copy.chat.slice(-100);copy.revision++;copy.lastActivityAt=now;
     const negotiation={...clone(prepared.metadata),sequence:prepared.sequence};
     const response={success:true,revision:copy.revision,negotiation};
     copy.receipts[receiptKey]={fingerprint,result:clone(response)};
@@ -447,6 +526,7 @@ export class RoomService {
     this.markAiTool(copy,member);return clone(response);
   }
   aiChatReply(code,token,payload={}) {
+    this.expireInactiveRooms();
     code=typeof code==='string'?code.toUpperCase():code;
     const room=this.roomFor(code);if(!room)return fail('Room not found',404);
     const member=this.authenticate(room,token);if(!member)return fail('Controller credential is invalid or revoked',401);
@@ -456,6 +536,7 @@ export class RoomService {
     const key=hash(token),receiptKey=`${key}:${requestId}`;
     let fingerprint;try{fingerprint=hash(JSON.stringify({kind:'aiChatReply',payload}));}catch{return fail('Invalid AI chat reply');}
     if(room.receipts[receiptKey])return room.receipts[receiptKey].fingerprint===fingerprint?clone(room.receipts[receiptKey].result):fail('Request ID already used for another command',409);
+    if(terminal(room))return fail('Room has ended',410);
     const copy=clone(room),actor=this.aiActor(copy,token);if(!actor)return fail('Seat controller changed',409);
     const fenced=fenceAiCommand(actor.slot,payload,this.now());if(!fenced.success)return fenced;
     if(copy.paused||copy.game?.phase==='finished')return fail('AI chat replies are paused',409);
@@ -465,7 +546,7 @@ export class RoomService {
     const now=this.now();if(now-(actor.slot.lastAiReplyAt||0)<5000)return fail('AI chat reply cooldown is active',429);
     copy.chatSequence=(copy.chatSequence||0)+1;
     copy.chat.push({id:randomUUID(),sequence:copy.chatSequence,authorRole:'ai',replyToSequence,playerName:member.name,playerId:actor.slot.id,message:message.trim(),timestamp:now});
-    copy.chat=copy.chat.slice(-100);actor.slot.lastAiReplyAt=now;actor.slot.lastAiReplyToSequence=replyToSequence;copy.revision++;
+    copy.chat=copy.chat.slice(-100);actor.slot.lastAiReplyAt=now;actor.slot.lastAiReplyToSequence=replyToSequence;copy.revision++;copy.lastActivityAt=now;
     const response={success:true,revision:copy.revision,sequence:copy.chatSequence};
     copy.receipts[receiptKey]={fingerprint,result:clone(response)};
     const keys=Object.keys(copy.receipts);for(const receipt of keys.slice(0,Math.max(0,keys.length-2000)))delete copy.receipts[receipt];
@@ -475,7 +556,7 @@ export class RoomService {
   }
   recordingAccess(id,{perspective='public',token}={}) {
     const recording=this.recordingFor(id);if(!recording)return fail('Replay not found',404);
-    const terminal=['won','ended'].includes(recording.status);
+    const terminal=['won','ended','closed'].includes(recording.status);
     const requested=typeof perspective==='string'?perspective:'public';
     if(requested==='public')return {success:true,recording,access:{full:false,perspective:'public'}};
     if(requested==='omniscient')return terminal?{success:true,recording,access:{full:true,perspective:'omniscient'}}:fail('Omniscient replay is unavailable while the match can resume',403);
@@ -494,7 +575,7 @@ export class RoomService {
   }
   replayPerspectives(recording,token) {
     const result=[{id:'public',label:'Public'}];
-    if(['won','ended'].includes(recording.status))return [...result,{id:'omniscient',label:'Omniscient'},
+    if(['won','ended','closed'].includes(recording.status))return [...result,{id:'omniscient',label:'Omniscient'},
       ...recording.players.map(player=>({id:player.id,label:player.name}))];
     const room=this.roomFor(recording.roomCode),member=room?this.authenticate(room,token):null;
     if(member?.seatId&&room.slots.find(slot=>slot.id===member.seatId)?.generation===member.generation)result.push({id:member.seatId,label:member.name});
@@ -544,7 +625,7 @@ export class RoomService {
   }
   deleteReplay(id) {
     const recording=this.recordingFor(id);if(!recording)return fail('Replay not found',404);
-    if(!['won','ended'].includes(recording.status))return fail('An unfinished recording cannot be deleted',409);
+    if(!['won','ended','closed'].includes(recording.status))return fail('An unfinished recording cannot be deleted',409);
     if(this.store?.deleteRecording&&!this.store.deleteRecording(id))return fail('Replay not found',404);
     this.recordings.delete(id);this.rooms.delete(recording.roomCode);this.legalCache.delete(recording.roomCode);
     return {success:true};

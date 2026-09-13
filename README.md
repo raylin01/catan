@@ -1,6 +1,6 @@
-# Catan with remote AI players
+# Catan Online by rlin
 
-Self-hosted browser Catan for 3–4 human or AI seats. Codex is the first remote connector. The game server owns the rules and private state; models connect over the same authenticated game API as browser players.
+Browser Catan for 3–4 human or remotely controlled AI seats. The public website hosts the game server only; it never runs model inference. Each AI operator runs their own agent or Codex CLI on their own computer and connects through the authenticated game API.
 
 This fork reuses [Viral-Doshi/catan](https://github.com/Viral-Doshi/catan), pinned initially at `3a0a6b815ff999adf5fd5802fa3df9b99833fc2d`. Its MIT notice is retained in LICENSE. Original project documentation is in UPSTREAM.md and is historical; its 5–6-player/full-completeness claims do not describe this fork's supported release scope.
 
@@ -15,24 +15,36 @@ npm run build
 npm start
 ```
 
-Open http://127.0.0.1:3001. The first run writes a private `data/host-key` file. Enter that key in the host's create-room form; friends only need the room invitation/code and a display name. The key is never included in invitations. The host can spectate or join a separate human seat.
+Open http://127.0.0.1:3001. Anyone can create a room without a key, up to 16 unfinished rooms. A private `data/host-key` is generated on first start for operator capacity override and recording administration; it is never included in invitations. The room creator can spectate or claim a separate human seat.
 
 For local frontend development, keep that server running and use `npm run dev --prefix client`; Vite proxies `/api` to port 3001. Production serves the browser and API from one origin. The upstream split-service Render blueprint has been removed because it does not match this hosting architecture.
 
-The default binds loopback and runs one active match, with separate room lobbies. `PORT`, `HOST`, `CATAN_DATA_DIR`, `CATAN_HOST_KEY`, and `CATAN_MAX_ACTIVE` configure the service. `CATAN_HOST_KEY` must be at least 16 characters. Keep `data/` on durable local storage and out of Git. Restarted active games recover paused for host review/resume.
+The default binds loopback. `PORT`, `HOST`, `CATAN_DATA_DIR`, `CATAN_HOST_KEY`, `CATAN_MAX_ROOMS`, `CATAN_PUBLIC_URL`, `CATAN_SITE_NAME`, `CATAN_BRIDGE_REF`, and optional `CATAN_TRUST_PROXY` configure it; see [.env.example](.env.example). `CATAN_HOST_KEY` must be at least 16 characters if set explicitly. Keep `data/` on durable private storage and out of Git. Restarted active games recover paused for creator review/resume. Unfinished rooms close after four hours without a lobby or game action; polling and AI heartbeats do not extend that clock. A closed room retains its unlisted replay.
+
+For a public host, copy `.env.example` to `.env`, replace `CATAN_BRIDGE_REF` with a published matching ref, and start with `node --env-file=.env server/index.js`. Node does not load `.env` through `npm start` automatically.
 
 Stop the server before copying the whole data directory for a backup or restoring it. Keep the existing host/controller credentials private. A rollback requires both a compatible application version and database snapshot; do not downgrade a saved schema blindly.
 
-For Cloudflare Tunnel, point a published HTTPS hostname at `http://localhost:3001`. Do not expose your CLI process or host-key file. Tunnel creation/account/domain setup is separate; no tunnel is automatically published. Friends and remote AI clients use the HTTPS hostname. A Dockerfile is included for a server-only container; keep `/app/data` on a writable persistent volume. The AI CLI runs on each player's own machine, outside the server container.
+For a public [Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/setup/) deployment, set `CATAN_PUBLIC_URL=https://catan.rlin.dev` and point that HTTPS hostname at `http://127.0.0.1:3001`. The service should remain bound to loopback on the host, with no direct public port. Set `CATAN_BRIDGE_REF` to a **published tag or commit matching the deployed server** before sharing downloadable agent instructions; this feature currently lives on a branch, so `main` is not yet the matching client source. Do not expose the host-key file or any player's CLI process. Tunnel account, hostname, and route setup are separate; starting this app does not publish a tunnel.
 
-## Join a Codex player from another computer
+The optional `CATAN_TRUST_PROXY` setting controls which proxy address Express trusts for client IPs and rate limits. For a tunnel connector on the same host with no direct origin access, use `loopback`; for a separate proxy/container, use its exact IP or CIDR after verifying the network path. Leave it unset until that path is known. Do not use a broad trust value for a publicly reachable origin. The canonical `CATAN_PUBLIC_URL` supplies public links independently of proxy headers. See [Express's proxy guidance](https://expressjs.com/en/guide/behind-proxies/).
+
+The [Dockerfile](Dockerfile) builds the browser and installs server dependencies, then runs only `server/index.js`; it does not include the bridge or a model CLI. Bind its published port to host loopback and mount `/app/data` on a writable persistent volume. For example: `docker build -t catan-online .` then `docker run --rm -p 127.0.0.1:3001:3001 -v catan-data:/app/data -e CATAN_PUBLIC_URL=https://catan.rlin.dev -e CATAN_BRIDGE_REF=PUBLISHED_REF catan-online`. Replace `PUBLISHED_REF` with the same published tag or commit used by players. The AI CLI stays on each player's computer.
+
+## Bring your own agent or Codex CLI
+
+From the public site, copy or download the Markdown agent guide for a room or vacant AI seat. It contains the public server URL, room code, provider/model choice, and matching client ref; it never contains a controller token or operator key. Players need Node.js 22.13 or newer and a checkout of the published source at that ref. The bridge runtime uses Node's built-in modules and needs no npm install.
+
+For an **External agent (MCP)** seat, configure `node /absolute/path/to/bridge/cli.js mcp --server https://catan.rlin.dev --session /absolute/private/path/seat.json` as a local STDIO MCP server in an agent CLI that supports it. Its tools are `catan_join`, `catan_observe`, and `catan_act`; `catan_join` defaults to provider `mcp`. The agent must remain active to observe and act. Direct MCP has no automatic scheduler, chat reader, or bounded negotiation pipeline. Do not run MCP and an automatic runner for the same seat.
+
+For a **Codex CLI** seat, use the automatic runner below.
 
 Install a compatible Codex CLI and log in on that computer. The implemented connector was developed against Codex CLI 0.146.0; it relies on the documented ignore-user-config, explicit session resume, structured-output and tool-disable options. Each AI seat needs a separate session file.
 
-Configure an AI slot in the browser lobby, then run:
+Configure a Codex AI slot in the browser lobby, then run from the matching local checkout:
 
 ```sh
-node bridge/cli.js join --server https://your-game-host --code ROOMCODE --name Codex --model YOUR_MODEL --reasoning max --session .catan-session-one.json
+node bridge/cli.js join --server https://catan.rlin.dev --code ROOMCODE --name Codex --provider codex --model YOUR_MODEL --reasoning max --session .catan-session-one.json
 node bridge/cli.js run --session .catan-session-one.json
 ```
 
@@ -42,23 +54,13 @@ The runner marks its seat ready and waits for required game decisions, structure
 
 The hosting server cannot verify a remote client's claimed model identity. Availability is a connected client's declaration. Provider credentials remain on its computer, and usage consumes that operator's provider allowance.
 
-## Connect through MCP instead
-
-Configure a local STDIO MCP server in your AI CLI with executable `node` and arguments:
-
-```text
-/absolute/path/to/game/bridge/cli.js mcp --server https://your-game-host --session /absolute/path/to/private-session.json
-```
-
-Tools are `catan_join`, `catan_observe`, and `catan_act`. Join a vacant AI slot using its code and name, observe, then send `ready`. Commands include the observed revision/generation, AI `controlEpoch`, and a unique request ID. Reuse the same envelope when retrying uncertain delivery; on an explicit stale-revision error, observe again and reconsider. MCP exposes actions and infers connection/activity from observe/action calls; it does not claim to know whether the external model is thinking. It does not itself wake an idle model or process chat. The included runner provides automatic scheduling and the isolated chat pipeline.
-
 ## AI controls and connected chat
 
 In the lobby, choose each AI seat’s playing model and optional separate chat model/reasoning. An empty chat model uses the playing model. Turn off **Consider player chat** to keep that seat focused on game actions. Configure seats before controllers join; releasing and setting an occupied controller revokes its old credentials.
 
-The host can **Pause AI**, **Resume AI**, or **Cancel decision** in the lobby and active-game host controls. Pause keeps the attached runner waiting. Cancel invalidates its current decision, pauses the seat, and detaches the runner; resume the AI and restart `node bridge/cli.js run --session YOUR_SEAT_FILE` on its computer to continue. Ctrl-C stops a local runner without giving up its seat. The website cannot launch a CLI on another computer. AI controllers may also send those commands for their own seat.
+The host can **Pause AI**, **Resume AI**, or **Cancel decision** in the lobby and active-game host controls. Pause keeps an attached Codex runner waiting and blocks direct MCP actions. Cancel invalidates the current decision, pauses the seat, and detaches any runner. To continue, resume the seat and restart a Codex runner with its existing session, or have the external MCP agent observe again. Ctrl-C stops a local runner without giving up its seat. The website cannot launch a CLI on another computer. AI controllers may also send those commands for their own seat.
 
-Status comes from bridge execution and server timestamps, never an LLM status tool. The bridge reports choosing a move, considering chat, preparing a reply, or waiting. A 20-second runner lease prevents two live processes controlling one seat; 20 seconds without activity becomes stale and 45 seconds becomes offline. Every AI command is fenced by its current control epoch, so an old decision cannot commit after pause, cancel, or replacement. Provider errors stop the runner and leave the game waiting.
+Status comes from bridge execution and server timestamps, never an LLM status tool. The Codex bridge reports choosing a move, considering chat, preparing a reply, or waiting. Direct MCP reports only its observe/action activity. A 20-second runner lease prevents two live automatic processes controlling one seat; 20 seconds without activity becomes stale and 45 seconds becomes offline. Every AI command is fenced by its current control epoch, so an old decision cannot commit after pause, cancel, or replacement. Provider errors stop the runner and leave the game waiting.
 
 Raw human chat goes only to a separate reader context with no game tools or private hand. Its output is validated into finite resource/trade/robber/build suggestions, bound to the original message and player. The private playing agent evaluates those suggestions and submits any real action. A chat proposal is never an accepted trade by itself. The public speaker receives only public board facts, validated public negotiation proposals, a narrow acknowledge/decline choice, and confirmed public actions; it never receives the playing agent’s hand, development cards, strategic memory, raw chat, or private command effects. Human-triggered replies remain optional and rate-limited; their free-form text does not wake other AI readers. Proactive AI negotiation uses a separate finite public intent protocol, described below. Model instructions reduce manipulation risk; field validation and server authority enforce the actual information and action boundaries.
 
@@ -91,7 +93,7 @@ Robber theft has two steps for every client: `moveRobber {hexKey, stealFromPlaye
 - Only a player's own hand is visible. Spectators see public board state and card counts, including in four-AI games.
 - Trading uses exact give/get quantities and a partner, followed by accept and proposer confirmation. Counteroffers replace the current offer. One targeted offer is active at a time. Settlement rechecks both hands atomically.
 - All chat is public. AI gameplay observations omit raw chat; the managed bridge supplies validated suggestions through a separate reader. No private messaging exists.
-- Inactive or rate-limited players wait; there are no automatic moves, forfeits, or replacements.
+- Inactive or rate-limited players wait; there are no automatic moves, forfeits, or replacements. All unfinished rooms close after four hours without a lobby/game action.
 - Polling fetches filtered observations. Accepted transitions and idempotency receipts persist together in SQLite. Do not run two server processes against one game database.
 
 ## Add a provider connector
@@ -108,7 +110,7 @@ Recordings have random unlisted IDs independent of room codes. There is no publi
 
 Recorded AI diagnostics include the configured provider/model, reported status transitions and accepted actions. They exclude model prompts, local transcripts, private strategic memory, context IDs, raw provider errors and credentials. Polling and unchanged heartbeats do not create journal events. A recording explains what happened, but cannot explain unrecorded private model reasoning.
 
-Recordings stay on disk until the operator explicitly deletes a terminal recording. Paused and unfinished matches cannot be deleted while they remain resumable. Ending a match manually does not declare a winner. Recording data shares the existing SQLite backup lifecycle; do not delete database tables or copy a running WAL database piecemeal. See [the replay API and file format](docs/replays.md) for exports and downstream analysis.
+Recordings stay on disk until the operator explicitly deletes a terminal recording. Paused and unfinished matches cannot be deleted while they remain resumable; won, manually ended, and inactivity-closed matches can. Ending or closing a match does not declare a winner. Recording data shares the existing SQLite backup lifecycle; do not delete database tables or copy a running WAL database piecemeal. See [the replay API and file format](docs/replays.md) for exports and downstream analysis.
 
 Open **Recordings** from the home screen and enter the operator key to browse matches, copy unlisted links or delete terminal recordings. A lobby or active table also has **View recording / View replay**. Opening a replay does not vacate your seat. Its clock follows elapsed match time at 0.5×–8×, with optional idle skipping. Scrub to any time, step between turns, or choose robber, VP, award and winner markers above the timeline. Finished matches default to **Omniscient** with every hand visible; click a player panel for that player's board and hand presentation at the same moment. **Events**, **Chat**, **Details**, and **Charts** show the recorded facts available to that perspective. **Export** downloads its JSONL gzip file.
 
