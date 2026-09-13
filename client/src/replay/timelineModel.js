@@ -221,6 +221,8 @@ export function buildTimelineMarkers(events = [], metrics = [], players = []) {
   for (const event of orderedEvents(events)) {
     const type = String(event?.type || '');
     const normalized = type.toLowerCase();
+    const seaTypes={placeShip:'ship',moveShip:'ship',movePirate:'pirate',placePort:'port',resolveSeafarersChoice:'exploration',claimWonder:'wonder',buildWonder:'wonder',attackFortress:'fortress'};
+    if (seaTypes[type]) markers.push(makeMarker({type:seaTypes[type],event,label:event.summary || ({placeShip:'Built a ship',moveShip:'Moved a ship',movePirate:'Moved the pirate',placePort:'Placed a harbor',resolveSeafarersChoice:'Resolved a scenario choice',claimWonder:'Claimed a wonder',buildWonder:'Built a wonder level',attackFortress:'Attacked a fortress and ended the action phase'})[type],playerId:event.actorSeatId,playersById}));
     if (normalized.includes('robber')) {
       markers.push(makeMarker({
         type: 'robber',

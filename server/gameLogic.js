@@ -1,3 +1,5 @@
+import * as SF from './seafarersCore.js';
+
 /**
  * ============================================================================
  * CATAN GAME LOGIC ENGINE
@@ -379,7 +381,7 @@ export function normalizeVertex(hexQ, hexR, dir, hexes) {
  * @param dir - Vertex direction (0-5)
  * @returns Array of equivalent vertex representations {q, r, dir}
  */
-function getEquivalentVertices(q, r, dir) {
+export function getEquivalentVertices(q, r, dir) {
   const equivalents = [
     { q, r, dir }
   ];
@@ -908,6 +910,16 @@ export function createGame(gameId, hostPlayer, isExtended = false, enableSpecial
   };
 }
 
+/** Apply a supported scenario after every room seat has been added. */
+export function configureExpansions(game, options) {
+  if (!options?.expansions?.includes('seafarers')) return { success: true };
+  return SF.configureSeafarers(game, options);
+}
+
+export function previewNewWorldSetup(options, count) {
+  return SF.previewNewWorldSetup(options, count);
+}
+
 /** Add a player to an existing game (before game starts) */
 export function addPlayer(game, player) {
   const maxPlayers = game.maxPlayers || 4;
@@ -972,6 +984,8 @@ export function startGame(game) {
   game.phase = 'setup';
   game.setupPhase = 0;
   game.currentPlayerIndex = 0;
+  const seaStart = SF.onGameStart(game);
+  if (!seaStart.success) return seaStart;
   if (game.pairedTurnRules) {
     game.productionPlayerIndex = 0;
     game.turnRole = 'primary';
@@ -1059,7 +1073,19 @@ export function rollDice(game, playerId) {
   
   game.diceRoll = { die1, die2, total };
   game.hasRolledThisTurn = true;
+  if (SF.isSeafarers(game)) {
+    const fleet = SF.onDiceRolled(game, die1, die2);
+    if (!fleet.success) return fleet;
+    if (game.pendingChoice) {
+      game.seafarers.pendingRollTotal = total;
+      refreshPlayerTradingAllowed(game);
+      return { success: true, roll: game.diceRoll, resourceGains: null };
+    }
+  }
+  return completeRoll(game, total);
+}
   
+export function completeRoll(game, total) {
   if (total === 7) {
     // Check if any player has more than 7 cards
     const playersToDiscard = [];
@@ -1077,13 +1103,15 @@ export function rollDice(game, playerId) {
       game.turnPhase = 'discard';
       game.discardingPlayers = playersToDiscard;
     } else {
-      game.turnPhase = 'robber';
+      game.turnPhase = SF.isPirateIslands(game) ? 'pirateSeven' : 'robber';
+      if (SF.isPirateIslands(game)) SF.queuePirateSeven(game);
     }
     refreshPlayerTradingAllowed(game);
     return { success: true, roll: game.diceRoll, resourceGains: null };
   } else {
     // Distribute resources
     const gains = distributeResources(game, total);
+    SF.onProduction(game, total);
     game.turnPhase = 'main';
     refreshPlayerTradingAllowed(game);
     return { success: true, roll: game.diceRoll, resourceGains: gains };
@@ -1115,6 +1143,7 @@ function distributeResources(game, roll) {
   const processedHexVertices = new Set();
   
   const pendingGains = [];
+  const goldClaims = [];
 
   Object.entries(game.hexes).forEach(([hKey, hex]) => {
     if (hex.number === roll && hKey !== game.robber) {
@@ -1122,7 +1151,7 @@ function distributeResources(game, roll) {
       for (let dir = 0; dir < 6; dir++) {
         const buildingInfo = findBuildingAtHexVertex(game, hex.q, hex.r, dir);
         
-        if (buildingInfo && buildingInfo.owner !== null && hex.resource) {
+        if (buildingInfo && buildingInfo.owner !== null && (hex.resource || hex.terrain === 'gold')) {
           // Create a unique key for this HEX-VERTEX combination
           // This prevents the same hex from giving resources to the same vertex twice
           // (which could happen if we find the same building under different vertex key formats)
@@ -1131,7 +1160,8 @@ function distributeResources(game, roll) {
           processedHexVertices.add(hexVertexKey);
           
           const amount = buildingInfo.type === 'city' ? 2 : 1;
-          pendingGains.push({ playerIndex: buildingInfo.owner, resource: hex.resource, amount });
+          if (hex.terrain === 'gold') goldClaims.push({ playerId: game.players[buildingInfo.owner].id, amount, hexKey: hKey });
+          else pendingGains.push({ playerIndex: buildingInfo.owner, resource: hex.resource, amount });
         }
       }
     }
@@ -1149,6 +1179,7 @@ function distributeResources(game, roll) {
       game.players[index].resources[resource]+=received;gains[index][resource]+=received;game.bank[resource]-=received;
     }
   });
+  if (goldClaims.length) SF.queueGoldClaims(game, goldClaims);
   
   return gains;
 }
@@ -1202,7 +1233,8 @@ export function discardCards(game, playerId, resources) {
   
   // If all done discarding, move to robber phase
   if (game.discardingPlayers.length === 0) {
-    game.turnPhase = 'robber';
+    game.turnPhase = SF.isPirateIslands(game) ? 'pirateSeven' : 'robber';
+    if (SF.isPirateIslands(game)) SF.queuePirateSeven(game);
   }
   
   return { success: true };
@@ -1229,6 +1261,8 @@ export function moveRobber(game, playerId, hexKey, stealFromPlayerId) {
   if (!game.hexes[hexKey]) {
     return { success: false, error: 'Invalid hex' };
   }
+  const seaRobber = SF.canMoveRobber(game, hexKey);
+  if (!seaRobber.valid) return { success: false, error: seaRobber.error };
   
   if (hexKey === game.robber) {
     return { success: false, error: 'Must move robber to a different hex' };
@@ -1332,12 +1366,15 @@ export function canPlaceSettlement(game, playerId, vKey, isSetup = false) {
   if (hasAdjacentBuilding(game, vKey)) {
     return { valid: false, error: 'Too close to another building' };
   }
+  const scenarioValidation = SF.canPlaceScenarioSettlement(game, vKey, isSetup);
+  if (!scenarioValidation.valid) return scenarioValidation;
   
   // During setup, no road connection needed
   if (!isSetup) {
     // Must be connected to own road (check all equivalent edge keys)
     const vertexEdges = getVertexEdges(vKey);
-    const hasRoad = vertexEdges.some(eKey => hasPlayerRoadAtEdge(game, eKey, playerIndex));
+    const hasRoad = vertexEdges.some(eKey => hasPlayerRoadAtEdge(game, eKey, playerIndex)) ||
+      SF.canReachSettlementByShip(game, playerIndex, vKey);
     
     if (!hasRoad) {
       return { valid: false, error: 'Must be connected to your road' };
@@ -1373,12 +1410,13 @@ export function placeSettlement(game, playerId, vKey) {
   game.vertices[vKey] = { building: 'settlement', owner: playerIndex };
   player.settlements--;
   player.victoryPoints++;
+  if (SF.isSeafarers(game)) SF.onSettlementPlaced(game, playerIndex, vKey, isSetup);
 
   // An opponent settlement can split an existing road network.
   updateLongestRoad(game);
   
   // During second setup phase, give initial resources
-  if (isSetup && game.setupPhase === 1) {
+  if (isSetup && game.setupPhase === (SF.needsThirdSetup(game) ? 2 : 1)) {
     giveInitialResources(game, vKey, playerIndex);
   }
   
@@ -1407,6 +1445,8 @@ function giveInitialResources(game, vKey, playerIndex) {
     if (hex && hex.resource && game.bank[hex.resource] > 0) {
       player.resources[hex.resource]++;
       game.bank[hex.resource]--;
+    } else if (hex?.terrain === 'gold') {
+      SF.queueGoldClaims(game, [{ playerId: player.id, amount: 1, hexKey: hexKey(hq, hr), label: 'Choose a starting resource from gold' }]);
     }
   });
 }
@@ -1468,6 +1508,8 @@ export function canPlaceRoad(game, playerId, eKey, isSetup = false, lastSettleme
   }
   
   if (!edge) return { valid: false, error: 'Invalid edge' };
+  const seaValidation = SF.canPlaceRoadOnSeafarers(game, eKey);
+  if (!seaValidation.valid) return seaValidation;
   
   // Check for existing road on this edge OR any equivalent edge
   // This prevents the same physical edge from having roads placed under different key formats
@@ -1547,7 +1589,7 @@ export function canPlaceRoad(game, playerId, eKey, isSetup = false, lastSettleme
  * Get the two vertices at the ends of an edge
  * Edge directions: 0=upper-right, 1=right, 2=lower-right, 3=lower-left, 4=left, 5=upper-left
  */
-function getEdgeVertices(q, r, dir) {
+export function getEdgeVertices(q, r, dir) {
   // Each edge connects two adjacent vertices
   if (dir === 0) return [vertexKey(q, r, 0), vertexKey(q, r, 1)]; // upper-right edge: top to upper-right
   if (dir === 1) return [vertexKey(q, r, 1), vertexKey(q, r, 2)]; // right edge: upper-right to lower-right
@@ -1580,6 +1622,7 @@ export function placeRoad(game, playerId, eKey, isSetup = false, lastSettlement 
   // All lookups use hasRoadAtEdge which checks all equivalents, so this is safe
   game.edges[eKey] = { road: true, owner: playerIndex };
   player.roads--;
+  SF.onRoutePlaced(game, playerId, eKey, 'road');
   
   // Update longest road
   updateLongestRoad(game);
@@ -1719,13 +1762,18 @@ export function playDevCard(game, playerId, cardType, params = {}) {
   
   switch (cardType) {
     case DEV_CARDS.KNIGHT:
+      if (SF.isPirateIslands(game)) {
+        const converted = SF.convertWarship(game, playerId);
+        if (!converted.success) { player.developmentCards.splice(cardIndex, 0, cardType); return converted; }
+        break;
+      }
       player.knightsPlayed++;
       game.turnPhase = 'robber';
       updateLargestArmy(game);
       break;
       
     case DEV_CARDS.ROAD_BUILDING:
-      game.freeRoads = Math.min(2, player.roads);
+      game.freeRoads = Math.min(2, player.roads + (SF.isSeafarers(game) ? player.ships : 0));
       break;
       
     case DEV_CARDS.YEAR_OF_PLENTY:
@@ -2053,7 +2101,7 @@ export function cancelTrade(game, playerId) {
 export function isPlayerTradingAllowed(game) {
   return game?.phase === 'playing' && game.turnPhase === 'main' &&
     (!game.pairedTurnRules || game.turnRole === 'primary') &&
-    !game.freeRoads && !game.yearOfPlentyPicks && !game.pendingRobberPick;
+    !game.freeRoads && !game.yearOfPlentyPicks && !game.pendingRobberPick && !game.pendingChoice;
 }
 
 export function refreshPlayerTradingAllowed(game) {
@@ -2068,7 +2116,7 @@ export function refreshPlayerTradingAllowed(game) {
  * - In new 5-6 player games: primary -> paired -> next primary
  * - Advances to next player
  */
-export function endTurn(game, playerId) {
+export function endTurn(game, playerId, { attackFortress = false } = {}) {
   if (game.phase !== 'playing') {
     return { success: false, error: 'Game is not active' };
   }
@@ -2089,6 +2137,11 @@ export function endTurn(game, playerId) {
   if (game.freeRoads || game.yearOfPlentyPicks || game.pendingRobberPick) {
     return { success: false, error: 'Complete the current card action first' };
   }
+  checkWinner(game);
+  if (game.phase === 'finished') return { success: true, winner: game.winner };
+  const seaEnd = SF.onActorEnd(game, { attackFortress });
+  if (!seaEnd.success) return seaEnd;
+  if (game.phase === 'finished') return { success: true, winner: game.winner, winners: game.winners };
 
   // A player who enters an Action phase holding ten hidden points wins there.
   // Also settle a victory missed by an older saved game before advancing.
@@ -2251,11 +2304,16 @@ export function advanceSetup(game, playerId) {
       // Start second round (same player goes again)
       game.setupPhase = 1;
     }
-  } else {
+  } else if (game.setupPhase === 1) {
     // Second round - go backward
     if (game.currentPlayerIndex > 0) {
       game.currentPlayerIndex--;
     } else {
+      if (SF.needsThirdSetup(game)) {
+        game.setupPhase = 2;
+        game.currentPlayerIndex = 0;
+        return { success: true };
+      }
       // Setup complete
       game.phase = 'playing';
       game.turnPhase = 'roll';
@@ -2263,6 +2321,16 @@ export function advanceSetup(game, playerId) {
         game.productionPlayerIndex = 0;
         game.turnRole = 'primary';
       }
+      checkWinner(game);
+      refreshPlayerTradingAllowed(game);
+    }
+  } else if (game.setupPhase === 2 && SF.needsThirdSetup(game)) {
+    if (game.currentPlayerIndex < numPlayers - 1) game.currentPlayerIndex++;
+    else {
+      game.phase = 'playing';
+      game.turnPhase = 'roll';
+      game.currentPlayerIndex = 0;
+      if (game.pairedTurnRules) { game.productionPlayerIndex = 0; game.turnRole = 'primary'; }
       checkWinner(game);
       refreshPlayerTradingAllowed(game);
     }
@@ -2392,9 +2460,10 @@ function hasOpponentBuildingAtVertex(game, vKey, playerIndex) {
  * - Worth 2 Victory Points
  */
 export function updateLongestRoad(game) {
+  if (SF.isSeafarers(game) && ['cloth_for_catan', 'the_pirate_islands'].includes(game.seafarers.scenario)) return;
   // Calculate road lengths for all players
   const roadLengths = game.players.map((player, idx) => {
-    const length = calculateRoadLength(game, idx);
+    const length = SF.isSeafarers(game) ? SF.calculateSeaRouteLength(game, idx) : calculateRoadLength(game, idx);
     player.roadLength = length;
     return { playerIndex: idx, length };
   });
@@ -2537,12 +2606,12 @@ function updateLargestArmy(game) {
  * Check if any player has won (10+ victory points)
  * When game ends, reveals all hidden VP cards and updates final scores
  */
-function checkWinner(game) {
+export function checkWinner(game) {
   if(game.phase!=='playing')return;
   for (const player of [game.players[game.currentPlayerIndex]]) {
     // Total VP = visible VP + hidden VP from dev cards
     const totalVP = player.victoryPoints + (player.hiddenVictoryPoints || 0);
-    if (totalVP >= 10) {
+    if (SF.isSeafarers(game) ? SF.isScenarioWinner(game, player, totalVP) : totalVP >= 10) {
       game.phase = 'finished';
       game.winner = player.id;
       
@@ -2588,6 +2657,8 @@ export function getPlayerView(game, playerId) {
   
   return {
     ...game,
+    pendingRobberPick: undefined,
+    ...(SF.isSeafarers(game) ? { seafarers: SF.publicSeafarersState(game, playerId), pendingChoice: SF.publicPendingChoice(game, playerId) } : {}),
     playerTradingAllowed: isPlayerTradingAllowed(game),
     players: game.players.map((p, idx) => ({
       ...p,

@@ -4,6 +4,12 @@ import GameIcon from './GameIcon';
 
 // Centralized info data for all game elements
 const INFO_DATA = {
+  ships: {icon:'ship',title:'Ships',description:'Cost 1 lumber and 1 wool. Extend a shipping route from your ship or coastal building. Once per action phase, move an eligible open ship built in an earlier phase. Roads and ships join only at your own building.',cost:[{icon:'lumber',amount:1},{icon:'wool',amount:1}]},
+  gold: {icon:'gold',title:'Gold fields',description:'Choose any resource when this number produces: one for a settlement, two for a city. Gold is not held as a resource.'},
+  sea: {icon:'sea',title:'Sea',description:'Build ships along sea edges. Ships beside the pirate cannot be built or moved.'},
+  fog: {icon:'fog',title:'Unexplored fog',description:'Extend a road or ship to an adjoining intersection to reveal this tile. Its contents remain unknown until then.'},
+  cloth: {icon:'cloth',title:'Cloth',description:'Connect shipping routes to villages to collect cloth. Every two cloth are worth one victory point.'},
+  pirate: {icon:'pirate',title:'Pirate',description:'Blocks building and movement of adjacent ships. Move it on a 7 or with a Knight, then steal from an eligible ship owner.'},
   // Player card symbols
   settlements: {
     icon: 'settlement',

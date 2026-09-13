@@ -28,6 +28,27 @@ function resolveName(name) {
 
 function iconShape(name) {
   switch (resolveName(name)) {
+    case 'ship':
+    case 'pirate':
+    case 'warship':
+      return <><path d="M3 16h18l-4 5H7Z" fill="currentColor" opacity=".8"/><path d="M11 16V3M9 5 3 13h6ZM14 6v7h6Z" fill="currentColor" opacity=".7"/>{name==='warship' && <path d="m14 7 5 5m0-5-5 5"/>}{name==='pirate' && <circle cx="6.5" cy="11" r="1.2"/>}</>;
+    case 'cloth':
+      return <><path d="M6 4h12v15H6c-3 0-3-5 0-5h12M6 14V4c-3 0-3 5 0 5h12" fill="currentColor" opacity=".5"/><path d="M9 4v10M13 4v10M6 7h12M6 11h12M6 17h9"/></>;
+    case 'gold':
+      return <><path d="m3 18 4-8h10l4 8Z" fill="currentColor" opacity=".75"/><path d="m7 10 3 8M17 10l-3 8M9 6h6M12 3v3"/></>;
+    case 'sea':
+      return <path d="M2 7q3-4 6 0t6 0t6 0M2 12q3-4 6 0t6 0t6 0M2 17q3-4 6 0t6 0t6 0"/>;
+    case 'fog':
+      return <><path d="M3 8h18M5 12h14M3 16h18M7 20h10"/><path d="M7 5a5 5 0 0 1 10 0"/></>;
+    case 'fortress':
+    case 'wall':
+      return <><path d="M3 20V5h4v4h3V5h4v4h3V5h4v15Z" fill="currentColor" opacity=".7"/><path d="M9 20v-6h6v6M4 12h16"/></>;
+    case 'bridge':
+      return <><path d="M3 20V8h18v12M3 14h18M7 20v-3a5 5 0 0 1 10 0v3M3 8V4M21 8V4"/><path d="M5 8h14v6H5Z" fill="currentColor" opacity=".5"/></>;
+    case 'lighthouse':
+      return <><path d="m7 21 2-13h6l2 13ZM8 8V4h8v4M6 4l6-3 6 3M2 7l4-1M18 6l4 1" fill="currentColor" opacity=".7"/><path d="M9 13h6M8 17h8"/></>;
+    case 'wonder':
+      return <><path d="M3 9 12 3l9 6ZM4 20h16M6 10v7M10 10v7M14 10v7M18 10v7"/><path d="M3 9h18v2H3ZM3 18h18v3H3Z" fill="currentColor" opacity=".6"/></>;
     case 'brick':
       return (
         <>
