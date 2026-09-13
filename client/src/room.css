@@ -192,6 +192,7 @@
 
 .room-form label,
 .room-seat-config label,
+.game-rules-field,
 .room-rules-seat-count {
   display: flex;
   flex-direction: column;
@@ -204,6 +205,8 @@
 .room-form select,
 .room-seat-config input,
 .room-seat-config select,
+.game-rules-field input,
+.game-rules-field select,
 .room-rules-seat-count select,
 .room-trade-form input,
 .room-trade-form select {
@@ -221,6 +224,8 @@
 .room-form select:focus,
 .room-seat-config input:focus,
 .room-seat-config select:focus,
+.game-rules-field input:focus,
+.game-rules-field select:focus,
 .room-rules-seat-count select:focus,
 .room-trade-form input:focus,
 .room-trade-form select:focus {
@@ -248,6 +253,19 @@
 .room-rules-seat-count { min-width: 7.5rem; }
 .room-rules-controls .room-field-help { flex-basis: 100%; margin: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.4; }
 .room-form .room-rules-switch input { width: 1.1rem; min-height: 1.1rem; padding: 0; }
+.game-rules-fields { display: grid; grid-template-columns: minmax(7rem, 1fr) minmax(0, 3fr); gap: 0.8rem 1rem; width: 100%; }
+.game-rules-toggles { display: flex; flex-wrap: wrap; gap: 0.4rem 1.5rem; grid-column: 1 / -1; }
+.game-rules-fields .room-rules-switch { flex-direction: row; align-items: center; min-height: 2.5rem; gap: 0.6rem; }
+.game-rules-fields .room-rules-switch input { flex-shrink: 0; }
+.game-rules-description, .game-rules-seed { grid-column: 1 / -1; }
+.game-rules-fields .room-field-help { margin: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.5; }
+.game-rules-seed { font-size: 0.85rem; color: var(--text-secondary); }
+.game-rules-seed summary { cursor: pointer; padding: 0.3rem 0; }
+.game-rules-seed .game-rules-field { max-width: 18rem; margin: 0.7rem 0; }
+@media (max-width: 520px) {
+  .game-rules-fields { grid-template-columns: minmax(0, 1fr); }
+  .game-rules-toggles { flex-direction: column; gap: 0; }
+}
 
 .room-primary-button,
 .room-secondary-button,
@@ -964,3 +982,16 @@
   }
 }
 .room-app .hex-board .port { pointer-events: none; }
+.game-rules-terrain { grid-column:1/-1; }
+.game-rules-terrain summary,.new-world-preview>summary { cursor:pointer; padding:8px 0; font-size:13px; color:var(--text-secondary,#bdc8be); }
+.new-world-terrain-counts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 20px; margin:12px 0; max-width:560px; }
+.new-world-terrain-counts>label { display:grid; grid-template-columns:minmax(85px,1fr) 64px 36px; align-items:center; gap:7px; font-size:12px; }
+.new-world-terrain-counts>label>span { display:flex; align-items:center; gap:7px; }
+.new-world-terrain-counts input { width:64px; min-height:36px; padding:5px 8px; }
+.new-world-terrain-counts small { font-size:10px; color:var(--text-secondary,#bdc8be); }
+.new-world-preview { margin-top:12px; border-top:1px solid #9daa9233; }
+.new-world-preview-board { height:420px; margin:10px 0; }
+.new-world-preview-board .hex-board { width:100%;height:100%;max-width:none;max-height:none; }
+.new-world-arrangement-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.new-world-arrangement-controls p { flex-basis:100%; margin:0; }
+@media(max-width:640px) { .new-world-terrain-counts { grid-template-columns:1fr; } .new-world-preview-board { height:340px; } }

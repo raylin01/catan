@@ -1,3 +1,4 @@
+import {seafarersCommand} from './components/seafarersCommands';
 import {AiControls, ChatModelFields} from './components/AiControls';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -166,6 +167,8 @@ function createRoomAdapter() {
   };
 
   const commandFor = (event, payload = {}) => {
+    const seaCommand=seafarersCommand(event,payload);
+    if(seaCommand)return seaCommand;
     switch (event) {
       case 'rollDice': return { type: 'rollDice', payload: {} };
       case 'chooseRobberCard': return { type: 'chooseRobberCard', payload: { cardId: payload.cardId } };

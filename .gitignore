@@ -37,5 +37,8 @@ coverage/
 *.pem
 .cache/
 data/
+!server/data/
+server/data/*
+!server/data/seafarers-maps.json
 .catan-session*.json
 .catan-session*.tmp

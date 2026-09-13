@@ -1,0 +1,70 @@
+.seafarers-panel { padding:14px 0; border-bottom:1px solid var(--border-color,#52605b); font-size:12px; }
+.scenario-heading { display:flex; align-items:center; gap:7px; }
+.scenario-heading h3 { margin:0; font-size:14px; line-height:1.35; }
+.scenario-goal { display:flex; align-items:flex-start; gap:6px; color:#e5d8b5; line-height:1.5; margin:8px 0 10px; }
+.scenario-goal .game-icon { flex:none; margin-top:2px; }
+.scenario-details summary { cursor:pointer; color:var(--text-secondary,#b8c1b9); padding:7px 0; }
+.scenario-details p,.fortress-action p,.seafarers-target-instruction { line-height:1.55; color:var(--text-secondary,#b8c1b9); margin:6px 0 10px; }
+.scenario-setup { font-size:10px; overflow-wrap:anywhere; }
+.scenario-progress { display:flex; gap:6px; align-items:center; line-height:1.5; }
+.setup-route-choice { display:flex; gap:6px; margin:9px 0; }
+.setup-route-choice button { display:flex; align-items:center; justify-content:center; gap:6px; flex:1; border:1px solid #6b7367; background:#192e32; color:#dedfcf; border-radius:5px; min-height:38px; font:inherit; cursor:pointer; }
+.setup-route-choice button[aria-pressed=true] { border-color:#d7b875; color:#ffe4aa; background:#35443e; }
+.setup-route-choice button:disabled { opacity:.4; cursor:default; }
+.seafarers-choice { padding:10px 0; border-top:1px solid #68715c55; }
+.seafarers-choice h3 { margin:0 0 8px; font-size:13px; line-height:1.5; }
+.seafarers-choice.is-acting h3 { color:#f4d68e; }
+.seafarers-choice-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.seafarers-choice-options button { background:#263d40; color:#ece5cf; border:1px solid #777961; border-radius:5px; padding:10px 7px; min-height:44px; display:flex; align-items:center; gap:7px; font:inherit; cursor:pointer; }
+.seafarers-choice-options button:disabled { opacity:.45; cursor:default; }
+.seafarers-choice-options button:hover:not(:disabled) { background:#3d5147; border-color:#d6b874; }
+.seafarers-panel button:focus-visible,.scenario-details summary:focus-visible { outline:2px solid #f4d58e; outline-offset:3px; }
+.seafarers-piece { width:42px; height:32px; flex:none; }
+.seafarers-move { display:flex; align-items:center; gap:8px; }
+.seafarers-move span { flex:1; text-align:left; }
+.fortress-action .action-btn { line-height:1.4; }
+.wonder-list { display:flex; flex-direction:column; gap:14px; padding:6px 0; }
+.wonder-entry { border-bottom:1px solid #68715c55; padding-bottom:12px; }
+.wonder-title { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.wonder-title strong { flex:1; }
+.wonder-title>span { font-size:11px; }
+.wonder-track { display:flex; gap:4px; margin:8px 0; }
+.wonder-track span { flex:1; padding:4px; text-align:center; background:#192d32; border:1px solid #626f62; border-radius:2px; color:#a1ab9e; font-size:11px; }
+.wonder-track .complete { background:#c4a564; color:#203338; border-color:#e5cf9d; }
+.wonder-cost { display:flex; gap:9px; align-items:center; flex-wrap:wrap; margin:7px 0; }
+.wonder-cost>span { display:flex; gap:3px; align-items:center; }
+.wonder-cost small { color:#aeb5a8; }
+.ship-piece,.pirate-piece,.village-token,.fortress-token { transform-box:fill-box; transform-origin:center; }
+.ship-piece.is-new { animation:road-place var(--piece-motion-duration,520ms) cubic-bezier(.18,.82,.3,1.18) both; }
+.pirate-piece.is-new { animation:robber-land var(--robber-motion-duration,440ms) cubic-bezier(.2,.85,.32,1.22) both; }
+.village-token.is-new,.fortress-token.is-new { animation:building-place var(--piece-motion-duration,520ms) ease-out both; }
+.ship-shape { filter:drop-shadow(1px 2px 1px #07141a77); }
+.ship-target { pointer-events:all; cursor:pointer; outline:none; }
+.ship-target .ship-choice-ring { fill:#ffe7a222; stroke:#f5d186; stroke-width:1.8; }
+.ship-target:is(:hover,:focus-visible) .ship-choice-ring,.ship-target.is-selected .ship-choice-ring { fill:#f7d37d55; stroke:#fff1b9; stroke-width:2.5; }
+.pirate-position,.scenario-map-token,.village-token,.fortress-token,.beachhead-marker,.wonder-map-marker,.fleet-route { pointer-events:none; }
+.pirate-frame-target { cursor:pointer; outline:none; }
+.pirate-frame-target:is(:hover,:focus-visible) .vertex-placeholder-halo { fill:#9e7e46; stroke:#fff0b8; }
+.fleet-route circle { fill:#c8d8cf55; stroke:#cce2d875; stroke-width:.7; }
+.fleet-route text { fill:#e5ead7; font-size:5px; font-weight:700; text-anchor:middle; }
+.hex.terrain-sea .terrain-tile { stroke:#538c92; }
+.hex.terrain-fog .terrain-tile { stroke:#a8b7b2; }
+.hex.is-revealed { animation:fog-reveal var(--piece-motion-duration,520ms) ease-out both; }
+.hex.terrain-gold .terrain-tile { stroke:#b99348; }
+@keyframes fog-reveal { from {opacity:.2;filter:brightness(1.7)} to {opacity:1;filter:none} }
+.seafarers-board-layer .game-icon-symbol { pointer-events:none; }
+@media(max-width:720px) { .seafarers-panel { padding:10px 0; } .seafarers-choice-options { grid-template-columns:repeat(auto-fit,minmax(100px,1fr)); } .wonder-list { max-height:50vh; overflow:auto; padding-right:6px; } }
+@media(prefers-reduced-motion:reduce) { .ship-piece,.pirate-piece,.village-token,.fortress-token,.hex.is-revealed { animation:none!important; transition:none!important; } }
+.port.is-new,.bonus-token.is-new { transform-box:fill-box; transform-origin:center; animation:building-place var(--piece-motion-duration,520ms) ease-out both; }
+@media(prefers-reduced-motion:reduce) { .port.is-new,.bonus-token.is-new { animation:none!important; } }
+.ship-piece.is-moving { animation:ship-sail var(--piece-motion-duration,520ms) cubic-bezier(.25,.65,.3,1) both; }
+@keyframes ship-sail { from { translate:var(--ship-from-x,0px) var(--ship-from-y,0px); opacity:.65; } 70% {opacity:1;} to {translate:0 0;opacity:1;} }
+@media(prefers-reduced-motion:reduce) { .ship-piece.is-moving { animation:none!important; } }
+.game-hud .seafarers-panel h3 { text-transform:none; letter-spacing:0; font-size:14px; line-height:1.35; margin:0; }
+.game-hud .seafarers-choice h3 { font-size:13px; margin-bottom:8px; }
+.wonder-current { margin:10px 0; }
+.wonder-current label { display:flex; flex-direction:column; gap:5px; }
+.wonder-current select { width:100%;min-height:36px;font:inherit;color:#e7dfc8;background:#233a3e;border:1px solid #758373;border-radius:4px;padding:5px; }
+.wonder-list { max-height:380px;overflow-y:auto;padding-right:5px; }
+@media(max-width:720px) { .game-hud.has-seafarers .build-actions { grid-template-columns:repeat(5,minmax(0,1fr)); } }
+@media(max-width:480px) { .game-hud.has-seafarers .build-actions { grid-template-columns:repeat(3,minmax(0,1fr)); } .game-hud.has-seafarers .player-inventory { flex-wrap:wrap; } }

@@ -55,6 +55,7 @@ function sanitizeSlot(slot) {
 export function captureState(room) {
   return {
     gameOptions:roomGameOptions(room),
+    ...(room.boardPreview?{boardPreview:clone(room.boardPreview)}:{}),
     gameState:clone(room.game),slots:(room.slots||[]).map(sanitizeSlot),trade:clone(room.trade),paused:!!room.paused,
     chat:clone(room.chat||[]),cardEvents:clone(room.cardEvents||[]),lastRoll:clone(room.lastRoll||null)
   };
@@ -94,6 +95,7 @@ const safeEventPayload=(type,payload,room)=> {
     }:{})};
   }
   const fields={
+    placePort:['edgeKey'],claimWonder:['wonderId'],placeShip:['edgeKey'],moveShip:['fromEdgeKey','toEdgeKey'],movePirate:['hexKey','stealFromPlayerId','stealType'],resolveSeafarersChoice:['choiceId','optionId'],
     join:['role','seatId','kind','provider','model'],configureSeat:['seatId','kind','provider','model','chatEnabled','chatModel','chatReasoning'],
     removeController:['seatId','kind','provider','model','chatEnabled','chatModel','chatReasoning'],chat:['message'],aiChatReply:['replyToSequence','message'],
     aiPause:['seatId'],aiResume:['seatId'],aiCancel:['seatId'],placeSettlement:['vertexKey'],placeRoad:['edgeKey'],upgradeToCity:['vertexKey'],
@@ -115,7 +117,7 @@ export function advanceRecording(recording,room,{type,actorSeatId=null,actorGene
   const state=captureState(room),seq=recording.lastSeq+1;
   const elapsedMs=Math.max(recording.lastElapsedMs,Number.isFinite(at)?Math.max(0,at-recording.createdAt):recording.lastElapsedMs);
   // Count production turns, not the extra action phase within a paired turn.
-  const turn=recording.turn+(type==='endTurn'&&room.game?.turnRole!=='paired'?1:0);
+  const turn=recording.turn+(['endTurn','attackFortress'].includes(type)&&room.game?.turnRole!=='paired'?1:0);
   const cleanPayload=safeEventPayload(type,payload,room);
   const event={seq,at,elapsedMs,turn,type,actorSeatId,actorGeneration,actorName,summary,
     ...(cleanPayload?{payload:cleanPayload}:{}),patch:createPatch(recording.latestState,state)};
@@ -163,7 +165,7 @@ export function projectEvent(event,access={}) {
   if(!event.payload)return projected;
   if(access.full||(access.seatId===event.actorSeatId&&(access.ownsSeatHistory||access.generation===event.actorGeneration)))projected.payload=clone(event.payload);
   else if(event.type==='discardCards')projected.payload={count:Object.values(event.payload.resources||{}).reduce((sum,count)=>sum+count,0)};
-  else if(!['chooseRobberCard','yearOfPlentyPick'].includes(event.type))projected.payload=clone(event.payload);
+  else if(!['chooseRobberCard','yearOfPlentyPick','resolveSeafarersChoice'].includes(event.type))projected.payload=clone(event.payload);
   return projected;
 }
 
@@ -179,7 +181,7 @@ export function reconstruct(recording,events,at,checkpoint=null) {
 }
 
 function counts(player) {
-  return {roads:15-(player.roads||0),longestRoad:player.roadLength||0,settlements:5-(player.settlements||0),cities:4-(player.cities||0)};
+  return {...(typeof player.ships==='number'?{ships:15-player.ships}:{}),roads:15-(player.roads||0),longestRoad:player.roadLength||0,settlements:5-(player.settlements||0),cities:4-(player.cities||0)};
 }
 
 export function metrics(recording,events,access) {

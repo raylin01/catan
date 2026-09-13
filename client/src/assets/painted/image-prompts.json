@@ -1,0 +1,15 @@
+{
+  "tool": "built-in image_gen",
+  "created": "2026-09-13",
+  "assets": {
+    "gold.png": "Use case: historical-scene. Asset type: a square painted gold-field terrain image for a Catan-style digital strategy board, designed to be cropped into both a hexagonal tile and a resource-detail card. Primary request: an original richly detailed pastoral oil painting of an exposed gold-bearing stream winding through low rocky hills, glints of natural gold deposits and a modest medieval prospecting shelter, no people prominent. Match the established game's naturalistic late-Renaissance countryside illustration style: warm parchment light, muted ochre earth, green vegetation, fine tactile brushwork, distant hazy hills, realistic scale. Composition: landscape fills a 1:1 square edge to edge; clear gold-bearing rocks and shallow river in the central 60 percent, distant horizon in upper quarter. Avoid text, numbers, card borders, tokens, logos, watermarks, UI, gems, fantasy glow. This is a new original game asset, not an existing board-game scan.",
+    "sea.png": "Use case: historical-scene. Asset type: square ocean terrain tile artwork for a painted medieval strategy board. Primary request: an original naturalistic oil painting of open blue-green sea, gentle sunlit waves, faint hazy island cliffs only along the far horizon in the upper tenth. No ships or pieces in the water; those are separate interactive game pieces. Match traditional detailed landscape paintings, muted teal and slate-blue water with warm parchment daylight, visible subtle brushwork and realistic ripples. Composition: 1:1 square filling edge to edge, visually calm center to keep overlaid game pieces legible; suitable for a hex crop. Avoid text, borders, numbers, tokens, maps, logos, UI, fantasy glow, dramatic storms.",
+    "fog.png": "Use case: historical-scene. Asset type: square fog-of-exploration terrain image for a digital painted medieval strategy board. An original naturalistic oil painting of softly layered silver-blue marine fog hanging just above a still teal sea, with only a barely suggested distant indistinct rocky silhouette along the high horizon, most of the scene concealed. Fine painterly texture and warm parchment daylight matching detailed pastoral game landscapes. Full square edge to edge, soft uncluttered center to allow a question-mark token rendered separately by the game. No clearly revealed island or terrain in the center. No writing, numbers, borders, symbols, game pieces, ships, logos, UI, or watermark."
+  },
+  "delivery": {
+    "format": "WebP",
+    "size": "640 \u00d7 640",
+    "quality": 88,
+    "method": "Mechanical cwebp resize/export; no semantic edits. Original PNGs retained in expansion-art outside the repository."
+  }
+}
