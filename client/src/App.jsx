@@ -951,6 +951,7 @@ function App() {
   if (match) {
     return <ReplayPage replayId={match[1]} onBack={goHome} getToken={roomCode => readStoredSession()?.rooms?.[roomCode]?.playerToken || null} />;
   }
+  if(path !== '/')return <main className="watch-waiting"><h1>Page not found</h1><p>Check the link or ask the host for a fresh invitation.</p><a className="room-primary-button" href="/">Back to Catan Online</a></main>;
   return <LiveApp />;
 }
 
