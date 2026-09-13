@@ -25,7 +25,7 @@ export default function WatchPage({code}) {
     poll();return()=>{abort.abort();clearTimeout(timer);};
   },[code]);
   const state=snapshot?.gameState;
-  return <main className="room-app watch-page">
+  return <main className="app room-app watch-page">
     <header className="room-session-bar"><a className="room-link-button" href="/">Catan Online</a><div className="room-session-status"><strong>{code}</strong><span>Live spectator</span></div><RoomShare code={code}/><a className="room-link-button" href={invitePath(code)}>Join as a player</a></header>
     {error&&<div className="room-error" role="status">{error}{!missing&&' Reconnecting…'}</div>}
     {state?<GameBoard socket={socket} gameState={state} playerId={null} gameCode={code} chatMessages={snapshot.chat||[]} onLeaveGame={()=>window.location.assign('/')} addNotification={noop} events={snapshot.events} slots={snapshot.slots} rollEvent={snapshot.rollEvent} cardEvents={snapshot.cardEvents} paused={snapshot.paused} readOnlyChat presentationKey={`${code}:watch:${epoch}`}/>:<section className="watch-waiting"><PresentationControls/><h1>{missing?'Room not found':snapshot?'Waiting for the table':'Opening the table…'}</h1>{snapshot&&<><p>{snapshot.slots.filter(seat=>seat.occupied).length} of {snapshot.slots.length} seats filled. The host will start when everyone is ready.</p><ul>{snapshot.slots.map(seat=><li key={seat.id}><strong>{seat.name}</strong><span>{seat.occupied?(seat.ready?'Ready':'Getting ready'):'Open seat'}</span></li>)}</ul><p>You can leave this page open. It will show the game when it starts and the replay when it ends.</p></>}</section>}
