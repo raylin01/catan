@@ -39,13 +39,14 @@ const DEV_CARD_INFO = {
 
 const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
 
-function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks, onClose, addNotification }) {
+function DevCardModal({ legalActions, paused=false, seafarers, socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks, onClose, addNotification }) {
   const dialog = useDialogFocus(onClose);
   const [selectedCard, setSelectedCard] = useState(null);
   const [monopolyResource, setMonopolyResource] = useState(null);
 
   // Can play dev cards before rolling (roll phase) or after rolling (main phase)
-  const canPlay = isMyTurn && (turnPhase === 'roll' || turnPhase === 'main');
+  const infoFor=cardType=>{const info={...DEV_CARD_INFO[cardType]};if(seafarers && cardType==='roadBuilding')info.description='Build two roads or ships for free, in any combination.';if(seafarers && cardType==='knight')info.description=seafarers.scenario==='the_pirate_islands'?'Convert your nearest ordinary ship to a warship. Warships defend against the fleet and attack your fortress.':'Move the robber or pirate and steal from an eligible opponent. Counts toward Largest Army.';return info;};
+  const canPlay = !paused && isMyTurn && (turnPhase === 'roll' || turnPhase === 'main');
 
   const handlePlayCard = (cardType) => {
     if (cardType === 'monopoly') {
@@ -118,6 +119,7 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
                 <button
                   key={r}
                   className="resource-pick-btn"
+                  disabled={paused || (legalActions && !legalActions.some(action=>action.type==='yearOfPlentyPick' && action.payload.resource===r))}
                   onClick={() => handleYearOfPlentyPick(r)}
                 >
                   <CardArtwork className="resource-choice-art" name={r} />
@@ -162,8 +164,8 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
                 {/* Playable cards */}
                 <div className="card-list">
                   {Object.entries(cardCounts).map(([cardType, count]) => {
-                    const info = DEV_CARD_INFO[cardType];
-                    const isPlayable = info.playable && canPlay;
+                    const info = infoFor(cardType);
+                    const isPlayable = info.playable && canPlay && (!legalActions || legalActions.some(action=>action.type==='playDevCard' && action.payload.cardType===cardType));
                     
                     return (
                       <div key={cardType} className={`dev-card ${isPlayable ? 'playable' : ''}`}>
@@ -194,7 +196,7 @@ function DevCardModal({ socket, myPlayer, isMyTurn, turnPhase, yearOfPlentyPicks
                     <h4>Bought This Turn (can't play yet)</h4>
                     <div className="card-list small">
                       {newCards.map((cardType, idx) => {
-                        const info = DEV_CARD_INFO[cardType];
+                        const info = infoFor(cardType);
                         return (
                           <div key={idx} className="dev-card new">
                             <CardArtwork name={cardType} className="dev-card-illustration" />

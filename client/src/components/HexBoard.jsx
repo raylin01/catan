@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './HexBoard.css';
 import BoardViewport from './BoardViewport';
+import SeafarersBoardLayer from './SeafarersBoardLayer';
+import {ShipShape} from './SeafarersPiece';
+import {GameIconSymbol} from './GameIcon';
 import {CARD_ARTWORK, TERRAIN_ARTWORK} from '../presentation/artwork';
 import { useGamePresentation } from '../presentation/GamePresentation';
 import { createBoardSnapshot, getBoardTransitions, motionDuration } from './boardMotion';
@@ -9,7 +12,7 @@ import { createBoardSnapshot, getBoardTransitions, motionDuration } from './boar
 const HEX_SIZE = 50;
 const BOARD_GUTTER = 62;
 const COAST_NEIGHBORS = [[1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1]];
-const EMPTY_ACTIVE_MOTION = { roads: new Set(), settlements: new Set(), cities: new Set(), robber: null };
+const EMPTY_ACTIVE_MOTION = { roads: new Set(), settlements: new Set(), cities: new Set(), robber: null, pirate:null, tokens:false, revealed:new Set(), shipMoves:new Map() };
 
 const activateWithKeyboard = (event, callback) => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -85,6 +88,12 @@ function HexBoard({
   vertices, 
   edges, 
   robber,
+  pirate,
+  seafarers,
+  pendingChoice,
+  shipSource,
+  onSelectShip,
+  onSeaAction,
   players,
   ports = [],
   selectedAction,
@@ -106,7 +115,10 @@ function HexBoard({
   resetKey,
   playbackRate = 1,
   cameraKey,
-  cameraState
+  cameraState,
+  previewTargets = [],
+  selectedPreviewHexes = [],
+  onPreviewHex
 }) {
   const { playSound } = useGamePresentation();
   // Calculate board bounds
@@ -169,11 +181,12 @@ function HexBoard({
 
   // Can click on hex (for robber)
   const canChooseRobberDestination = gamePhase === 'playing' && !paused && turnPhase === 'robber' && isMyTurn;
+  const choosingPirate = Boolean(seafarers) && (selectedAction==='pirate' || !legalActions.some(action=>action.type==='moveRobber'));
   const legalRobberHexes = useMemo(() => new Set(
     legalActions
-      .filter(action => action.type === 'moveRobber')
+      .filter(action => action.type === (choosingPirate ? 'movePirate' : 'moveRobber'))
       .map(action => action.payload.hexKey)
-  ), [legalActions]);
+  ), [legalActions, choosingPirate]);
 
   // Parse vertex/edge keys
   const parseVertexKey = (key) => {
@@ -215,7 +228,7 @@ function HexBoard({
     const roadMap = new Map();
     
     Object.entries(edges).forEach(([key, edge]) => {
-      if (!edge.road) return;
+      if (!edge.road && !edge.ship) return;
       
       const parsed = parseEdgeKey(key);
       if (!parsed) return;
@@ -224,11 +237,14 @@ function HexBoard({
       const { v1, v2 } = getEdgeEndpoints(parsed.q, parsed.r, parsed.dir);
       
       const id = [posKey(v1.x, v1.y), posKey(v2.x, v2.y)].sort().join('|');
-      if (roadMap.has(id)) return;
+      if (roadMap.has(id)) {roadMap.get(id).keys.push(key);return;}
       roadMap.set(id, {
         id,
         key,
+        keys:[key],
         owner: edge.owner,
+        ship: Boolean(edge.ship),
+        warship: Boolean(edge.warship),
         v1,
         v2
       });
@@ -244,7 +260,7 @@ function HexBoard({
     // First, mark all positions that have roads
     const roadPositions = new Set();
     Object.entries(edges).forEach(([key, edge]) => {
-      if (!edge.road) return;
+      if (!edge.road && !edge.ship) return;
       const parsed = parseEdgeKey(key);
       if (!parsed) return;
       const { v1, v2 } = getEdgeEndpoints(parsed.q, parsed.r, parsed.dir);
@@ -310,16 +326,18 @@ function HexBoard({
   }, [vertices, hexes]);
 
   const coastEdges = useMemo(() => Object.values(hexes).flatMap((hex) => {
+    if (['sea','fog'].includes(hex.terrain)) return [];
     return COAST_NEIGHBORS.flatMap(([dq, dr], direction) => {
-      if (hexes[`${hex.q + dq},${hex.r + dr}`]) return [];
+      const neighbor=hexes[`${hex.q + dq},${hex.r + dr}`];
+      if (neighbor && !['sea','fog'].includes(neighbor.terrain)) return [];
       const { v1, v2 } = getEdgeEndpoints(hex.q, hex.r, direction);
       return [{ id: `${hex.q},${hex.r}:${direction}`, v1, v2 }];
     });
   }), [hexes]);
 
   const snapshot = useMemo(
-    () => createBoardSnapshot(roads, uniqueVertices, robber),
-    [roads, uniqueVertices, robber]
+    () => createBoardSnapshot(roads, uniqueVertices, robber, {pirate,hexes,seafarers,ports}),
+    [roads, uniqueVertices, robber, pirate, hexes, seafarers, ports]
   );
   const previousPresentation = useRef(null);
   const motionTimer = useRef(null);
@@ -348,26 +366,47 @@ function HexBoard({
       setActiveMotion(EMPTY_ACTIVE_MOTION);
       return;
     }
-    if (!pieceTransitionKey && !transitions.robber) return;
+    if (!pieceTransitionKey && !transitions.robber && !transitions.pirate && !transitions.tokens && !transitions.revealed?.size) return;
 
     setActiveMotion(current => ({
       roads: new Set([...current.roads, ...transitions.roads]),
       settlements: new Set([...current.settlements, ...transitions.settlements]),
       cities: new Set([...current.cities, ...transitions.cities]),
-      robber: transitions.robber ? robber : current.robber
+      robber: transitions.robber ? robber : current.robber,
+      pirate:transitions.pirate ? pirate : current.pirate,
+      tokens:transitions.tokens || current.tokens,
+      revealed:new Set([...current.revealed,...(transitions.revealed||[])]),
+      shipMoves:new Map([...current.shipMoves,...(transitions.shipMoves||[])])
     }));
     if (pieceTransitionKey) playSound('piece');
-    if (transitions.robber) playSound('robber');
+    if (transitions.robber || transitions.pirate) playSound('robber');
+    if (transitions.tokens && !pieceTransitionKey) playSound('piece');
     clearTimeout(motionTimer.current);
     motionTimer.current = setTimeout(() => {
       motionTimer.current = null;
       setActiveMotion(EMPTY_ACTIVE_MOTION);
     }, Math.max(Number.parseInt(pieceMotionDuration), Number.parseInt(robberMotionDuration)) + 40);
-  }, [animate, pieceMotionDuration, pieceTransitionKey, playSound, resetChanged, robber, robberMotionDuration, transitions.cities, transitions.roads, transitions.robber, transitions.settlements]);
+  }, [animate, pieceMotionDuration, pieceTransitionKey, playSound, resetChanged, robber, robberMotionDuration, transitions.cities, transitions.roads, transitions.robber, transitions.settlements, transitions.pirate, transitions.tokens, transitions.revealed, pirate]);
 
   useEffect(() => () => clearTimeout(motionTimer.current), []);
 
-  const showEdgePlaceholders = canPlaceAtEdge();
+  const showEdgePlaceholders = canPlaceAtEdge() || (!paused && (['ship','port','moveShip'].includes(selectedAction) || pendingChoice?.options?.some(option=>option.edgeKey)));
+  const spatialChoice = (field,keys) => {
+    if(paused || !pendingChoice)return null;
+    const option=pendingChoice.options?.find(item=>keys.includes(item[field]));
+    const action=option && legalActions.find(candidate=>candidate.type==='resolveSeafarersChoice' && candidate.payload.choiceId===pendingChoice.id && candidate.payload.optionId===option.id);
+    return action ? {action,label:option.label}:null;
+  };
+  const edgeAction = keys => {
+    if (paused) return null;
+    if (pendingChoice) {
+      const option=pendingChoice.options?.find(item=>keys.includes(item.edgeKey));
+      return option && legalActions.find(action=>action.type==='resolveSeafarersChoice' && action.payload.choiceId===pendingChoice.id && action.payload.optionId===option.id);
+    }
+    const type=selectedAction==='ship'?'placeShip':selectedAction==='port'?'placePort':selectedAction==='moveShip'?'moveShip':'placeRoad';
+    return legalActions.find(action=>action.type===type && (type==='moveShip' ? action.payload.fromEdgeKey===shipSource && keys.includes(action.payload.toEdgeKey) : keys.includes(action.payload.edgeKey)));
+  };
+  const boardMiddle={x:(bounds.minX+bounds.maxX)/2,y:(bounds.minY+bounds.maxY)/2};
 
   return (
     <BoardViewport cameraKey={cameraKey} cameraState={cameraState}>
@@ -453,9 +492,9 @@ function HexBoard({
       
       <g transform={`translate(${offsetX}, ${offsetY})`}>
         {/* Framed ocean and the shallow shelf beneath the island. */}
-        <path className="ocean-frame" d={`M${-width*.29},${-height/2+3} L${width*.29},${-height/2+3} L${width/2-3},0 L${width*.29},${height/2-3} L${-width*.29},${height/2-3} L${-width/2+3},0 Z`} fill="url(#ocean-gradient)" filter="url(#board-shadow)" />
+        {seafarers ? <rect className="ocean-frame" x={bounds.minX-BOARD_GUTTER+8} y={bounds.minY-BOARD_GUTTER+8} width={width-16} height={height-16} rx="32" fill="url(#ocean-gradient)" filter="url(#board-shadow)"/> : <path className="ocean-frame" transform={`translate(${boardMiddle.x} ${boardMiddle.y})`} d={`M${-width*.29},${-height/2+3} L${width*.29},${-height/2+3} L${width/2-3},0 L${width*.29},${height/2-3} L${-width*.29},${height/2-3} L${-width/2+3},0 Z`} fill="url(#ocean-gradient)" filter="url(#board-shadow)" />}
         <g className="island-shelf">
-          {Object.values(hexes).map((hex) => {
+          {Object.values(hexes).filter(hex=>!['sea','fog'].includes(hex.terrain)).map((hex) => {
             const pos = axialToPixel(hex.q, hex.r);
             return <path key={`shelf-${hex.q}-${hex.r}`} d={hexPath(pos.x, pos.y, HEX_SIZE + 4)} />;
           })}
@@ -473,21 +512,25 @@ function HexBoard({
         {Object.entries(hexes).map(([key, hex]) => {
           const pos = axialToPixel(hex.q, hex.r);
           const isRobberHere = robber === key;
+          const isPreviewTarget=previewTargets.includes(key);
           const isLegalRobberDestination = canChooseRobberDestination && legalRobberHexes.has(key);
+          const hexChoice=spatialChoice('hexKey',[key]);
+          const clickableHex=isPreviewTarget || isLegalRobberDestination || Boolean(hexChoice);
+          const chooseHex=()=>hexChoice ? onSeaAction(hexChoice.action) : isPreviewTarget ? onPreviewHex(key) : onHexClick(key);
           const clipId = `tile-clip-${key.replace(',', '-')}`;
           const dots = probabilityDots(hex.number);
           
           return (
             <g 
               key={key} 
-              className={`hex ${isLegalRobberDestination ? 'clickable legal-robber-target' : ''} ${isRobberHere ? 'has-robber' : ''}`}
-              role={isLegalRobberDestination ? 'button' : undefined}
-              tabIndex={isLegalRobberDestination ? 0 : undefined}
-              aria-label={isLegalRobberDestination ? `Move robber to ${hex.terrain} ${hex.number || 'desert'}` : undefined}
+              className={`hex terrain-${hex.terrain} ${(transitions.revealed?.has(key) || activeMotion.revealed.has(key)) ? 'is-revealed' : ''} ${clickableHex ? 'clickable' : ''} ${isLegalRobberDestination || selectedPreviewHexes.includes(key) ? 'legal-robber-target' : ''} ${isRobberHere ? 'has-robber' : ''}`}
+              role={clickableHex ? 'button' : undefined}
+              tabIndex={clickableHex ? 0 : undefined}
+              aria-label={hexChoice ? hexChoice.label : isPreviewTarget ? `Select ${hex.terrain} tile at ${key}${selectedPreviewHexes.includes(key)?', selected':''}` : isLegalRobberDestination ? `Move ${choosingPirate?'pirate':'robber'} to ${hex.terrain} ${hex.number || 'desert'}` : undefined}
               onKeyDown={event => {
-                if (isLegalRobberDestination) activateWithKeyboard(event, () => onHexClick(key));
+                if (clickableHex) activateWithKeyboard(event, chooseHex);
               }}
-              onClick={() => isLegalRobberDestination && onHexClick(key)}
+              onClick={() => clickableHex && chooseHex()}
               onContextMenu={(e) => onHexRightClick && onHexRightClick(e, hex)}
             >
               <path
@@ -509,7 +552,8 @@ function HexBoard({
                 className="tile-bevel"
               />
               
-              {isLegalRobberDestination && <path className="robber-choice-ring" d={hexPath(pos.x, pos.y, HEX_SIZE - 2)} />}
+              {(isLegalRobberDestination || hexChoice || selectedPreviewHexes.includes(key)) && <path className="robber-choice-ring" d={hexPath(pos.x, pos.y, HEX_SIZE - 2)} />}
+              {hex.terrain==='fog' && <g className="fog-token" pointerEvents="none"><circle cx={pos.x} cy={pos.y} r="12" fill="#597c824d" stroke="#d6e1d880"/><text x={pos.x} y={pos.y+5} textAnchor="middle" fontFamily="Georgia,serif" fontSize="17" fill="#e2e6d8">?</text></g>}
               {/* Number token */}
               {hex.number && (
                 <g className={`number-token ${hex.number === 6 || hex.number === 8 ? 'number-token--hot' : ''}`} filter="url(#token-shadow)">
@@ -549,33 +593,38 @@ function HexBoard({
 
         {/* Legal road previews remain fully governed by legalActions. */}
         {showEdgePlaceholders && clickableEdges.map(({ id, keys, v1, v2 }) => {
-          const legalAction = legalActions.find(action => (
-            action.type === 'placeRoad' && keys.includes(action.payload.edgeKey)
-          ));
+          const legalAction = edgeAction(keys);
           if (!legalAction) return null;
           const legalKey = legalAction.payload.edgeKey;
+          const place = () => legalAction.type==='placeRoad' ? onPlaceRoad(legalKey) : onSeaAction(legalAction);
+          const label = legalAction.type==='placeShip' ? 'Place ship here' : legalAction.type==='moveShip' ? 'Move ship here' : legalAction.type==='placePort' ? 'Place harbor here' : legalAction.type==='resolveSeafarersChoice' ? 'Place portable harbor here' : 'Place road here';
           return (
             <g
               key={`click-${id}`}
               className="edge-placeholder"
               role="button"
               tabIndex={0}
-              aria-label="Place road here"
-              onClick={() => onPlaceRoad(legalKey)}
-              onKeyDown={event => activateWithKeyboard(event, () => onPlaceRoad(legalKey))}
+              aria-label={label}
+              onClick={place}
+              onKeyDown={event => activateWithKeyboard(event, place)}
             >
               <rect className="edge-placeholder-hit" x="-10" y="-10"
                 width={Math.hypot(v2.x - v1.x, v2.y - v1.y) + 20} height="20" rx="10"
                 transform={`translate(${v1.x} ${v1.y}) rotate(${Math.atan2(v2.y - v1.y, v2.x - v1.x) * 180 / Math.PI})`} />
               <line className="edge-choice-aura" x1={v1.x} y1={v1.y} x2={v2.x} y2={v2.y} />
               <line className="edge-placeholder-halo" x1={v1.x} y1={v1.y} x2={v2.x} y2={v2.y} />
-              <line className="edge-placeholder-piece" x1={v1.x} y1={v1.y} x2={v2.x} y2={v2.y} />
+              {['placeShip','moveShip'].includes(legalAction.type) ? <g transform={`translate(${(v1.x+v2.x)/2} ${(v1.y+v2.y)/2}) scale(.65)`}><ShipShape color="#e6cb87"/></g> : ['placePort','resolveSeafarersChoice'].includes(legalAction.type) ? <GameIconSymbol name="port" x={(v1.x+v2.x)/2} y={(v1.y+v2.y)/2} size={23} style={{color:'#ffe5a1'}}/> : <line className="edge-placeholder-piece" x1={v1.x} y1={v1.y} x2={v2.x} y2={v2.y} />}
             </g>
           );
         })}
 
         {/* Roads - rendered separately from clickable areas */}
-        {roads.map(({ id, owner, v1, v2 }) => (
+        {roads.map(({ id, key, keys, owner, ship, warship, v1, v2 }) => ship ? (
+          <g key={`ship-${id}`} transform={`translate(${(v1.x+v2.x)/2} ${(v1.y+v2.y)/2})`}>
+            <g style={{'--ship-from-x':`${(transitions.shipMoves?.get(id)||activeMotion.shipMoves.get(id))?.x||0}px`,'--ship-from-y':`${(transitions.shipMoves?.get(id)||activeMotion.shipMoves.get(id))?.y||0}px`}} className={`ship-piece ${transitions.shipMoves?.has(id)||activeMotion.shipMoves.has(id)?'is-moving':transitions.roads.has(id)||activeMotion.roads.has(id)?'is-new':''}`}><ShipShape color={players[owner]?.color} warship={warship}/><title>{`${players[owner]?.name} ${warship?'warship':'ship'}`}</title></g>
+            {!paused && selectedAction==='moveShip' && legalActions.some(action=>action.type==='moveShip' && keys.includes(action.payload.fromEdgeKey)) && <g className={`ship-target ${keys.includes(shipSource)?'is-selected':''}`} role="button" tabIndex={0} aria-label={`Move ${players[owner]?.name}'s ${warship?'warship':'ship'} from here`} aria-pressed={keys.includes(shipSource)} onClick={()=>onSelectShip(legalActions.find(action=>action.type==='moveShip' && keys.includes(action.payload.fromEdgeKey)).payload.fromEdgeKey)} onKeyDown={event=>activateWithKeyboard(event,()=>onSelectShip(legalActions.find(action=>action.type==='moveShip' && keys.includes(action.payload.fromEdgeKey)).payload.fromEdgeKey))}><ellipse className="ship-choice-ring" cy="-2" rx="24" ry="23"/></g>}
+          </g>
+        ) : (
           <g key={`road-${id}`} className={`road ${transitions.roads.has(id) || activeMotion.roads.has(id) ? 'is-new' : ''}`}>
             <line
               className="piece-contact-shadow"
@@ -615,8 +664,11 @@ function HexBoard({
           </g>
         ))}
 
+        <SeafarersBoardLayer state={seafarers} pirate={pirate} players={players} bounds={bounds} legalActions={legalActions} onAction={onSeaAction} paused={paused} selectedAction={selectedAction} pirateMoving={transitions.pirate || activeMotion.pirate===pirate} tokensMoving={transitions.tokens || activeMotion.tokens}/>
+
         {/* Vertices (settlements/cities) */}
         {uniqueVertices.map(({ id, key, keys, vertex, pos }) => {
+          const vertexChoice=spatialChoice('vertexKey',keys);
           const canPlace = canPlaceAtVertex(key) && !vertex.building;
           const settlementAction = canPlace && legalActions.find(action => (
             action.type === 'placeSettlement' && keys.includes(action.payload.vertexKey)
@@ -690,6 +742,7 @@ function HexBoard({
                 </g>
               )}
               
+              {vertexChoice && <g className="vertex-placeholder" role="button" tabIndex={0} aria-label={vertexChoice.label} onClick={()=>onSeaAction(vertexChoice.action)} onKeyDown={event=>activateWithKeyboard(event,()=>onSeaAction(vertexChoice.action))}><circle className="vertex-placeholder-hit" cx={pos.x} cy={pos.y} r="20"/><circle className="choice-aura" cx={pos.x} cy={pos.y} r="20"/><circle className="vertex-placeholder-halo" cx={pos.x} cy={pos.y} r="12"/></g>}
               {/* Clickable placeholder for placing settlements */}
               {settlementAction && (
                 <g
@@ -748,7 +801,13 @@ function HexBoard({
           perpX /= perpLen;
           perpY /= perpLen;
           // Make sure it points outward (away from center 0,0)
-          const dotProduct = perpX * midX + perpY * midY;
+          const adjoiningLand = seafarers && Object.values(hexes).find(hex=>{
+            if (['sea','fog'].includes(hex.terrain)) return false;
+            const center=axialToPixel(hex.q,hex.r);
+            return Math.hypot(center.x-midX,center.y-midY)<HEX_SIZE*.9;
+          });
+          const inland = adjoiningLand && axialToPixel(adjoiningLand.q,adjoiningLand.r);
+          const dotProduct = inland ? perpX*(midX-inland.x)+perpY*(midY-inland.y) : perpX * midX + perpY * midY;
           if (dotProduct < 0) {
             perpX = -perpX;
             perpY = -perpY;
@@ -758,7 +817,7 @@ function HexBoard({
           const portY = midY + perpY * 28;
           
           return (
-            <g key={port.id} className="port">
+            <g key={port.id} className={`port ${transitions.tokens || activeMotion.tokens ? 'is-new' : ''}`}><title>{port.resource ? `${port.resource} 2:1 harbor` : '3:1 harbor'}</title>
               <path
                 d={`M${v1Pos.x} ${v1Pos.y} L${portX} ${portY} L${v2Pos.x} ${v2Pos.y}`}
                 fill="none"

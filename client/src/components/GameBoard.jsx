@@ -1,6 +1,9 @@
 import {PresentationControls} from '../presentation/GamePresentation';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import HexBoard from './HexBoard';
+import SeafarersPanel from './SeafarersPanel';
+import SeaStealModal from './SeaStealModal';
+import {scenarioObjective, pendingChoiceStatus} from './seafarersView';
 import GameIcon from './GameIcon';
 import BuildingPiece from './BuildingPiece';
 import PlayerPanel from './PlayerPanel';
@@ -42,6 +45,8 @@ function GameBoard({
 }) {
   const isReplay = Boolean(replay);
   const motionRate = Math.max(.25, Math.min(8, Number(isReplay ? replay.speed : playbackRate) || 1));
+  const [shipSource, setShipSource] = useState(null);
+  const [seaStealActions, setSeaStealActions] = useState(null);
   const [selectedAction, setSelectedAction] = useState(null); // 'settlement', 'road', 'city'
   const [lastPlacedSettlement, setLastPlacedSettlement] = useState(null);
   const [showTradeModal, setShowTradeModal] = useState(false);
@@ -67,6 +72,7 @@ function GameBoard({
   
   const myPlayer = gameState.myIndex >= 0 ? gameState.players[gameState.myIndex] : null;
   const currentPlayer = gameState.phase !== 'waiting' ? gameState.players[gameState.currentPlayerIndex] : null;
+  const decisionPlayer = gameState.players.find(player=>player.id===gameState.pendingChoice?.actorId) || currentPlayer;
   const isMyTurn = gameState.phase !== 'waiting' && gameState.currentPlayerIndex === gameState.myIndex;
   const isSetup = gameState.phase === 'setup';
   const isWaiting = gameState.phase === 'waiting';
@@ -74,6 +80,7 @@ function GameBoard({
   const needsToDiscard = gameState.phase === 'playing' && gameState.discardingPlayers?.some(
     d => d.playerIndex === gameState.myIndex
   );
+  const isSeafarers = Boolean(gameState.seafarers);
   const isExtended = gameState.gameOptions?.extension56 === true || gameState.isExtended === true;
   const isPairedTurn = isExtended && gameState.turnRole === 'paired';
   const productionIndex = gameState.pairedTurnRules && Number.isInteger(gameState.productionPlayerIndex) ? gameState.productionPlayerIndex : gameState.currentPlayerIndex;
@@ -187,12 +194,14 @@ function GameBoard({
     }
     if (isSetup && isMyTurn) {
       const availableSetupActions = legalActions.filter(action => (
-        action.type === 'placeSettlement' || action.type === 'placeRoad'
+        ['placeSettlement','placeRoad','placeShip','placePort'].includes(action.type)
       ));
       if (availableSetupActions.some(action => action.type === 'placeSettlement')) {
         setSelectedAction('settlement');
-      } else if (availableSetupActions.some(action => action.type === 'placeRoad')) {
-        setSelectedAction('road');
+      } else if (availableSetupActions.some(action => action.type === 'placePort')) {
+        setSelectedAction('port');
+      } else if (availableSetupActions.some(action => ['placeRoad','placeShip'].includes(action.type))) {
+        setSelectedAction(current => current === 'ship' && availableSetupActions.some(action=>action.type==='placeShip') ? 'ship' : availableSetupActions.some(action=>action.type==='placeRoad') ? 'road' : 'ship');
       } else {
         setSelectedAction(null);
       }
@@ -206,6 +215,35 @@ function GameBoard({
   useEffect(() => {
     if ((gameState.turnRole === 'paired' || gameState.playerTradingAllowed === false) && tradeMode === 'player') setShowTradeModal(false);
   }, [gameState.turnRole, gameState.playerTradingAllowed, tradeMode]);
+
+  useEffect(() => {
+    if (selectedAction !== 'moveShip' || !legalActions.some(action=>action.type==='moveShip' && action.payload.fromEdgeKey===shipSource)) setShipSource(null);
+  }, [selectedAction, legalActions, shipSource]);
+  useEffect(() => {
+    setSeaStealActions(null);
+    if (gameState.turnPhase==='robber' && isSeafarers) setSelectedAction(current=>current==='pirate' || !legalActions.some(action=>action.type==='moveRobber') ? 'pirate' : 'robber');
+  }, [gameState.currentPlayerIndex, gameState.turnPhase, gameState.turnRole, playerId, presentationKey]);
+  const handleSeaAction = action => {
+    if (!action || paused || isReplay) return;
+    const authoritative = legalActions.find(candidate=>candidate.type===action.type && JSON.stringify(candidate.payload || {})===JSON.stringify(action.payload || {}));
+    if (!authoritative) return;
+    socket.emit(authoritative.type, authoritative.payload || {}, response=>{
+      if (!response.success) {addNotification(response.error);return;}
+      setSeaStealActions(null);
+      if (authoritative.type==='placeShip' && isSetup) {
+        socket.emit('advanceSetup', result=>{if(!result.success)addNotification(result.error);});
+        setLastPlacedSettlement(null);
+      }
+      if (['moveShip','movePirate','moveRobber','attackFortress'].includes(authoritative.type)) {setSelectedAction(null);setShipSource(null);}
+      if (authoritative.type==='placeShip' && !isSetup && gameState.freeRoads <= 1) setSelectedAction(null);
+    });
+  };
+  const handleSeaHex = hexKey => {
+    const type=selectedAction==='pirate' || !legalActions.some(action=>action.type==='moveRobber') ? 'movePirate' : 'moveRobber';
+    const choices=legalActions.filter(action=>action.type===type && action.payload.hexKey===hexKey);
+    if (choices.length===1) handleSeaAction(choices[0]);
+    else if (choices.length>1) setSeaStealActions(choices);
+  };
 
   // Reset roll notification tracker when turn phase goes back to 'roll' (new turn)
   useEffect(() => {
@@ -386,6 +424,7 @@ function GameBoard({
   const getStatusMessage = () => {
     const maxPlayers = gameState.maxPlayers || 4;
     if (isReplay) {
+      if (gameState.pendingChoice) return pendingChoiceStatus(gameState,null);
       if (gameState.phase === 'finished') {
         const winner = gameState.players.find(p => p.id === gameState.winner);
         return winner ? `${winner.name} wins · Final board` : 'Final recorded board';
@@ -404,6 +443,7 @@ function GameBoard({
       return winner ? `${winner.name} wins!` : 'The host ended this game.';
     }
     if (paused) return 'Game paused';
+    if (gameState.pendingChoice) return pendingChoiceStatus(gameState,playerId);
     if (needsToDiscard) {
       const discardInfo = gameState.discardingPlayers.find(
         d => d.playerIndex === gameState.myIndex
@@ -412,20 +452,22 @@ function GameBoard({
     }
     if (isSetup) {
       return isMyTurn 
-        ? `Place your ${gameState.setupPhase === 0 ? 'first' : 'second'} settlement and road`
+        ? selectedAction === 'port' ? 'Place the harbor on a highlighted coast' : `Place your ${['first','second','third'][gameState.setupPhase] || 'starting'} ${selectedAction==='ship' ? 'ship' : selectedAction==='road' ? 'road' : 'settlement'}`
         : `${currentPlayer?.name} is placing...`;
     }
     if (!isMyTurn) {
       return isPairedTurn ? `${currentPlayer?.name}'s extra action phase` : `${currentPlayer?.name}'s turn`;
     }
     if (gameState.turnPhase === 'main' && selectedAction) {
-      return selectedAction === 'road' ? 'Choose a highlighted path for your road'
+      return selectedAction === 'ship' ? 'Choose a highlighted sea route for your ship'
+        : selectedAction === 'moveShip' ? shipSource ? 'Choose a highlighted destination for your ship' : 'Choose a highlighted ship to move'
+        : selectedAction === 'road' ? 'Choose a highlighted path for your road'
         : selectedAction === 'city' ? 'Choose a highlighted settlement to upgrade'
         : 'Choose a highlighted intersection for your settlement';
     }
     switch (gameState.turnPhase) {
       case 'roll': return 'Roll the dice';
-      case 'robber': return 'Move the robber';
+      case 'robber': return selectedAction==='pirate' ? 'Move the pirate to a sea tile or the frame' : 'Move the robber';
       case 'robberPick': return 'Choose a face-down card';
       case 'discard': return 'Waiting for players to discard';
       case 'main': return isPairedTurn ? 'Extra action phase · Build, use the bank, or end turn' : 'Build, trade, or end turn';
@@ -434,7 +476,7 @@ function GameBoard({
   };
   
   return (
-    <div className={`game-board game-hud ${isReplay ? 'replay-game-board' : ''}`} onKeyDown={event => {
+    <div className={`game-board game-hud ${isSeafarers?'has-seafarers':''} ${isReplay ? 'replay-game-board' : ''}`} onKeyDown={event => {
       if (event.key === 'Escape' && selectedAction && !isSetup && !isReplay && !event.defaultPrevented &&
         !event.target.closest('input,textarea,select,[role="dialog"],.game-chat-window')) {
         event.preventDefault(); setSelectedAction(null);
@@ -451,9 +493,9 @@ function GameBoard({
           {currentPlayer ? (
             <div 
               className="current-player-badge"
-              style={{ '--turn-color': currentPlayer.color }}
+              style={{ '--turn-color': decisionPlayer.color }}
             >
-              {currentPlayer.name}
+              {decisionPlayer.name}
             </div>
           ) : (
             <div className="current-player-badge waiting-badge">
@@ -476,6 +518,8 @@ function GameBoard({
       <div className={`player-roster ${gameState.players.length >= 5 ? 'large-roster' : ''}`} role="group" aria-label="Players and scores" style={{'--seat-count': gameState.players.length}}>
           {gameState.players.map((player, idx) => (
             <PlayerPanel
+              seafarers={gameState.seafarers}
+              objective={scenarioObjective(gameState)}
               slot={slots.find(slot=>slot.id===player.id)}
               key={player.id}
               player={player}
@@ -548,6 +592,12 @@ function GameBoard({
             vertices={gameState.vertices}
             edges={gameState.edges}
             robber={gameState.robber}
+            pirate={gameState.pirate}
+            seafarers={gameState.seafarers}
+            pendingChoice={isReplay ? null : gameState.pendingChoice}
+            shipSource={shipSource}
+            onSelectShip={setShipSource}
+            onSeaAction={handleSeaAction}
             players={gameState.players}
             ports={gameState.ports || []}
             selectedAction={isReplay ? null : selectedAction}
@@ -560,7 +610,7 @@ function GameBoard({
             onPlaceSettlement={isReplay ? undefined : handlePlaceSettlement}
             onPlaceRoad={isReplay ? undefined : handlePlaceRoad}
             onUpgradeToCity={isReplay ? undefined : handleUpgradeToCity}
-            onHexClick={isReplay ? undefined : handleHexClick}
+            onHexClick={isReplay ? undefined : isSeafarers ? handleSeaHex : handleHexClick}
             onHexRightClick={showHexInfo}
             lastPlacedSettlement={lastPlacedSettlement}
             freeRoads={gameState.freeRoads}
@@ -581,6 +631,7 @@ function GameBoard({
 
         {/* Right sidebar - Actions */}
         <div className="sidebar right-sidebar">
+          {isSeafarers && <SeafarersPanel game={gameState} playerId={playerId} legalActions={isReplay?[]:legalActions} onAction={handleSeaAction} selectedAction={selectedAction} setSelectedAction={setSelectedAction} shipSource={shipSource} paused={paused} replay={isReplay}/>}
           {isReplay ? replay.inspector : <>
           {legalActions.some(action => action.type === 'advanceSetup') && (
             <button type="button" className="room-secondary-button" onClick={() => socket.emit('advanceSetup', response => { if (!response.success) addNotification(response.error); })}>
@@ -590,6 +641,9 @@ function GameBoard({
           {gameState.phase === 'playing' && myPlayer && (
             <>
               <ActionPanel 
+                legalActions={legalActions}
+                seafarers={gameState.seafarers}
+                paused={paused || Boolean(gameState.pendingChoice)}
                 isMyTurn={isMyTurn}
                 turnPhase={gameState.turnPhase}
                 selectedAction={selectedAction}
@@ -700,6 +754,7 @@ function GameBoard({
         paused={paused}
         onPick={cardId => new Promise(resolve => socket.emit('chooseRobberCard', {cardId}, resolve))}
       />}
+      {!isReplay && seaStealActions && <SeaStealModal actions={seaStealActions.filter(action=>legalActions.some(current=>current.type===action.type && JSON.stringify(current.payload)===JSON.stringify(action.payload)))} players={gameState.players} paused={paused} onAction={handleSeaAction} onClose={()=>setSeaStealActions(null)}/>}
       {/* Modals */}
       {!isReplay && showTradeModal && tradePanel && tradePanel(() => setShowTradeModal(false), tradeMode)}
 
@@ -710,6 +765,9 @@ function GameBoard({
           isMyTurn={isMyTurn}
           turnPhase={gameState.turnPhase}
           yearOfPlentyPicks={gameState.yearOfPlentyPicks}
+          legalActions={legalActions}
+          paused={paused}
+          seafarers={gameState.seafarers}
           onClose={() => setShowDevCardModal(false)}
           addNotification={addNotification}
         />

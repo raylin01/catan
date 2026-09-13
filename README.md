@@ -58,7 +58,46 @@ New lobbies default to the base game with four seats selected in the browser. Th
 
 The extension uses the [official 2025 rules](https://www.catan.com/sites/default/files/2025-03/CN3082%20CATAN%20%E2%80%93%205-6%20Rulebook%202025%20reduced.pdf), including paired players, the larger board, and counterclockwise number-disc placement. The primary player rolls and takes a normal turn; the player three seats later then takes an extra action phase. That player may build, buy/play development cards and trade with the bank or ports, but cannot roll or trade with players. Either actor may win on their own phase. Both roles advance one seat after the pair finishes. Human controls, AI legal actions, negotiation and replay follow that same server-owned sequence.
 
-The API accepts `gameOptions: {version: 1, extension56: true, expansions: [], scenario: "base"}` with `seatCount: 5` or `6`. The host can send `configureGame` through the usual command envelope with `{seatCount, gameOptions}` before setup. Omitting options preserves base rules; unsupported scenarios or expansion combinations are rejected. Base saves and recordings retain their historical rules. Seafarers and Cities & Knights are separate upcoming features in the expansion PR stack.
+The API accepts `gameOptions: {version: 1, extension56: true, expansions: [], scenario: "base"}` with `seatCount: 5` or `6`. The host can send `configureGame` through the usual command envelope with `{seatCount, gameOptions}` before setup. Omitting options preserves base rules; unsupported scenarios or expansion combinations are rejected. Base saves and recordings retain their historical rules.
+
+## Seafarers
+
+Enable **Seafarers** in a lobby and choose a scenario. It works with three or four players, or with the separately enabled 5–6 extension. Each scenario uses its published player-count map and component inventory. Ships, mixed shipping/road routes, relocation, pirate movement and theft, gold choices, exploration, rewards and scenario victories are enforced by the server and available to human and remote AI seats.
+
+| Scenario | Victory and special play |
+| --- | --- |
+| Heading for New Shores | 14 VP; gain 2 VP for first settling each smaller island. |
+| The Four Islands / The Six Islands | 13 VP; gain 2 VP for each new island outside your starting islands. |
+| The Fog Islands | 12 VP; uncover terrain and number discs when routes reach the fog. |
+| Through the Desert | 14 VP; gain 2 VP for first settling an unexplored region. |
+| The Forgotten Tribe | 13 VP; collect edge rewards, development cards and portable harbors. |
+| Cloth for Catan | 14 VP; trade with villages for cloth. Five exhausted villages can end the game early. |
+| The Pirate Islands | 10 VP and recapture your fortress; build warships, weather fleet attacks and choose when to attack. |
+| The Wonders of Catan | Finish a wonder, or reach 10 VP with a higher wonder level than every opponent. |
+| New World | 12 VP; place harbors together and gain 1 VP for each island outside your starting islands. |
+
+Published variable setup recipes are available for 3–4 players except Pirate Islands. The 5–6 setups use the published diagrams, with variable setup for Heading for New Shores and New World. The other larger scenarios do not have separately mapped variable exclusions in the 2025 extension. Pirate Islands uses its fixed layout. Custom geometry beyond the published frames is not offered.
+
+New World also supports custom terrain counts within the physical supply and its 42- or 63-hex frame. The host can inspect the saved lobby preview and swap terrain positions to shape the islands before everyone readies. Number discs are assigned after terrain edits, with red numbers separated and excluded from gold. The displayed seed and edits reproduce the board at game start; hidden card and discovery orders use separate randomness.
+
+For example, a six-player Seafarers lobby uses:
+
+```json
+{
+  "seatCount": 6,
+  "gameOptions": {
+    "version": 1,
+    "extension56": true,
+    "expansions": ["seafarers"],
+    "scenario": "the_four_islands",
+    "setup": {"layout": "fixed", "seed": 42}
+  }
+}
+```
+
+Scenario IDs and layout availability are in `shared/scenarios.js`. New World's optional `setup.terrainMix` and `setup.hexSwaps` are validated by `shared/newWorld.js`; swaps are ordered pairs of the board's `q,r` hex keys. Lobby observations expose its public `boardPreview`. Saved games and replay retain scenario pieces, choices, token supplies and the selected rules. Private exploration piles, card rewards and pending-choice context remain hidden in live and unfinished public replays.
+
+Rules and map sources: [2025 Seafarers](https://www.catan.com/sites/default/files/2025-03/CN3083%20CATAN%E2%80%93Seafarers%20Rulebook%202025%20secured%20reduced.pdf), [2025 Seafarers 5–6](https://www.catan.com/sites/default/files/2025-03/CN3084%20CATAN%20%E2%80%93%20Seafarers_%205-6%20Player_%20Rulebook.pdf), and [official Seafarers FAQ](https://www.catan.com/faq/seafarers). Map coordinates carry source-page metadata in `server/data/seafarers-maps.json`. New painted artwork and its generation prompts are recorded in `client/src/assets/painted/image-prompts.json`.
 
 ## AI controls and connected chat
 

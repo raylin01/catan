@@ -1,5 +1,6 @@
 import GameIcon from './GameIcon';
 import BuildingPiece from './BuildingPiece';
+import SeafarersPiece from './SeafarersPiece';
 import './ActionPanel.css';
 
 const BUILDING_COSTS = {
@@ -33,13 +34,17 @@ function ActionPanel({
   yearOfPlentyPicks,
   devCardsLeft,
   turnRole = 'primary',
-  playerTradingAllowed = true
+  playerTradingAllowed = true,
+  legalActions,
+  seafarers,
+  paused = false
 }) {
-  const canRoll = isMyTurn && turnPhase === 'roll';
-  const canBuild = isMyTurn && turnPhase === 'main';
+  const legal = type => !paused && (!legalActions || legalActions.some(action=>action.type===type));
+  const canRoll = isMyTurn && turnPhase === 'roll' && legal('rollDice');
+  const canBuild = !paused && isMyTurn && turnPhase === 'main';
   const canTrade = canBuild;
   const canPlayerTrade = canTrade && turnRole !== 'paired' && playerTradingAllowed;
-  const canEnd = canBuild;
+  const canEnd = canBuild && legal('endTurn');
   
 
   const canAffordRoad = hasResources(player, BUILDING_COSTS.road) || freeRoads > 0;
@@ -49,9 +54,9 @@ function ActionPanel({
 
 
   if (isMyTurn && turnPhase === 'robber') return <div className="action-panel board-choice-prompt">
-    <GameIcon name="robber" size={34}/>
-    <h3>Move the robber</h3>
-    <p>Choose a glowing tile on the board. You can then steal from a player beside it.</p>
+    <GameIcon name={selectedAction==='pirate' ? 'pirate' : 'robber'} size={34}/>
+    <h3>Move the {selectedAction==='pirate' ? 'pirate' : 'robber'}</h3>
+    <p>Choose a highlighted {selectedAction==='pirate' ? 'sea tile or frame position' : 'land tile'} on the board.</p>
   </div>;
 
   return (
@@ -75,16 +80,17 @@ function ActionPanel({
       {yearOfPlentyPicks > 0 && (
         <div className="special-action">
           <p>Year of Plenty: Pick {yearOfPlentyPicks} resource(s)</p>
-          <button onClick={onOpenDevCards}>Choose Resources</button>
+          <button onClick={onOpenDevCards} disabled={!legal('yearOfPlentyPick')}>Choose resources</button>
         </div>
       )}
 
       {/* Free Roads indicator */}
       {freeRoads > 0 && (
         <div className="special-action">
-          <p>Road Building: {freeRoads} free road(s)</p>
+          <p>Road Building: {freeRoads} free {seafarers ? 'roads or ships' : 'roads'}</p>
           <button 
             className={selectedAction === 'road' ? 'active' : ''}
+            disabled={!legal('placeRoad')}
             onClick={() => setSelectedAction('road')}
           >
             Place Road
@@ -101,19 +107,23 @@ function ActionPanel({
           aria-label="Road — costs 1 brick and 1 lumber"
           aria-pressed={selectedAction === 'road'}
           onClick={() => setSelectedAction(selectedAction === 'road' ? null : 'road')}
-          disabled={!canBuild || (!canAffordRoad && freeRoads === 0)}
+          disabled={!canBuild || !legal('placeRoad') || (!canAffordRoad && freeRoads === 0)}
         >
           <BuildingPiece kind="road" color={player.color}/>
           <span className="btn-label">Road</span>
           <span className="cost"><span title="1 brick"><GameIcon name="brick" size={16}/>1</span><span title="1 lumber"><GameIcon name="lumber" size={16}/>1</span></span>
         </button>
 
+        {seafarers && <button type="button" className={`action-btn build-btn ${selectedAction==='ship'?'active':''}`} aria-pressed={selectedAction==='ship'} aria-label="Ship — costs 1 lumber and 1 wool" disabled={!legal('placeShip')} onClick={()=>setSelectedAction(selectedAction==='ship'?null:'ship')}>
+          <SeafarersPiece color={player.color}/><span className="btn-label">Ship</span><span className="cost"><span title="1 lumber"><GameIcon name="lumber" size={16}/>1</span><span title="1 wool"><GameIcon name="wool" size={16}/>1</span></span>
+        </button>}
+
         <button
           className={`action-btn build-btn ${selectedAction === 'settlement' ? 'active' : ''}`}
           aria-label="Settlement — costs 1 brick, 1 lumber, 1 wool and 1 grain"
           aria-pressed={selectedAction === 'settlement'}
           onClick={() => setSelectedAction(selectedAction === 'settlement' ? null : 'settlement')}
-          disabled={!canBuild || !canAffordSettlement || player.settlements <= 0}
+          disabled={!canBuild || !legal('placeSettlement') || !canAffordSettlement || player.settlements <= 0}
         >
           <BuildingPiece kind="settlement" color={player.color}/>
           <span className="btn-label">Settlement</span>
@@ -125,7 +135,7 @@ function ActionPanel({
           aria-label="City — costs 3 ore and 2 grain"
           aria-pressed={selectedAction === 'city'}
           onClick={() => setSelectedAction(selectedAction === 'city' ? null : 'city')}
-          disabled={!canBuild || !canAffordCity || player.cities <= 0}
+          disabled={!canBuild || !legal('upgradeToCity') || !canAffordCity || player.cities <= 0}
         >
           <BuildingPiece kind="city" color={player.color}/>
           <span className="btn-label">City</span>
@@ -136,7 +146,7 @@ function ActionPanel({
           className="action-btn build-btn dev-card-btn"
           aria-label="Buy development card — costs 1 ore, 1 grain and 1 wool"
           onClick={onBuyDevCard}
-          disabled={!canBuild || !canAffordDevCard || devCardsLeft === 0}
+          disabled={!canBuild || !legal('buyDevCard') || !canAffordDevCard || devCardsLeft === 0}
         >
           <BuildingPiece kind="development"/>
           <span className="btn-label">Development</span>

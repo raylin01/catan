@@ -4,6 +4,8 @@ import {AiStatus} from './AiControls';
 
 function PlayerPanel({
   slot,
+  seafarers,
+  objective,
   player,
   isCurrentTurn,
   turnLabel = 'Turn',
@@ -75,7 +77,7 @@ function PlayerPanel({
         </div>
         <div 
           className="victory-points has-info"
-          onContextMenu={(e) => handleRightClick(e, 'victoryPoints')}
+          onContextMenu={(e) => seafarers ? onRightClick?.(e, 'victoryPoints', {icon:'trophy',title:'Victory points',description:objective}) : handleRightClick(e, 'victoryPoints')}
           title="Right-click for info"
         >
           <span className="vp-number">
@@ -127,15 +129,17 @@ function PlayerPanel({
         </div>
         <div 
           className="stat has-info"
-          onContextMenu={(e) => handleRightClick(e, 'knights')}
-          title="Knights played"
+          onContextMenu={(e) => seafarers?.scenario==='the_pirate_islands' ? onRightClick?.(e,'warships',{icon:'warship',title:'Warships',description:'Knight cards upgrade ships to warships. Their number determines defense against the fleet and the strength of fortress attacks. This scenario has no Largest Army.'}) : handleRightClick(e, 'knights')}
+          title={seafarers?.scenario==='the_pirate_islands' ? 'Warships' : 'Knights played'}
         >
-          <GameIcon className="stat-icon" name="knight" size={15} />
-          <span className="stat-value">{player.knightsPlayed}</span>
+          <GameIcon className="stat-icon" name={seafarers?.scenario==='the_pirate_islands' ? 'warship' : 'knight'} size={15} />
+          <span className="stat-value">{seafarers?.scenario==='the_pirate_islands' ? player.warships : player.knightsPlayed}</span>
         </div>
       </div>
       
       <div className="player-pieces">
+        {seafarers && <div className="piece-count has-info" title="Ships remaining" onContextMenu={event=>handleRightClick(event,'ships')}><GameIcon name="ship" size={15}/><span>{player.ships}</span></div>}
+        {seafarers?.scenario==='cloth_for_catan' && <div className="piece-count has-info" title="Cloth collected" onContextMenu={event=>handleRightClick(event,'cloth')}><GameIcon name="cloth" size={15}/><span>{player.cloth}</span></div>}
         <div 
           className="piece-count has-info"
           onContextMenu={(e) => handleRightClick(e, 'settlements')}
@@ -167,10 +171,10 @@ function PlayerPanel({
         {longestRoad && (
           <div 
             className="achievement longest-road has-info"
-            onContextMenu={(e) => handleRightClick(e, 'longestRoad')}
+            onContextMenu={(e) => seafarers ? onRightClick?.(e,'longestRoad',{icon:'ship',title:'Longest Route',description:'The longest continuous route of at least 5 roads or ships earns 2 victory points. A road and ship connect only at your own building.'}) : handleRightClick(e, 'longestRoad')}
             title="Right-click for info"
           >
-            <><GameIcon name="road" size={15} /> Longest Road</>
+            <><GameIcon name="road" size={15} /> {seafarers ? 'Longest Route' : 'Longest Road'}</>
           </div>
         )}
         {largestArmy && (

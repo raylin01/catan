@@ -1,5 +1,6 @@
 import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import * as G from './gameLogic.js';
+import * as SF from './seafarersCore.js';
 import {executeAction,playerView,legalActions} from './actions.js';
 import {PROVIDERS} from './providers.js';
 import {appendCardEvent,projectCardEvents} from './cardEvents.js';
@@ -16,6 +17,8 @@ const resourceNames=['brick','lumber','wool','grain','ore'];
 const cleanName=value=>typeof value==='string' && value.trim().length>0 && value.trim().length<=40 ? value.trim() : null;
 const pack=value=>value && typeof value==='object' && !Array.isArray(value) && Object.keys(value).every(k=>resourceNames.includes(k)) && Object.values(value).every(n=>Number.isSafeInteger(n)&&n>=0&&n<=95) && Object.values(value).some(n=>n>0);
 const affordable=(p,amounts)=>Object.entries(amounts).every(([r,n])=>p.resources[r]>=n);
+const prepareLobbyRules=(gameOptions,count)=>gameOptions.scenario==='new_world'
+  ? SF.previewNewWorldSetup(gameOptions,count) : {success:true,gameOptions};
 
 export class RoomService {
   constructor({store,maxActive=1,providers=PROVIDERS,now=Date.now}={}) {
@@ -147,7 +150,10 @@ export class RoomService {
       }
       slots.push(slot);
     }
-    const room={code,recordingId:secret(),revision:0,name:cleanName(name),gameOptions:configuration.gameOptions,slots,members:{[hash(token)]:{role:'host',name:cleanName(name)}},game:null,trade:null,chat:[],chatSequence:0,receipts:{},cardEventSequence:0,cardEvents:[],paused:false,interrupted:false};
+    const prepared=prepareLobbyRules(configuration.gameOptions,seatCount);
+    if(!prepared.success)return fail(prepared.error);
+    const room={code,recordingId:secret(),revision:0,name:cleanName(name),gameOptions:prepared.gameOptions,
+      ...(prepared.boardPreview?{boardPreview:prepared.boardPreview}:{}),slots,members:{[hash(token)]:{role:'host',name:cleanName(name)}},game:null,trade:null,chat:[],chatSequence:0,receipts:{},cardEventSequence:0,cardEvents:[],paused:false,interrupted:false};
     const recording=createRecording(room,{id:room.recordingId,now:this.now(),sample:sample===true,title:cleanName(title)||room.name});
     this.persistRecording(room,recording,{type:'lobbyCreated',actorName:room.name,summary:`${room.name} created the lobby`});
     return {success:true,code,token,role:'host',replayId:room.recordingId};
@@ -197,7 +203,7 @@ export class RoomService {
       const index=room.game.players.findIndex(p=>p.id===member.seatId);
       const discard=room.game.discardingPlayers?.find(d=>d.playerIndex===index);
       if(discard)decision={type:'discardCards',count:discard.cardsToDiscard,resources:clone(room.game.players[index].resources)};
-      else if(choices.length)decision={type:'chooseAction'};
+      else if(choices.length)decision={type:'chooseAction',...(gameState.pendingChoice?.actorId===member.seatId?{kind:gameState.pendingChoice.kind,prompt:gameState.pendingChoice.label}:{})};
     }
     const pending=room.game?.pendingRobberPick;
     const robberPick=pending?{id:pending.id,thiefId:pending.thiefId,victimId:pending.victimId,count:pending.cards.length,
@@ -210,8 +216,9 @@ export class RoomService {
     const ownAi=member.role==='ai'&&ownSlot?{...projectAiStatus(ownSlot,now,this.toolActivity(room,ownSlot)),
       ...(ownSlot.runnerLease?.runId?{runnerRunId:ownSlot.runnerLease.runId}:{})}:null;
     const publicChat=(room.chat||[]).map((message,index)=>({...message,sequence:message.sequence??index+1,authorRole:message.authorRole||'human'}));
-    return {success:true,code,replayId:room.recordingId,revision:room.revision,role:member.role,host:member.role==='host',seatId:member.seatId||null,generation:member.generation||0,
+    return {success:true,code,name:room.name,replayId:room.recordingId,revision:room.revision,role:member.role,host:member.role==='host',seatId:member.seatId||null,generation:member.generation||0,
       paused:room.paused,gameOptions:roomGameOptions(room),slots,ai:ownAi,controlEpoch:ownAi?.controlEpoch,
+      ...(room.boardPreview?{boardPreview:clone(room.boardPreview)}:{}),
       negotiation:member.role==='ai'&&ownSlot?negotiationOpportunity(room,ownSlot,now):null,
       gameState,legalActions:choices,decision,trade:clone(room.trade),events:clone(room.events||[]),chat:member.role==='ai'?[]:clone(publicChat),
       rollEvent:room.lastRoll?{id:room.lastRoll.id,roll:clone(room.lastRoll.roll),gains:clone(room.lastRoll.audienceGenerations?.[member.seatId]===member.generation?room.lastRoll.gainsBySeat[member.seatId]||{}:{})}:null,
@@ -257,10 +264,13 @@ export class RoomService {
         const configuration=validateGameOptions(Object.hasOwn(payload,'gameOptions')?payload.gameOptions:roomGameOptions(copy),seatCount);
         if(!configuration.success)return fail(configuration.error);
         if(copy.slots.slice(seatCount).some(seat=>seat.controller))return fail('Release occupied seats before reducing the player count',409);
-        const changed=seatCount!==copy.slots.length||JSON.stringify(configuration.gameOptions)!==JSON.stringify(roomGameOptions(copy));
+        const prepared=prepareLobbyRules(configuration.gameOptions,seatCount);
+        if(!prepared.success)return fail(prepared.error);
+        const changed=seatCount!==copy.slots.length||JSON.stringify(prepared.gameOptions)!==JSON.stringify(roomGameOptions(copy));
         copy.slots=copy.slots.slice(0,seatCount);
         while(copy.slots.length<seatCount)copy.slots.push({id:randomUUID(),kind:'human',provider:null,model:null,generation:0,controller:null,ready:false,name:`Seat ${copy.slots.length+1}`});
-        copy.gameOptions=configuration.gameOptions;
+        copy.gameOptions=prepared.gameOptions;
+        if(prepared.boardPreview)copy.boardPreview=prepared.boardPreview;else delete copy.boardPreview;
         if(changed)for(const seat of copy.slots)seat.ready=false;
       } else if(type==='configureSeat') {
         if(copy.game)return fail('Seats are locked after start');
@@ -294,7 +304,13 @@ export class RoomService {
           const added=G.addPlayer(copy.game,{id:s.id,name:s.name});
           if(!added.success)return added;
         }
+        if(copy.gameOptions.expansions.length){
+          const configured=G.configureExpansions(copy.game,copy.gameOptions);
+          if(!configured.success)return configured;
+          copy.gameOptions=clone(copy.game.gameOptions);
+        }
         result=G.startGame(copy.game);
+        delete copy.boardPreview;
         copy.interrupted=false;
       } else if(type==='ready') {
         if(copy.game)return fail('Ready state is locked after start');
@@ -340,7 +356,7 @@ export class RoomService {
           if(aiSlot.runnerLease)aiSlot.runnerLease.controlEpoch=aiSlot.controlEpoch;
         }
       }
-      else if(type==='endGame') {if(!copy.game||!['setup','playing'].includes(copy.game.phase))return fail('Game is not active');copy.game.phase='finished';copy.game.pendingRobberPick=null;copy.game.discardingPlayers=[];copy.trade=null;copy.paused=false;copy.interrupted=false;}
+      else if(type==='endGame') {if(!copy.game||!['setup','playing'].includes(copy.game.phase))return fail('Game is not active');copy.game.phase='finished';copy.game.pendingRobberPick=null;copy.game.pendingChoice=null;copy.game.discardingPlayers=[];copy.trade=null;copy.paused=false;copy.interrupted=false;}
       else if(type==='chat') {
         if(member.role==='ai')return fail('AI connectors use structured trades');
         if(typeof payload.message!=='string'||!payload.message.trim()||payload.message.length>500)return fail('Message must contain 1–500 characters');
@@ -357,7 +373,7 @@ export class RoomService {
         }
         else {
           result=executeAction(copy.game,slot.id,type,payload);
-          if(result.success&&(['endTurn','moveRobber'].includes(type)||copy.game.phase!=='playing'||copy.game.turnPhase!=='main'||copy.game.freeRoads||copy.game.yearOfPlentyPicks))copy.trade=null;
+          if(result.success&&(['endTurn','moveRobber','movePirate'].includes(type)||!canTradeWithPlayers(copy.game)))copy.trade=null;
           if(result.success&&copy.game.phase==='finished')copy.trade=null;
         }
       }
@@ -370,7 +386,7 @@ export class RoomService {
         gainsBySeat:Object.fromEntries(copy.game.players.map((player,index)=>[player.id,clone(result.resourceGains?.[index]||{})]))};
       copy.revision++;
       appendCardEvent(copy,beforeGame,type,type==='rollDice'?copy.lastRoll?.id:null);
-      const labels={configureGame:'changed the lobby rules',ready:'readied their seat',advanceSetup:'advanced setup',chat:'sent a message',configureSeat:'configured a seat',finishFreeRoads:'finished placing free roads',yearOfPlentyPick:'chose a Year of Plenty resource',start:'started the game',placeSettlement:'built a settlement',placeRoad:'built a road',upgradeToCity:'built a city',rollDice:'rolled the dice',discardCards:'discarded cards',moveRobber:'moved the robber',chooseRobberCard:'stole a resource card',buyDevCard:'bought a development card',playDevCard:'played a development card',bankTrade:'traded with the bank',endTurn:'ended their turn',tradeOffer:'offered a trade',tradeCounter:'made a counteroffer',tradeAccept:'accepted a trade offer',tradeReject:'rejected a trade offer',tradeConfirm:'confirmed a trade',tradeCancel:'cancelled a trade',leave:'left their seat',removeController:'removed a seat controller',pause:'paused the game',resume:'resumed the game',aiPause:'paused an AI seat',aiResume:'resumed an AI seat',aiCancel:'cancelled an AI decision',endGame:'ended the game'};
+      const labels={placePort:'placed a harbor',claimWonder:'claimed a wonder',buildWonder:'built a wonder level',attackFortress:'attacked their pirate fortress',placeShip:'built a ship',moveShip:'moved a ship',movePirate:'moved the pirate',resolveSeafarersChoice:'resolved a scenario choice',configureGame:'changed the lobby rules',ready:'readied their seat',advanceSetup:'advanced setup',chat:'sent a message',configureSeat:'configured a seat',finishFreeRoads:'finished placing free roads',yearOfPlentyPick:'chose a Year of Plenty resource',start:'started the game',placeSettlement:'built a settlement',placeRoad:'built a road',upgradeToCity:'built a city',rollDice:'rolled the dice',discardCards:'discarded cards',moveRobber:'moved the robber',chooseRobberCard:'stole a resource card',buyDevCard:'bought a development card',playDevCard:'played a development card',bankTrade:'traded with the bank',endTurn:'ended their turn',tradeOffer:'offered a trade',tradeCounter:'made a counteroffer',tradeAccept:'accepted a trade offer',tradeReject:'rejected a trade offer',tradeConfirm:'confirmed a trade',tradeCancel:'cancelled a trade',leave:'left their seat',removeController:'removed a seat controller',pause:'paused the game',resume:'resumed the game',aiPause:'paused an AI seat',aiResume:'resumed an AI seat',aiCancel:'cancelled an AI decision',endGame:'ended the game'};
       if(labels[type])copy.events=[...(copy.events||[]),{id:randomUUID(),at:this.now(),actor:member.name,type,summary:`${member.name} ${labels[type]}`}].slice(-200);
       const response={success:true,revision:copy.revision};
       // Return private effects only to the authenticated actor, never the event stream.
