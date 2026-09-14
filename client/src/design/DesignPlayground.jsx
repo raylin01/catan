@@ -53,7 +53,7 @@ function createSyntheticSocket(commandRef) {
   };
 }
 
-export default function DesignPlayground() {
+export default function DesignPlayground({tradePanelComponent:TradePanel=RoomTradePanel}) {
   const [sceneryPreview,setSceneryPreview]=useState(false);
   const {playSound, soundEnabled, toggleSound}=useGamePresentation();
   const [view, setView] = useState('play');
@@ -378,7 +378,7 @@ export default function DesignPlayground() {
     slots: DESIGN_SLOTS,
     trade
   }), [trade]);
-  const tradePanel = useCallback((onClose, mode) => <RoomTradePanel
+  const tradePanel = useCallback((onClose, mode) => <TradePanel
     mode={mode}
     snapshot={snapshot}
     gameState={game}
@@ -386,7 +386,7 @@ export default function DesignPlayground() {
     onCommand={issueCommand}
     onClose={onClose}
     addNotification={addNotification}
-  />, [addNotification, game, issueCommand, snapshot]);
+  />, [addNotification, game, issueCommand, snapshot, TradePanel]);
 
   const legalActions = useMemo(() => legalActionsFor(view, game), [game, view]);
   // The fixture keeps a canonical state so observer scenarios can accumulate.
@@ -452,6 +452,7 @@ export default function DesignPlayground() {
         <button type="button" onClick={() => buildSettlement()}>Build settlement</button>
         <button type="button" onClick={() => upgradeCity()}>Upgrade city</button>
         <button type="button" onClick={() => moveRobber()}>Move robber</button>
+        <button type="button" onClick={() => ensurePlay(next => {next.turnPhase='robber';})}>Select robber location</button>
         <button type="button" onClick={showRobberPick}>Choose robber card</button>
         <button type="button" onClick={showDiscard}>Discard</button>
         <button type="button" onClick={showPlayerTrade}>Player trade</button>

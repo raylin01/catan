@@ -113,6 +113,7 @@ function HexBoard({
   lastPlacedSettlement,
   freeRoads,
   legalActions = [],
+  pendingPlacement = null,
   animate = true,
   resetKey,
   playbackRate = 1,
@@ -527,8 +528,9 @@ function HexBoard({
           return (
             <g 
               key={key} 
-              className={`hex terrain-${hex.terrain} ${(transitions.revealed?.has(key) || activeMotion.revealed.has(key)) ? 'is-revealed' : ''} ${clickableHex ? 'clickable' : ''} ${isLegalRobberDestination || selectedPreviewHexes.includes(key) ? 'legal-robber-target' : ''} ${isRobberHere ? 'has-robber' : ''}`}
+              className={`hex terrain-${hex.terrain} ${(transitions.revealed?.has(key) || activeMotion.revealed.has(key)) ? 'is-revealed' : ''} ${clickableHex ? 'clickable' : ''} ${isLegalRobberDestination || selectedPreviewHexes.includes(key) ? 'legal-robber-target' : ''} ${pendingPlacement?.payload.hexKey === key ? 'placement-selected' : ''} ${isRobberHere ? 'has-robber' : ''}`}
               role={clickableHex ? 'button' : undefined}
+              aria-pressed={isLegalRobberDestination ? pendingPlacement?.payload.hexKey === key : undefined}
               tabIndex={clickableHex ? 0 : undefined}
               aria-label={hexChoice ? hexChoice.label : isPreviewTarget ? `Select ${hex.terrain} tile at ${key}${selectedPreviewHexes.includes(key)?', selected':''}` : isLegalRobberDestination ? choosingPirate ? `Move pirate to sea tile at ${key}` : `Move robber to ${hex.terrain}${hex.number ? ` ${hex.number}` : ''}` : undefined}
               onKeyDown={event => {
@@ -605,8 +607,9 @@ function HexBoard({
           return (
             <g
               key={`click-${id}`}
-              className="edge-placeholder"
+              className={`edge-placeholder ${pendingPlacement && pendingPlacement.type === legalAction.type && JSON.stringify(pendingPlacement.payload) === JSON.stringify(legalAction.payload) ? 'placement-selected' : ''}`}
               role="button"
+              aria-pressed={pendingPlacement && pendingPlacement.type === legalAction.type && JSON.stringify(pendingPlacement.payload) === JSON.stringify(legalAction.payload) ? true : undefined}
               tabIndex={0}
               aria-label={label}
               onClick={place}
@@ -668,7 +671,7 @@ function HexBoard({
           </g>
         ))}
 
-        <SeafarersBoardLayer state={seafarers} pirate={pirate} players={players} bounds={bounds} legalActions={legalActions} onAction={onSeaAction} paused={paused} selectedAction={selectedAction} pirateMoving={transitions.pirate || activeMotion.pirate===pirate} tokensMoving={transitions.tokens || activeMotion.tokens}/>
+        <SeafarersBoardLayer state={seafarers} pirate={pirate} players={players} bounds={bounds} legalActions={legalActions} onAction={onSeaAction} paused={paused} selectedAction={selectedAction} pendingPlacement={pendingPlacement} pirateMoving={transitions.pirate || activeMotion.pirate===pirate} tokensMoving={transitions.tokens || activeMotion.tokens}/>
 
         {/* Vertices (settlements/cities) */}
         {uniqueVertices.map(({ id, key, keys, vertex, pos }) => {
@@ -688,8 +691,9 @@ function HexBoard({
               {/* Settlement */}
               {vertex.building === 'settlement' && (
                 <g 
-                  className={`settlement ${canUpgrade ? 'upgradeable' : ''} ${transitions.settlements.has(id) || activeMotion.settlements.has(id) ? 'is-new' : ''}`}
+                  className={`settlement ${canUpgrade ? 'upgradeable' : ''} ${pendingPlacement?.type === 'upgradeToCity' && keys.includes(pendingPlacement.payload.vertexKey) ? 'placement-selected' : ''} ${transitions.settlements.has(id) || activeMotion.settlements.has(id) ? 'is-new' : ''}`}
                   role={canUpgrade ? 'button' : vertex.pillagedNoPiece ? 'img' : undefined}
+                  aria-pressed={canUpgrade ? pendingPlacement?.type === 'upgradeToCity' && keys.includes(pendingPlacement.payload.vertexKey) : undefined}
                   tabIndex={canUpgrade ? 0 : undefined}
                   aria-label={vertex.pillagedNoPiece ? canUpgrade ? 'Restore pillaged city' : `${owner?.name || 'Player'} pillaged city lying on its side` : canUpgrade ? `Upgrade ${owner?.name || 'your'} settlement to a city` : undefined}
                   onClick={() => canUpgrade && onUpgradeToCity(cityAction.payload.vertexKey)}
@@ -757,8 +761,9 @@ function HexBoard({
               {/* Clickable placeholder for placing settlements */}
               {settlementAction && (
                 <g
-                  className="vertex-placeholder"
+                  className={`vertex-placeholder ${pendingPlacement?.type === 'placeSettlement' && keys.includes(pendingPlacement.payload.vertexKey) ? 'placement-selected' : ''}`}
                   role="button"
+                  aria-pressed={pendingPlacement?.type === 'placeSettlement' && keys.includes(pendingPlacement.payload.vertexKey)}
                   tabIndex={0}
                   aria-label={initialCity?'Place starting city here':'Place settlement here'}
                   onClick={() => onPlaceSettlement(settlementAction.payload.vertexKey)}

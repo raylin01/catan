@@ -237,6 +237,7 @@ export function createFixture(view = 'play') {
     playerTradingAllowed: true,
     winner: null,
     tradeRatios: makePool({brick: 3, lumber: 2, wool: 4, grain: 3, ore: 4}),
+    bankTotal: 95 - fixturePlayers.reduce((sum,player)=>sum+(typeof player.resources==='number'?player.resources:Object.values(player.resources).reduce((n,count)=>n+count,0)),0),
     bankAvailable: Object.fromEntries(RESOURCES.map(resource => [resource, true]))
   };
 }
