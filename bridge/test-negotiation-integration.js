@@ -163,6 +163,7 @@ test('four HTTP runners negotiate a useful trade, settle it, and then stay bound
     room.game.freeRoads = 0;
     room.game.yearOfPlentyPicks = 0;
     room.trade = null;
+    room.trades = [];
     room.paused = false;
     for (const player of room.game.players) player.resources = emptyResources();
     room.game.players[actorIndex].resources = emptyResources({lumber: 1, wool: 3, grain: 1});

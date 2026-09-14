@@ -3,10 +3,11 @@ import {createHash,randomUUID} from 'node:crypto';
 import {createChatReaderInput,validateChatProposals,projectSpeakerContext} from './chat-policy.js';
 import {projectNegotiations} from './negotiation-policy.js';
 
-const fingerprint=view=>createHash('sha256').update(JSON.stringify({generation:view.generation,epoch:view.controlEpoch,game:view.gameState,trade:view.trade,decision:view.decision})).digest('hex');
+const fingerprint=view=>createHash('sha256').update(JSON.stringify({generation:view.generation,epoch:view.controlEpoch,game:view.gameState,trades:view.trades??view.trade,decision:view.decision})).digest('hex');
 const ownSlot=view=>view.slots?.find(slot=>slot.id===view.seatId);
 const paused=view=>view.paused||ownSlot(view)?.ai?.paused===true;
-const tradeNeedsReply=view=>view.trade&&((view.trade.to===view.seatId&&view.trade.status==='offered')||(view.trade.from===view.seatId&&view.trade.status==='accepted'));
+const tradeNeedsReply=view=>(view.trades??(view.trade?[view.trade]:[])).some(trade=>
+  (trade.to===view.seatId&&trade.status==='offered')||(trade.from===view.seatId&&trade.status==='accepted'));
 
 /** One serialized scheduler per seat. Polling is transport work, never a model turn. */
 export async function runPlayer(client,connector,{model,reasoning,memory='',contexts={},chatCursor=0,pendingProposals=[],pendingReplySequence=0,

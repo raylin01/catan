@@ -15,6 +15,7 @@ const fail=(error,statusCode=400)=>({success:false,error,statusCode});
 const ownKeys=(value,allowed)=>Object.keys(value).every(key=>allowed.includes(key));
 const validId=value=>typeof value==='string'&&value.length>=1&&value.length<=100;
 const currentSeatId=room=>room.game?.players?.[room.game.currentPlayerIndex]?.id||null;
+const tradesFor=room=>Array.isArray(room.trades)?room.trades:room.trade?[room.trade]:[];
 
 function safeCounter(value){return Number.isSafeInteger(value)&&value>=0?value:0;}
 
@@ -62,7 +63,7 @@ export function negotiationOpportunity(room,slot,now) {
   const state=negotiationState(room);
   const active=canTradeWithPlayers(room.game);
   const enabled=slot?.kind==='ai'&&slot.chatEnabled!==false&&!slot.aiPaused&&!room.paused;
-  const rootAvailable=!room.trade||Boolean(offeredTrade(room,slot?.id,room.trade?.id));
+  const rootAvailable=true;
   const lastPublishedAt=state.lastPublishedAtBySeat[slot?.id],cooldownReady=!Number.isFinite(lastPublishedAt)||now-lastPublishedAt>=NEGOTIATION_LIMITS.cooldownMs;
   const rootFresh=rootIsFresh(room,state,now),rootMessages=rootFresh?state.root.messages:[];
   const ownMessages=rootMessages.filter(message=>message.actorSeatId===slot?.id);
@@ -95,7 +96,7 @@ function resourceList(value) {
 }
 
 function offeredTrade(room,actorSeatId,tradeId) {
-  const trade=room.trade;
+  const trade=tradesFor(room).find(item=>item.id===tradeId);
   if(!validId(tradeId)||!trade||trade.id!==tradeId||trade.status!=='offered'||trade.from!==actorSeatId)return null;
   const bundles=[trade.give,trade.get];
   if(bundles.some(bundle=>!bundle||typeof bundle!=='object'||Array.isArray(bundle)||!ownKeys(bundle,RESOURCES)||
@@ -194,7 +195,7 @@ export function renderNegotiation(room,actorSeatId,intent,trade=null) {
     return `${actor} is looking for ${phrase(intent.wants)} and can offer ${phrase(intent.offers)}${target}.`;
   }
   if(intent.kind==='decline')return `${actor} declines ${nameFor(room,intent.to)}'s proposal.`;
-  const actual=trade||room.trade;
+  const actual=trade||tradesFor(room).find(item=>item.id===intent.tradeId);
   return `${actor} offers ${packPhrase(actual.give)} to ${nameFor(room,actual.to)} for ${packPhrase(actual.get)}.`;
 }
 
@@ -211,7 +212,6 @@ export function prepareNegotiation(room,actorSeatId,rawIntent,{id,now}) {
     if(intent.kind==='decline')return fail('A decline must answer an existing negotiation');
     if(currentSeatId(room)!==actorSeatId)return fail('Only the active player can start a negotiation',409);
     if(state.rootStarted)return fail('A negotiation already started this turn',429);
-    if(intent.kind==='interest'&&room.trade)return fail('Resolve the current trade before starting another negotiation',409);
     root={id,turnKey:state.turnKey,createdAt:now,expiresAt:now+NEGOTIATION_LIMITS.rootTtlMs,messages:[]};
   } else {
     const context=replyContext(room,state,actorSeatId,targetSeatId,intent,now);if(!context.success)return context;
@@ -243,8 +243,8 @@ function tradeFingerprint(trade) {
 }
 
 /** Record a validated real AI offer/counter in the bounded per-turn gate. */
-export function recordAiTradeAction(room,actorSeatId) {
-  const trade=room.trade;
+export function recordAiTradeAction(room,actorSeatId,tradeId=room.trade?.id) {
+  const trade=tradesFor(room).find(item=>item.id===tradeId);
   if(!trade||trade.from!==actorSeatId||!offeredTrade(room,actorSeatId,trade.id))return fail('Authoritative AI trade is unavailable',409);
   const state=negotiationState(room),prior=state.aiTradeActionsBySeat[actorSeatId]||{count:0,fingerprints:[]};
   if(tradeCounterpartClosed(state,actorSeatId,trade.to))return fail('Trading with this player is closed for the turn',409);

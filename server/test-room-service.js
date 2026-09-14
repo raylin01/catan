@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {RoomService} from './roomService.js';
+import {RoomService,MAX_OPEN_TRADES} from './roomService.js';
 import {PROVIDERS} from './providers.js';
 
 let requestNumber=0;
@@ -215,6 +215,85 @@ test('structured trades require target confirmation and settle atomically',()=>{
   assert.equal(service.rooms.get(lobby.code).trade,null);
 });
 
+test('parallel offers settle by ID, preserve siblings, and recheck shared resources',()=>{
+  const service=new RoomService(),lobby=makeLobby(service),players=fillHumanLobby(service,lobby);
+  startRoom(service,lobby);
+  const room=setMainTurn(service,lobby.code),[a,b,c]=room.game.players.map(player=>players.find(actor=>actor.seatId===player.id));
+  room.game.players[0].resources.brick=2;
+  room.game.players[1].resources.wool=1;room.game.players[2].resources.wool=1;
+  const offer=to=>issue(service,lobby.code,a,'tradeOffer',{to:to.seatId,give:{brick:2},get:{wool:1}});
+  assert.equal(offer(b).success,true);const first=service.rooms.get(lobby.code).trade.id;
+  assert.equal(offer(c).success,true);const second=service.rooms.get(lobby.code).trades[1].id;
+  assert.notEqual(first,second);
+  const spectator=service.join(lobby.code,{name:'Observer',role:'spectator'});
+  for(const actor of [a,b,c,spectator]) {
+    const view=service.observe(lobby.code,actor.token);
+    assert.deepEqual(view.trades.map(trade=>trade.id),[first,second]);
+    assert.equal(view.trade.id,actor.seatId===c.seatId?second:first);
+  }
+  assert.equal(issue(service,lobby.code,b,'tradeAccept',{tradeId:first}).success,true);
+  assert.equal(issue(service,lobby.code,c,'tradeAccept',{tradeId:second}).success,true);
+  assert.equal(issue(service,lobby.code,a,'tradeConfirm',{tradeId:second}).success,true);
+  assert.deepEqual(service.rooms.get(lobby.code).trades.map(trade=>trade.id),[first]);
+  const before=structuredClone(service.rooms.get(lobby.code));
+  assert.equal(issue(service,lobby.code,a,'tradeConfirm',{tradeId:first}).success,false);
+  assert.deepEqual(service.rooms.get(lobby.code),before,'failed settlement is atomic');
+  assert.equal(issue(service,lobby.code,b,'tradeReject',{tradeId:first}).success,true);
+  assert.deepEqual(service.rooms.get(lobby.code).trades,[]);
+  assert.equal(service.rooms.get(lobby.code).trade,null);
+  assert.equal(issue(service,lobby.code,a,'tradeConfirm',{tradeId:second}).statusCode,409);
+  const publicEvents=service.watch(lobby.code).events.filter(event=>event.type.startsWith('trade'));
+  assert.deepEqual(publicEvents.map(event=>event.details.trade.status),['offered','offered','accepted','accepted','confirmed','rejected']);
+  assert.equal(publicEvents[0].details.trade.id,first);
+  assert.equal(publicEvents[0].actorSeatId,a.seatId);
+  assert.equal(publicEvents[0].summary.includes(publicEvents[0].details.trade.toName),true);
+  assert.equal(publicEvents[0].details.trade.fromName,service.rooms.get(lobby.code).slots.find(slot=>slot.id===a.seatId).name);
+  assert.equal(publicEvents[4].details.trade.id,second);
+  const replayId=service.rooms.get(lobby.code).recordingId;
+  assert.deepEqual(service.replayEvents(replayId).events.filter(event=>event.type.startsWith('trade'))
+    .map(event=>event.details.trade),publicEvents.map(event=>event.details.trade));
+  assert.deepEqual(service.replay(replayId).state.trades,[]);
+});
+
+test('countering one offer replaces only its parent; stale IDs and over-cap offers fail',()=>{
+  const service=new RoomService(),lobby=makeLobby(service),players=fillHumanLobby(service,lobby);
+  startRoom(service,lobby);
+  const room=setMainTurn(service,lobby.code),[a,b,c]=room.game.players.map(player=>players.find(actor=>actor.seatId===player.id));
+  room.game.players[0].resources.brick=3;
+  room.game.players[1].resources.wool=2;room.game.players[2].resources.wool=1;
+  assert.equal(issue(service,lobby.code,a,'tradeOffer',{to:b.seatId,give:{brick:1},get:{wool:1}}).success,true);
+  const first=service.rooms.get(lobby.code).trade.id;
+  assert.equal(issue(service,lobby.code,a,'tradeOffer',{to:c.seatId,give:{brick:1},get:{wool:1}}).success,true);
+  const sibling=service.rooms.get(lobby.code).trades[1].id;
+  assert.equal(issue(service,lobby.code,b,'tradeCounter',{tradeId:first,to:a.seatId,give:{wool:2},get:{brick:1}}).success,true);
+  const [counter,untouched]=service.rooms.get(lobby.code).trades;
+  assert.equal(counter.counterOf,first);assert.equal(untouched.id,sibling);
+  assert.equal(issue(service,lobby.code,a,'tradeAccept',{tradeId:first}).statusCode,409);
+  assert.equal(issue(service,lobby.code,c,'tradeReject',{tradeId:sibling}).success,true);
+  assert.equal(service.rooms.get(lobby.code).trade.id,counter.id);
+  for(let i=1;i<MAX_OPEN_TRADES;i++)assert.equal(issue(service,lobby.code,a,'tradeOffer',{to:c.seatId,give:{brick:1},get:{wool:1}}).success,true);
+  const before=structuredClone(service.rooms.get(lobby.code));
+  assert.equal(issue(service,lobby.code,a,'tradeOffer',{to:c.seatId,give:{brick:1},get:{wool:1}}).statusCode,429);
+  assert.deepEqual(service.rooms.get(lobby.code),before);
+  assert.equal(issue(service,lobby.code,a,'endTurn').success,true);
+  assert.deepEqual(service.rooms.get(lobby.code).trades,[]);
+});
+
+test('parallel offers persist across restart and seat handoff clears all offers',()=>{
+  const store=new MemoryStore(),service=new RoomService({store}),lobby=makeLobby(service),players=fillHumanLobby(service,lobby);
+  startRoom(service,lobby);
+  const room=setMainTurn(service,lobby.code),[a,b,c]=room.game.players.map(player=>players.find(actor=>actor.seatId===player.id));
+  room.game.players[0].resources.brick=2;
+  assert.equal(issue(service,lobby.code,a,'tradeOffer',{to:b.seatId,give:{brick:1},get:{wool:1}}).success,true);
+  assert.equal(issue(service,lobby.code,a,'tradeOffer',{to:c.seatId,give:{brick:1},get:{wool:1}}).success,true);
+  const restarted=new RoomService({store});
+  assert.equal(restarted.observe(lobby.code,a.token).trades.length,2);
+  assert.equal(issue(restarted,lobby.code,lobby.host,'resume').success,true);
+  assert.equal(issue(restarted,lobby.code,lobby.host,'removeController',{seatId:b.seatId}).success,true);
+  assert.deepEqual(restarted.observe(lobby.code,a.token).trades,[]);
+  assert.equal(restarted.observe(lobby.code,a.token).trade,null);
+});
+
 test('trade counters stay between the original parties and stale settlement is rejected',()=>{
   const service=new RoomService();
   const lobby=makeLobby(service),players=fillHumanLobby(service,lobby);
@@ -301,6 +380,10 @@ test('roll receipts preserve exact production, isolate seats, and survive replay
     const result=issue(service,lobby.code,actor,'rollDice',{}, {requestId:'receipt-roll',revision});assert.equal(result.success,true);
     const receipt=service.observe(lobby.code,actor.token).rollEvent;
     assert.equal(receipt.roll.total,6);assert.equal(receipt.gains.grain,1,'finite bank gives only one card');
+    const publicDice=service.watch(lobby.code).events.at(-1);
+    assert.deepEqual(publicDice.details.dice,{die1:3,die2:3,total:6});
+    assert.equal(publicDice.summary.includes('rolled 6'),true);
+    assert.deepEqual(service.replayEvents(service.rooms.get(lobby.code).recordingId).events.at(-1).details.dice,publicDice.details.dice);
     const resourceEvent=service.observe(lobby.code,actor.token).cardEvents.at(-1);
     assert.equal(resourceEvent.type,'rollDice');assert.equal(resourceEvent.revision,result.revision);assert.equal(resourceEvent.rollId,receipt.id);
     assert.deepEqual(resourceEvent.transfers,[{from:'bank',to:actor.seatId,count:1,resource:'grain'}]);

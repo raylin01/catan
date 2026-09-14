@@ -67,6 +67,8 @@ function read(f,bot,afterNegotiationSequence=0,overrides={}) {
   return f.service.aiChatRead(f.code,bot.token,{controlEpoch:view.controlEpoch,runId:bot.runId,afterSequence:0,afterNegotiationSequence,...overrides});
 }
 
+function seedTrade(room,trade) {room.trades=trade?[trade]:[];room.trade=trade;}
+
 test('typed interest projection contains no prose, player names, counts, or private inventory',()=>{
   const f=fixture(),[a,b,c]=f.bots;
   const sent=publish(f,a,{kind:'interest',wants:['ore','grain'],offers:['lumber','brick'],to:null,replyToId:null});
@@ -173,7 +175,7 @@ test('a decline symmetrically closes AI trade and typed negotiation with that co
   assert.equal(act(f,b,'tradeOffer',{to:a.seatId,give:{wool:1},get:{brick:1}}).statusCode,409);
   assert.equal(f.room().trade,null,'rejected closed-counterpart trades do not leave a candidate offer');
   assert.equal(publish(f,a,{kind:'interest',wants:['wool'],offers:['brick'],to:b.seatId,replyToId:answer.negotiation.id}).statusCode,409);
-  f.room().trade={id:'closed-announcement',from:a.seatId,to:b.seatId,give:{brick:1},get:{wool:1},status:'offered',counterOf:null};
+  seedTrade(f.room(),{id:'closed-announcement',from:a.seatId,to:b.seatId,give:{brick:1},get:{wool:1},status:'offered',counterOf:null});
   assert.equal(publish(f,a,{kind:'offer',tradeId:'closed-announcement',replyToId:answer.negotiation.id}).statusCode,409);
 });
 
@@ -195,11 +197,11 @@ test('counterpart closure leaves terminal trade actions and human-originated off
   const f=fixture(),[a,b]=f.bots;
   const root=publish(f,a,{kind:'interest',wants:['wool'],offers:['brick'],to:b.seatId,replyToId:null});
   assert.equal(publish(f,b,{kind:'decline',replyToId:root.negotiation.id,to:a.seatId}).success,true);
-  f.room().trade={id:'closed-accept',from:b.seatId,to:a.seatId,give:{wool:1},get:{brick:1},status:'offered',counterOf:null};
+  seedTrade(f.room(),{id:'closed-accept',from:b.seatId,to:a.seatId,give:{wool:1},get:{brick:1},status:'offered',counterOf:null});
   assert.equal(act(f,a,'tradeAccept',{tradeId:'closed-accept'}).success,true);assert.equal(act(f,b,'tradeConfirm',{tradeId:'closed-accept'}).success,true);
-  f.room().trade={id:'closed-cancel',from:a.seatId,to:b.seatId,give:{brick:1},get:{wool:1},status:'offered',counterOf:null};
+  seedTrade(f.room(),{id:'closed-cancel',from:a.seatId,to:b.seatId,give:{brick:1},get:{wool:1},status:'offered',counterOf:null});
   assert.equal(act(f,a,'tradeCancel',{tradeId:'closed-cancel'}).success,true);
-  f.room().trade={id:'closed-reject',from:b.seatId,to:a.seatId,give:{wool:1},get:{brick:1},status:'offered',counterOf:null};
+  seedTrade(f.room(),{id:'closed-reject',from:b.seatId,to:a.seatId,give:{wool:1},get:{brick:1},status:'offered',counterOf:null});
   assert.equal(act(f,a,'tradeReject',{tradeId:'closed-reject'}).success,true);
 
   const humanFixture=fixture({roles:['ai','human','human']}),[ai,human]=humanFixture.bots,room=humanFixture.room();
@@ -223,7 +225,7 @@ test('interest replies must complement the parent resources instead of changing 
 
 test('interest replies to offer announcements derive compatibility from the exact current trade',()=>{
   const f=fixture(),[a,b]=f.bots;
-  f.room().trade={id:'trade-interest-parent',from:a.seatId,to:b.seatId,give:{brick:1},get:{wool:1},status:'offered',counterOf:null};
+  seedTrade(f.room(),{id:'trade-interest-parent',from:a.seatId,to:b.seatId,give:{brick:1},get:{wool:1},status:'offered',counterOf:null});
   const root=publish(f,a,{kind:'offer',tradeId:'trade-interest-parent',replyToId:null});assert.equal(root.success,true);
   const reply={kind:'interest',wants:['brick'],offers:['wool'],to:a.seatId,replyToId:root.negotiation.id};
   f.room().trade.status='accepted';assert.equal(publish(f,b,reply).statusCode,409,'a stale offer parent cannot support an interest reply');
@@ -232,7 +234,7 @@ test('interest replies to offer announcements derive compatibility from the exac
 
 test('offer announcements use only a current real trade owned by the sender',()=>{
   const f=fixture(),[a,b]=f.bots,room=f.room();
-  room.trade={id:'trade-one',from:a.seatId,to:b.seatId,give:{brick:2},get:{ore:1},status:'offered',counterOf:null};
+  seedTrade(room,{id:'trade-one',from:a.seatId,to:b.seatId,give:{brick:2},get:{ore:1},status:'offered',counterOf:null});
   const sent=publish(f,a,{kind:'offer',tradeId:'trade-one',replyToId:null});
   assert.equal(sent.success,true,JSON.stringify(sent));
   assert.equal(f.service.observe(f.code,f.host.token).chat[0].message,'Bot 1 offers 2 brick to Bot 2 for 1 ore.');
@@ -243,12 +245,24 @@ test('offer announcements use only a current real trade owned by the sender',()=
   assert.equal(publish(f,b,{kind:'offer',tradeId:'trade-one',replyToId:sent.negotiation.id}).statusCode,409,'another seat cannot announce the offer');
 });
 
-test('an unresolved trade blocks interest roots and counteroffer replies retain exact context',()=>{
+test('AI negotiations resolve a named offer even when another offer is first',()=>{
   const f=fixture(),[a,b]=f.bots,room=f.room();
-  room.trade={id:'trade-one',from:a.seatId,to:b.seatId,give:{brick:1},get:{wool:1},status:'offered',counterOf:null};
-  assert.equal(publish(f,a,{kind:'interest',wants:['ore'],offers:['brick'],to:null,replyToId:null}).statusCode,409);
+  room.trades=[
+    {id:'incoming-first',from:b.seatId,to:a.seatId,give:{wool:1},get:{brick:1},status:'offered',counterOf:null},
+    {id:'outgoing-second',from:a.seatId,to:b.seatId,give:{brick:1},get:{wool:1},status:'offered',counterOf:null}
+  ];
+  room.trade=room.trades[0];
+  const root=publish(f,a,{kind:'offer',tradeId:'outgoing-second',replyToId:null});
+  assert.equal(root.success,true);
+  assert.equal(read(f,b).negotiations[0].intent.tradeId,'outgoing-second');
+});
+
+test('an unresolved trade permits interest roots and counteroffer replies retain exact context',()=>{
+  const f=fixture(),[a,b]=f.bots,room=f.room();
+  seedTrade(room,{id:'trade-one',from:a.seatId,to:b.seatId,give:{brick:1},get:{wool:1},status:'offered',counterOf:null});
+  assert.equal(f.service.observe(f.code,a.token).negotiation.canInitiate,true);
   const root=publish(f,a,{kind:'offer',tradeId:'trade-one',replyToId:null});assert.equal(root.success,true);
-  f.room().trade={id:'trade-two',from:b.seatId,to:a.seatId,give:{wool:1},get:{brick:1},status:'offered',counterOf:'trade-one'};
+  seedTrade(f.room(),{id:'trade-two',from:b.seatId,to:a.seatId,give:{wool:1},get:{brick:1},status:'offered',counterOf:'trade-one'});
   const counter=publish(f,b,{kind:'offer',tradeId:'trade-two',replyToId:root.negotiation.id});assert.equal(counter.success,true,JSON.stringify(counter));
   assert.deepEqual(read(f,a).negotiations.map(item=>item.intent),[{kind:'offer',tradeId:'trade-two',replyToId:root.negotiation.id}]);
 });
@@ -361,13 +375,13 @@ test('pause, chat, epoch, lease, revision, generation, and exact-shape fences ar
   f.room().slots[0].chatEnabled=false;assert.equal(publish(f,a,intent).statusCode,409);
 });
 
-test('observe initiation opportunity accounts for compulsory choices and another owner\'s trade',()=>{
+test('observe initiation opportunity accounts for compulsory choices and parallel trades',()=>{
   const f=fixture(),[a,b]=f.bots,room=f.room();
   assert.equal(f.service.observe(f.code,a.token).negotiation.canInitiate,true);
   room.game.freeRoads=1;assert.equal(f.service.observe(f.code,a.token).negotiation.canInitiate,false);room.game.freeRoads=0;
   room.game.yearOfPlentyPicks=1;assert.equal(f.service.observe(f.code,a.token).negotiation.canInitiate,false);room.game.yearOfPlentyPicks=0;
-  room.trade={id:'other-offer',from:b.seatId,to:a.seatId,give:{wool:1},get:{brick:1},status:'offered'};
-  assert.equal(f.service.observe(f.code,a.token).negotiation.canInitiate,false);
+  seedTrade(room,{id:'other-offer',from:b.seatId,to:a.seatId,give:{wool:1},get:{brick:1},status:'offered'});
+  assert.equal(f.service.observe(f.code,a.token).negotiation.canInitiate,true);
 });
 
 test('HTTP negotiation endpoint returns the structured receipt',async()=>{

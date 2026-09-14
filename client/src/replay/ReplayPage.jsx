@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import GameBoard from '../components/GameBoard';
 import GameIcon from '../components/GameIcon';
+import {EventDetails} from '../components/GameLog';
 import ReplayChart from './ReplayChart';
 import ReplayTimeline from './ReplayTimeline.jsx';
 import ReplayEventIcon from './ReplayEventIcon';
@@ -60,7 +61,7 @@ function ChatList({ messages = [] }) {
 
 function SnapshotFacts({ frame, event }) {
   const game = frame?.state?.gameState;
-  const trade = frame?.state?.trade;
+  const trades = frame?.state?.trades ?? (frame?.state?.trade ? [frame.state.trade] : []);
   const playerName = id => game?.players?.find(player => player.id === id)?.name || id;
   const bundle = quantities => Object.entries(quantities || {}).filter(([,count]) => count > 0).map(([resource,count]) => `${count} ${resource}`).join(', ');
   const facts = [
@@ -73,14 +74,14 @@ function SnapshotFacts({ frame, event }) {
     ['Bank development cards', Array.isArray(game?.devCardDeck) ? game.devCardDeck.length : Number.isFinite(game?.devCardDeck) ? game.devCardDeck : '—'],
     ['Room state', frame?.state?.paused ? 'Paused' : 'Running']
   ];
-  if (trade) facts.push(['Trade', `${playerName(trade.from)} → ${playerName(trade.to)}`], ['Offered', bundle(trade.give)], ['Requested', bundle(trade.get)], ['Trade status', trade.status]);
+  for (const [index,trade] of trades.entries()) facts.push([`Offer ${index+1}`, `${playerName(trade.from)} → ${playerName(trade.to)} · ${trade.status}: ${bundle(trade.give)} for ${bundle(trade.get)}`]);
   const labels = {vertexKey:'Settlement location',edgeKey:'Road location',hexKey:'Robber location',stealFromPlayerId:'Victim',resources:'Discarded',count:'Cards discarded',cardType:'Development card',resource:'Selected resource',giveResource:'Gave resource',giveAmount:'Amount given',getResource:'Received resource',message:'Chat message'};
   for (const [key,value] of Object.entries(event?.payload || {})) {
     if (!labels[key]) continue;
     const display = key === 'resources' ? bundle(value) : key === 'cardType' ? cardLabel(value) : key === 'stealFromPlayerId' ? playerName(value) : value;
     if (typeof display === 'string' || typeof display === 'number') facts.push([labels[key], display]);
   }
-  return <dl className="replay-facts">{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>;
+  return <><EventDetails event={event || {}} players={game?.players || []}/><dl className="replay-facts">{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></>;
 }
 
 export default function ReplayPage({ replayId, onBack, token, getToken }) {

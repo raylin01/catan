@@ -69,7 +69,7 @@ function GameBoard({
   const rollIdentity = isReplay ? `replay:${replay.resetKey || replay.perspective || 'public'}` : `${gameCode}:${playerId}:${presentationKey || ''}`;
   const rollSeen = useRef({identity: rollIdentity, id: rollEvent?.id});
   const [revealedCard, setRevealedCard] = useState(null);
-  const [lastTradeOfferId, setLastTradeOfferId] = useState(null);
+
   const [dismissedTradeId, setDismissedTradeId] = useState(null);
 
   const [lastNotifiedRoll, setLastNotifiedRoll] = useState(rollEvent?.id || (gameState.diceRoll ? `${gameState.diceRoll.die1}-${gameState.diceRoll.die2}-${gameState.productionPlayerIndex ?? gameState.currentPlayerIndex}` : null));
@@ -174,29 +174,17 @@ function GameBoard({
     }
   }, [showChat]);
 
-  // Auto-open trade modal when there's a pending trade from another player
+  const attentionTrades = (gameState.tradeOffers ?? (gameState.tradeOffer ? [gameState.tradeOffer] : []))
+    .filter(trade => (trade.to === gameState.myIndex && trade.status === 'offered') || (trade.from === gameState.myIndex && trade.status === 'accepted'));
+  const tradeAttentionKey = attentionTrades.map(trade => `${trade.id}:${trade.status}`).join(',');
+  // Announce offers and acceptances without pulling focus away from the board.
+  const seenTrades = useRef(new Set());
   useEffect(() => {
     if (isReplay) return;
-    const tradeOffer = gameState.tradeOffer;
-    const isTradeForMe = tradeOffer?.to === gameState.myIndex;
-
-    // Create a unique ID for this trade to track if we've already shown it
-    const tradeId = tradeOffer?.id || null;
-
-    if (tradeOffer && gameState.turnRole !== 'paired' && gameState.playerTradingAllowed !== false && isTradeForMe && tradeId !== lastTradeOfferId) {
-      // New trade from another player - auto open the modal
-      setTradeMode('player');
-      setShowTradeModal(true);
-      setLastTradeOfferId(tradeId);
-      setDismissedTradeId(null); // Reset dismissed state for new trade
-      const traderName = gameState.players[tradeOffer.from]?.name || 'A player';
-      addNotification(`${traderName} wants to trade with you!`);
-    } else if (!tradeOffer) {
-      // Trade was cancelled or completed - clear all trade state
-      setLastTradeOfferId(null);
-      setDismissedTradeId(null);
-    }
-  }, [gameState.tradeOffer, gameState.myIndex, gameState.players, gameState.turnRole, gameState.playerTradingAllowed, isReplay, lastTradeOfferId, addNotification]);
+    const fresh = attentionTrades.filter(trade => !seenTrades.current.has(`${trade.id}:${trade.status}`));
+    seenTrades.current = new Set(attentionTrades.map(trade => `${trade.id}:${trade.status}`));
+    if (fresh.length) addNotification(`${fresh.length === 1 ? 'A trade needs' : `${fresh.length} trades need`} your attention.`);
+  }, [tradeAttentionKey, isReplay, addNotification]);
 
   // Auto-select action during setup
   useEffect(() => {
@@ -748,28 +736,13 @@ function GameBoard({
         </div>
       )}
 
-      {/* Trade Notification Banner - shows when there's a pending trade from another player */}
-      {!isReplay && gameState.turnRole !== 'paired' && gameState.playerTradingAllowed !== false && gameState.tradeOffer &&
-       gameState.tradeOffer.from !== gameState.myIndex &&
-       !showTradeModal &&
-       dismissedTradeId !== gameState.tradeOffer.id && (
+      {!isReplay && gameState.turnRole !== 'paired' && gameState.playerTradingAllowed !== false && attentionTrades.length > 0 &&
+       !showTradeModal && dismissedTradeId !== tradeAttentionKey && (
         <div className="trade-notification-banner">
           <GameIcon name="trade" size={24}/>
-          <span className="trade-text" onClick={() => {setTradeMode('player'); setShowTradeModal(true);}}>
-            <strong>{gameState.players[gameState.tradeOffer.from]?.name}</strong> offered a trade to {gameState.players[gameState.tradeOffer.to]?.name}.
-          </span>
-          <button className="view-trade-btn" onClick={() => {setTradeMode('player'); setShowTradeModal(true);}}>View Trade</button>
-          <button
-            className="dismiss-trade-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              setDismissedTradeId(gameState.tradeOffer.id);
-            }}
-            title="Dismiss notification"
-            aria-label="Dismiss trade notification"
-          >
-            <GameIcon name="close" size={16}/>
-          </button>
+          <span className="trade-text">{attentionTrades.length} {attentionTrades.length === 1 ? 'trade needs' : 'trades need'} your attention.</span>
+          <button className="view-trade-btn" onClick={() => {setTradeMode('player'); setShowTradeModal(true);}}>View offers</button>
+          <button className="dismiss-trade-btn" onClick={() => setDismissedTradeId(tradeAttentionKey)} title="Dismiss notification" aria-label="Dismiss trade notification"><GameIcon name="close" size={16}/></button>
         </div>
       )}
 

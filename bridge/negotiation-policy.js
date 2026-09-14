@@ -6,6 +6,7 @@ const resources = new Set(RESOURCE_NAMES);
 // a shortage for one standard build. Multi-build speculation stays silent.
 const BUILD_TARGETS = {brick:1,lumber:1,wool:1,grain:2,ore:3,paper:1,coin:1,cloth:1};
 const record = value => value && typeof value === 'object' && !Array.isArray(value);
+const tradesFor=view=>view.trades??(view.trade?[view.trade]:[]);
 const names = value => Array.isArray(value) && value.length > 0 && value.length <= 2
   && new Set(value).size === value.length && value.every(item => resources.has(item));
 
@@ -38,8 +39,8 @@ export function projectNegotiations(view, incoming = [], now = Date.now()) {
       safe = {kind: 'interest', wants: [...intent.wants], offers: [...intent.offers],
         to: intent.to ?? null, replyToId: intent.replyToId ?? null};
     } else if (intent.kind === 'offer') {
-      if (!view.trade || view.trade.id !== intent.tradeId || view.trade.to !== seat
-        || view.trade.from !== item.actorSeatId || view.trade.status !== 'offered') continue;
+      const trade=tradesFor(view).find(candidate=>candidate.id===intent.tradeId);
+      if (!trade || trade.to !== seat || trade.from !== item.actorSeatId || trade.status !== 'offered') continue;
       safe = {kind: 'offer', tradeId: intent.tradeId, replyToId: intent.replyToId ?? null};
     } else continue; // Declines and terminal announcements never wake a model.
     seen.add(item.id);
@@ -71,12 +72,12 @@ export function negotiationSchemaFor(view) {
   const canStart = view.negotiation.canInitiate === true;
   const seats = (game.players || []).map(player => player.id).filter(id => id !== view.seatId);
   const parentSchema = canStart ? {type: ['string', 'null'], enum: [...parents, null]} : {type: 'string', enum: parents};
-  if (canStart && !view.trade && seats.length) choices.push({type: 'object', additionalProperties: false,
+  if (canStart && seats.length) choices.push({type: 'object', additionalProperties: false,
     properties: {kind: {type: 'string', enum: ['interest']}, wants: selectedResources, offers: selectedResources,
       to: {type: ['string', 'null'], enum: [...seats, null]}, replyToId: {type:'null'}},
     required: ['kind', 'wants', 'offers', 'to', 'replyToId']});
   for (const parent of incoming) {
-    if (!view.trade && parent.intent.kind==='interest') choices.push({type:'object',additionalProperties:false,
+    if (parent.intent.kind==='interest') choices.push({type:'object',additionalProperties:false,
       properties:{kind:{type:'string',enum:['interest']},
         wants:{...resourceArray,items:{type:'string',enum:parent.intent.offers}},
         offers:{...resourceArray,items:{type:'string',enum:parent.intent.wants}},
@@ -86,8 +87,9 @@ export function negotiationSchemaFor(view) {
     properties: {kind: {type: 'string', enum: ['decline']}, to: {type: 'string', enum: [parent.actorSeatId]},
       replyToId: {type: 'string', enum: [parent.id]}}, required: ['kind', 'to', 'replyToId']});
   }
-  if ((canStart || parents.length) && view.trade?.status === 'offered' && view.trade.from === view.seatId) choices.push({
+  const ownOffers=tradesFor(view).filter(trade=>trade.status==='offered'&&trade.from===view.seatId);
+  if ((canStart || parents.length) && ownOffers.length) choices.push({
     type: 'object', additionalProperties: false, properties: {kind: {type: 'string', enum: ['offer']},
-      tradeId: {type: 'string', enum: [view.trade.id]}, replyToId: parentSchema}, required: ['kind', 'tradeId', 'replyToId']});
+      tradeId: {type: 'string', enum: ownOffers.map(trade=>trade.id)}, replyToId: parentSchema}, required: ['kind', 'tradeId', 'replyToId']});
   return choices.length ? {anyOf: [...choices, {type: 'null'}]} : {type: 'null'};
 }

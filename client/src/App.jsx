@@ -111,23 +111,14 @@ function getCode(response, fallback = '') {
 function normalizeGameState(snapshot) {
   if (!snapshot?.gameState) return null;
   const state = { ...snapshot.gameState };
-  const trade = snapshot.trade;
-
-  if (!trade) {
-    state.tradeOffer = null;
-    return state;
-  }
-
-  const from = state.players?.findIndex(player => player.id === trade.from) ?? -1;
-  const to = state.players?.findIndex(player => player.id === trade.to) ?? -1;
-  state.tradeOffer = {
-    id: trade.id,
-    status: trade.status,
-    from,
-    to,
-    offer: trade.give || {},
-    request: trade.get || {}
-  };
+  const trades = snapshot.trades ?? (snapshot.trade ? [snapshot.trade] : []);
+  state.tradeOffers = trades.map(trade => ({
+    id: trade.id, status: trade.status,
+    from: state.players?.findIndex(player => player.id === trade.from) ?? -1,
+    to: state.players?.findIndex(player => player.id === trade.to) ?? -1,
+    offer: trade.give || {}, request: trade.get || {}
+  }));
+  state.tradeOffer = state.tradeOffers.find(trade => trade.to === state.myIndex) || state.tradeOffers[0] || null;
   return state;
 }
 
