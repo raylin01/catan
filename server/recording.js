@@ -102,7 +102,7 @@ const safeEventPayload=(type,payload,room)=> {
     placePort:['edgeKey'],claimWonder:['wonderId'],placeShip:['edgeKey'],moveShip:['fromEdgeKey','toEdgeKey'],movePirate:['hexKey','stealFromPlayerId','stealType'],resolveSeafarersChoice:['choiceId','optionId'],
     join:['role','seatId','kind','provider','model'],configureSeat:['seatId','kind','provider','model','chatEnabled','chatModel','chatReasoning'],
     removeController:['seatId','kind','provider','model','chatEnabled','chatModel','chatReasoning'],chat:['message'],aiChatReply:['replyToSequence','message'],
-    aiPause:['seatId'],aiResume:['seatId'],aiCancel:['seatId'],placeSettlement:['vertexKey'],placeRoad:['edgeKey'],upgradeToCity:['vertexKey'],
+    aiSetChat:['seatId','enabled'],aiPause:['seatId'],aiResume:['seatId'],aiCancel:['seatId'],placeSettlement:['vertexKey'],placeRoad:['edgeKey'],upgradeToCity:['vertexKey'],
     discardCards:['resources'],moveRobber:['hexKey','stealFromPlayerId'],chooseRobberCard:['cardId'],playDevCard:['cardType','params'],
     yearOfPlentyPick:['resource'],bankTrade:['giveResource','giveAmount','getResource'],tradeOffer:['to','give','get'],tradeCounter:['tradeId','to','give','get'],
     tradeAccept:['tradeId'],tradeReject:['tradeId'],tradeConfirm:['tradeId'],tradeCancel:['tradeId']

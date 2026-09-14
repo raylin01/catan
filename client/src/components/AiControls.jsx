@@ -19,6 +19,11 @@ export function AiControls({slot,onCommand,busy,showStatus=true}) {
       <button type="button" className="room-secondary-button" disabled={busy||!slot.occupied} onClick={()=>onCommand(paused?'aiResume':'aiPause',{seatId:slot.id})}>{paused?'Resume AI':'Pause AI'}</button>
       <button type="button" className="room-secondary-button" disabled={busy||!slot.occupied||paused} onClick={()=>onCommand('aiCancel',{seatId:slot.id})}>Cancel decision</button>
     </div>
+    {slot.occupied&&<label className="ai-chat-toggle ai-live-chat-toggle">
+      <input type="checkbox" checked={slot.chatEnabled!==false} disabled={busy} aria-label={`Allow chat for ${slot.name}`} onChange={event=>onCommand('aiSetChat',{seatId:slot.id,enabled:event.target.checked})}/>
+      Allow AI to read and reply to chat
+    </label>}
+    {slot.occupied&&slot.provider==='mcp'&&<p className="room-field-help">Your agent must support the chat API. Replies are optional.</p>}
     {slot.occupied&&(!slot.ai?.runnerAttached||slot.ai?.connection!=='online')&&<p className="room-field-help">Start this seat’s bridge on its computer to reconnect. The website cannot launch a remote CLI.</p>}
     <p className="room-field-help">Cancel stops the current decision and pauses this AI. Its seat and cards stay in place.</p>
   </div>;
