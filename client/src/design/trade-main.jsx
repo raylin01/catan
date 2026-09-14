@@ -1,0 +1,12 @@
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {GamePresentation} from '../presentation/GamePresentation';
+import DesignPlayground from './DesignPlayground';
+import TradePrototype,{TradePrototypeProvider,TradePrototypeTools} from './TradePrototype';
+import '../room.css';
+import '../index.css';
+import '../tabletop.css';
+import './design.css';
+import '../game-hud.css';
+import '../game-ui.css';
+createRoot(document.getElementById('root')).render(<React.StrictMode><GamePresentation><TradePrototypeProvider><div className="trade-prototype-root"><TradePrototypeTools/><DesignPlayground tradePanelComponent={TradePrototype}/></div></TradePrototypeProvider></GamePresentation></React.StrictMode>);

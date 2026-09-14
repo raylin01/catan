@@ -3,7 +3,8 @@ import CitiesKnightsPanel,{BarbarianVoyage} from './CitiesKnightsPanel';
 import ProgressCards from './ProgressCards';
 import {CK_ACTION_NAMES,choiceForVariant} from './citiesKnightsView';
 import './CitiesKnights.css';
-import {PresentationControls} from '../presentation/GamePresentation';
+import {PresentationControls, useGamePresentation} from '../presentation/GamePresentation';
+import {actionKey, canConfirmPlacement, consumePlacement, requiresPlacementConfirmation, stagePlacement} from './placementConfirmation';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import HexBoard from './HexBoard';
 import SeafarersPanel from './SeafarersPanel';
@@ -51,6 +52,7 @@ function GameBoard({
   presentationKey
 }) {
   const isReplay = Boolean(replay);
+  const {confirmPlacements} = useGamePresentation();
   const motionRate = Math.max(.25, Math.min(8, Number(isReplay ? replay.speed : playbackRate) || 1));
   const [choiceVariant,setChoiceVariant]=useState('');
   useEffect(()=>setChoiceVariant(''),[gameState.pendingChoice?.id]);
@@ -63,8 +65,11 @@ function GameBoard({
   const [tradeMode, setTradeMode] = useState('player');
   const [showDevCardModal, setShowDevCardModal] = useState(false);
   const [pendingRobberHex, setPendingRobberHex] = useState(null);
+  const robberChoiceContext = useRef(null);
   const [playersOnHex, setPlayersOnHex] = useState([]);
   const [showChat, setShowChat] = useState(false);
+  const [pendingPlacement, setPendingPlacement] = useState(null);
+  const placementRef = useRef(null);
   const [freshRoll, setFreshRoll] = useState(null);
   const rollIdentity = isReplay ? `replay:${replay.resetKey || replay.perspective || 'public'}` : `${gameCode}:${playerId}:${presentationKey || ''}`;
   const rollSeen = useRef({identity: rollIdentity, id: rollEvent?.id});
@@ -100,6 +105,50 @@ function GameBoard({
   const extraPlayer = isExtended ? gameState.players[(productionIndex + 3) % gameState.players.length] : null;
   const canBuildNow = isMyTurn;
   const setupSettlement = gameState.setupAction?.settlement || lastPlacedSettlement;
+  const placementContext = JSON.stringify([gameCode, playerId, presentationKey, gameState.phase,
+    gameState.turnPhase, gameState.currentPlayerIndex, gameState.myIndex, gameState.turnRole,
+    gameState.setupPhase, gameState.setupAction?.settlement, gameState.pendingChoice?.id,
+    gameState.freeRoads, selectedAction, shipSource, knightSource]);
+  const placementBlocked = paused || isReplay || !myPlayer || !isMyTurn ||
+    !['setup', 'playing'].includes(gameState.phase) || Boolean(gameState.pendingChoice);
+  const placementLatest = useRef(null);
+  placementLatest.current = {placementContext, legalActions, placementBlocked};
+  const clearPlacement = useCallback(() => { placementRef.current = null; setPendingPlacement(null); }, []);
+  useEffect(() => {
+    if (placementRef.current?.status === 'pending' &&
+      !canConfirmPlacement(placementRef.current, placementContext, legalActions, placementBlocked)) clearPlacement();
+  }, [placementContext, legalActions, placementBlocked, clearPlacement]);
+  const queuePlacement = (action, commit) => {
+    const {placementContext: context, legalActions: currentActions, placementBlocked: blocked} = placementLatest.current;
+    if (blocked || !currentActions.some(candidate => actionKey(candidate) === actionKey(action))) return;
+    if (placementRef.current?.status === 'sending') return;
+    const release = () => {
+      if (placementRef.current?.status === 'sending') clearPlacement();
+    };
+    if (!confirmPlacements || !requiresPlacementConfirmation(action.type)) {
+      placementRef.current = {status: 'sending'};
+      commit(release);
+      return;
+    }
+    const staged = stagePlacement(placementRef.current, action, context, commit);
+    placementRef.current = staged;
+    setPendingPlacement(staged);
+  };
+  const confirmPlacement = () => {
+    const {placementContext: context, legalActions: currentActions, placementBlocked: blocked} = placementLatest.current;
+    const sending = consumePlacement(placementRef.current, context, currentActions, blocked);
+    if (!sending) { clearPlacement(); return; }
+    placementRef.current = sending;
+    setPendingPlacement(sending);
+    sending.commit(() => { if (placementRef.current === sending) clearPlacement(); });
+  };
+  useEffect(() => { if (!confirmPlacements && placementRef.current?.status === 'pending') clearPlacement(); }, [confirmPlacements, clearPlacement]);
+  useEffect(() => {
+    if (pendingRobberHex && (robberChoiceContext.current !== placementContext ||
+      !legalActions.some(action => action.type === 'moveRobber' && action.payload.hexKey === pendingRobberHex))) {
+      setPendingRobberHex(null); setPlayersOnHex([]);
+    }
+  }, [pendingRobberHex, placementContext, legalActions]);
 
   // Setup state is authoritative on the server. Keep the local value only as
   // an optimistic fallback while the next room observation arrives.
@@ -225,11 +274,12 @@ function GameBoard({
   }, [gameState.currentPlayerIndex, gameState.turnPhase, gameState.turnRole, playerId, presentationKey]);
   useEffect(()=>{if(!['moveKnight','driveRobber'].includes(selectedAction)||!legalActions.some(a=>a.type===selectedAction&&(a.payload.fromVertexKey||a.payload.vertexKey)===knightSource))setKnightSource(null);},[selectedAction,knightSource,legalActions]);
   const resolveCityChoice=payload=>{if(paused||isReplay||gameState.pendingChoice?.actorId!==playerId||gameState.pendingChoice.id!==payload.choiceId)return;socket.emit('resolveCitiesKnightsChoice',payload,response=>{if(!response.success)addNotification(response.error);});};
-  const handleSeaAction = action => {
+  const emitSeaAction = (action, done = () => {}) => {
     if (!action || paused || isReplay) return;
     const authoritative = legalActions.find(candidate=>candidate.type===action.type && JSON.stringify(candidate.payload || {})===JSON.stringify(action.payload || {}));
-    if (!authoritative) return;
+    if (!authoritative) { done(); return; }
     socket.emit(authoritative.type, authoritative.payload || {}, response=>{
+      done();
       if (!response.success) {addNotification(response.error);return;}
       setSeaStealActions(null);
       if(CK_ACTION_NAMES[authoritative.type]){setSelectedAction(null);setKnightSource(null);}
@@ -240,6 +290,13 @@ function GameBoard({
       if (['moveShip','movePirate','moveRobber','attackFortress'].includes(authoritative.type)) {setSelectedAction(null);setShipSource(null);}
       if (authoritative.type==='placeShip' && !isSetup && gameState.freeRoads <= 1) setSelectedAction(null);
     });
+  };
+  const handleSeaAction = action => {
+    if (!action || paused || isReplay) return;
+    if (requiresPlacementConfirmation(action.type)) {
+      queuePlacement(action, done => emitSeaAction(action, done));
+      setSeaStealActions(null);
+    } else emitSeaAction(action);
   };
   const handleSeaHex = hexKey => {
     const type=selectedAction==='pirate' || !legalActions.some(action=>action.type==='moveRobber') ? 'movePirate' : 'moveRobber';
@@ -291,7 +348,10 @@ function GameBoard({
   }, [socket, addNotification]);
 
   const handlePlaceSettlement = useCallback((vertexKey) => {
-    socket.emit('placeSettlement', { vertexKey, isSetup }, (response) => {
+    const action=legalActions.find(candidate=>candidate.type==='placeSettlement'&&candidate.payload.vertexKey===vertexKey);
+    if (!action) return;
+    queuePlacement(action, done => socket.emit('placeSettlement', { vertexKey, isSetup }, (response) => {
+      done();
       if (response.success) {
         setLastPlacedSettlement(vertexKey);
         if (isSetup) {
@@ -302,15 +362,18 @@ function GameBoard({
       } else {
         addNotification(response.error);
       }
-    });
-  }, [socket, isSetup, addNotification]);
+    }));
+  }, [socket, isSetup, addNotification, legalActions, queuePlacement]);
 
   const handlePlaceRoad = useCallback((edgeKey) => {
-    socket.emit('placeRoad', {
+    const action=legalActions.find(candidate=>candidate.type==='placeRoad'&&candidate.payload.edgeKey===edgeKey);
+    if (!action) return;
+    queuePlacement(action, done => socket.emit('placeRoad', {
       edgeKey,
       isSetup,
       lastSettlement: setupSettlement
     }, (response) => {
+      done();
       if (response.success) {
         if (isSetup) {
           // Advance setup
@@ -325,56 +388,46 @@ function GameBoard({
       } else {
         addNotification(response.error);
       }
-    });
-  }, [socket, isSetup, setupSettlement, gameState.freeRoads, addNotification]);
+    }));
+  }, [socket, isSetup, setupSettlement, gameState.freeRoads, addNotification, legalActions, queuePlacement]);
 
   const handleUpgradeToCity = useCallback((vertexKey) => {
-    socket.emit('upgradeToCity', { vertexKey }, (response) => {
+    const action=legalActions.find(candidate=>candidate.type==='upgradeToCity'&&candidate.payload.vertexKey===vertexKey);
+    if (!action) return;
+    queuePlacement(action, done => socket.emit('upgradeToCity', { vertexKey }, (response) => {
+      done();
       if (response.success) {
         setSelectedAction(null);
       } else {
         addNotification(response.error);
       }
-    });
-  }, [socket, addNotification]);
+    }));
+  }, [socket, addNotification, legalActions, queuePlacement]);
 
   const handleHexClick = useCallback((hexKey) => {
-    if (gameState.turnPhase === 'robber' && isMyTurn) {
+    if (!paused && !isReplay && gameState.turnPhase === 'robber' && isMyTurn) {
       if (hexKey === gameState.robber) {
         addNotification('Must move robber to a different hex');
         return;
       }
 
-      // Get players on this hex
-      socket.emit('getPlayersOnHex', { hexKey }, (response) => {
-        if (response.success && response.players.length > 0) {
-          setPendingRobberHex(hexKey);
-          setPlayersOnHex(response.players);
-        } else {
-          // No players to steal from, just move
-          socket.emit('moveRobber', { hexKey, stealFromPlayerId: null }, (res) => {
-            if (!res.success) {
-              addNotification(res.error);
-            }
-          });
-        }
-      });
+      const actions=legalActions.filter(action=>action.type==='moveRobber'&&action.payload.hexKey===hexKey);
+      if (actions.length > 1) {
+        robberChoiceContext.current = placementContext;
+        setPendingRobberHex(hexKey);
+        setPlayersOnHex(actions.map(action=>gameState.players.find(player=>player.id===action.payload.stealFromPlayerId)).filter(Boolean));
+      } else if (actions.length === 1) handleSeaAction(actions[0]);
     }
-  }, [gameState.turnPhase, gameState.robber, isMyTurn, socket, addNotification]);
+  }, [gameState.turnPhase, gameState.robber, gameState.players, isMyTurn, isReplay, paused, legalActions, placementContext, addNotification, handleSeaAction]);
 
   const handleStealFromPlayer = useCallback((stealPlayerId) => {
-    socket.emit('moveRobber', {
-      hexKey: pendingRobberHex,
-      stealFromPlayerId: stealPlayerId
-    }, (response) => {
-      if (response.success) {
-        setPendingRobberHex(null);
-        setPlayersOnHex([]);
-      } else {
-        addNotification(response.error);
-      }
-    });
-  }, [socket, pendingRobberHex, addNotification]);
+    if (robberChoiceContext.current !== placementLatest.current.placementContext) return;
+    const action=legalActions.find(candidate=>candidate.type==='moveRobber'&&candidate.payload.hexKey===pendingRobberHex&&candidate.payload.stealFromPlayerId===stealPlayerId);
+    if (!action) return;
+    setPendingRobberHex(null);
+    setPlayersOnHex([]);
+    handleSeaAction(action);
+  }, [pendingRobberHex, legalActions, handleSeaAction]);
 
   const handleEndTurn = useCallback(() => {
     socket.emit('endTurn', (response) => {
@@ -480,7 +533,10 @@ function GameBoard({
 
   return (
     <div className={`game-board game-hud ${isSeafarers?'has-seafarers':''} ${isCitiesKnights?'has-cities-knights':''} ${isReplay ? 'replay-game-board' : ''}`} onKeyDown={event => {
-      if (event.key === 'Escape' && selectedAction && !isSetup && !isReplay && !event.defaultPrevented &&
+      if (event.key === 'Escape' && !event.defaultPrevented && (pendingPlacement || pendingRobberHex || seaStealActions) &&
+        !event.target.closest('input,textarea,select,[role="dialog"],.game-chat-window')) {
+        event.preventDefault(); clearPlacement(); setPendingRobberHex(null); setPlayersOnHex([]); setSeaStealActions(null);
+      } else if (event.key === 'Escape' && selectedAction && !isSetup && !isReplay && !event.defaultPrevented &&
         !event.target.closest('input,textarea,select,[role="dialog"],.game-chat-window')) {
         event.preventDefault(); setSelectedAction(null);
       }
@@ -490,6 +546,10 @@ function GameBoard({
         <div className="game-code-display">
           <span className="table-wordmark">CATAN</span>
           {isReplay && <span className="replay-game-label">Replay</span>}
+          {!isReplay && <button type="button" className="chat-toggle" aria-expanded={showChat} aria-controls="game-chat-window" onClick={() => setShowChat(value => !value)}>
+            <GameIcon name="chat" size={18}/> Chat
+            {unreadMessages > 0 && <span className="chat-notification-dot" aria-label={`${unreadMessages} unread messages`}>{unreadMessages}</span>}
+          </button>}
         </div>
 
         <div className="turn-indicator">
@@ -588,7 +648,7 @@ function GameBoard({
       {/* The board and its contextual controls share the main playing field. */}
       <div className="game-main">
         <div className="board-container">
-          <div className="bank-anchor" data-card-bank><GameIcon name="bank" size={22}/><span>Bank</span></div>
+          <div className="bank-anchor" data-card-bank><GameIcon name="bank" size={22}/><span>Bank{Number.isSafeInteger(gameState.bankTotal)&&<small>{gameState.bankTotal} resource cards</small>}</span></div>
           <HexBoard
             cameraKey={gameCode}
             cameraState={replay?.boardCamera}
@@ -596,6 +656,9 @@ function GameBoard({
             resetKey={isReplay ? replay.resetKey : presentationKey || `${gameCode}:${playerId}`}
             playbackRate={motionRate}
             legalActions={isReplay ? [] : legalActions}
+            pendingPlacement={pendingPlacement?.status === 'pending' ? pendingPlacement.action :
+              pendingRobberHex ? {type:'moveRobber', payload:{hexKey:pendingRobberHex}} :
+              seaStealActions?.[0]?.payload?.hexKey ? seaStealActions[0] : null}
             hexes={gameState.hexes}
             vertices={gameState.vertices}
             edges={gameState.edges}
@@ -628,6 +691,11 @@ function GameBoard({
             lastPlacedSettlement={lastPlacedSettlement}
             freeRoads={gameState.freeRoads}
           />
+          {pendingPlacement?.status === 'pending' && <div className="placement-confirm" role="group" aria-label="Confirm board action">
+            <span>{pendingPlacement.action.type === 'placeSettlement' && isCitiesKnights && isSetup && gameState.setupPhase === 1 ? 'Starting city' : ({placeSettlement:'Settlement',placeRoad:'Road',upgradeToCity:'City',placeShip:'Ship',moveShip:'Move ship',placePort:'Harbor',moveRobber:'Robber',movePirate:'Pirate',driveRobber:'Move robber'})[pendingPlacement.action.type] || 'Placement'} selected</span>
+            <button type="button" className="placement-confirm-action" onClick={confirmPlacement}>Confirm</button>
+            <button type="button" onClick={clearPlacement}>Cancel</button>
+          </div>}
 
           {/* Dice display - auto-hides after 5 seconds */}
           {gameState.diceRoll && (
@@ -689,15 +757,6 @@ function GameBoard({
             </>
           )}
 
-          <button
-            className="chat-toggle"
-            onClick={() => setShowChat(!showChat)}
-          >
-             <GameIcon name="chat" size={18}/> Chat
-            {unreadMessages > 0 && (
-              <span className="chat-notification-dot">{unreadMessages}</span>
-            )}
-          </button>
           </>}
         </div>
       </div>
@@ -805,23 +864,13 @@ function GameBoard({
                   key={p.id}
                   className="steal-btn"
                   onClick={() => handleStealFromPlayer(p.id)}
-                  disabled={paused || !p.hasResources}
+                  disabled={paused}
                 >
                   {p.name}
-                  {!p.hasResources && <span className="no-cards">(no cards)</span>}
                 </button>
               ))}
             </div>
-            {/* Show OK button if no players have cards to steal */}
-            {playersOnHex.every(p => !p.hasResources) && (
-              <button
-                className="steal-ok-btn"
-                disabled={paused}
-                onClick={() => handleStealFromPlayer(null)}
-              >
-                OK
-              </button>
-            )}
+            <button type="button" className="steal-ok-btn" onClick={() => {setPendingRobberHex(null);setPlayersOnHex([]);}}>Cancel</button>
           </div>
         </div>
       )}
@@ -829,6 +878,7 @@ function GameBoard({
       {/* Chat panel */}
       {!isReplay && (
         <Chat
+          id="game-chat-window"
           key={chatIdentity}
           open={showChat}
           messages={chatMessages}

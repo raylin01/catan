@@ -9,6 +9,11 @@ test('saved desktop chat remains reachable after changing to a phone viewport',(
   assert.ok(layout.x+layout.width<=380);
   assert.ok(layout.y+layout.height<=834);
 });
+test('fresh and restored chat starts on the left while saved position survives',()=>{
+  assert.deepEqual(fitChatLayout(null,{width:1440,height:900}),{x:20,y:410,width:350,height:350});
+  assert.deepEqual(fitChatLayout({x:890,y:180,width:350,height:350},{width:1440,height:900}),{x:890,y:180,width:350,height:350});
+  assert.equal(fitChatLayout(null,{width:320,height:600}).x,10);
+});
 test('invalid preferences and extreme drag or resize values cannot hide chat controls',()=>{
   for(const saved of [null,{}, {x:-900,y:-500,width:-20,height:Infinity}, {x:NaN,y:Infinity,width:'500',height:null}]) {
     const layout=fitChatLayout(saved,{width:1024,height:600});

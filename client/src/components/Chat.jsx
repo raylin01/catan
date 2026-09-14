@@ -13,7 +13,7 @@ function WindowIcon({kind}) {
   </svg>;
 }
 
-export default function Chat({messages, onSend, onClose, open = true, readOnly = false}) {
+export default function Chat({id, messages, onSend, onClose, open = true, readOnly = false}) {
   const [input, setInput] = useState('');
   const [layout, setLayout] = useState(() => {
     try { return fitChatLayout(JSON.parse(localStorage.getItem(CHAT_LAYOUT_KEY)), viewport()); }
@@ -85,7 +85,7 @@ export default function Chat({messages, onSend, onClose, open = true, readOnly =
     if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
   };
 
-  return <div className={`chat-panel game-chat-window ${moving ? 'is-manipulating' : ''}`} ref={panel}
+  return <div id={id} className={`chat-panel game-chat-window ${moving ? 'is-manipulating' : ''}`} ref={panel}
     role="region" aria-label="Game chat" hidden={!open} style={{left: layout.x, top: layout.y, width: layout.width, height: layout.height}}
     onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } }}>
     <div className="chat-header">
