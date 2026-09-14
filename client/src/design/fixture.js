@@ -178,9 +178,9 @@ export const DESIGN_SLOTS = [
 ];
 
 export const INITIAL_EVENTS = [
-  {id: 'fixture-1', type: 'rollDice', actor: 'seat-b', at: '2026-09-12T19:00:00.000Z', summary: 'Mara rolled an 8'},
+  {id: 'fixture-1', type: 'rollDice', actor: 'seat-b', at: '2026-09-12T19:00:00.000Z', summary: 'Mara rolled 8 (3 + 5)', details:{dice:{die1:3,die2:5,total:8}}},
   {id: 'fixture-2', type: 'placeSettlement', actor: 'seat-a', at: '2026-09-12T19:00:06.000Z', summary: 'Ada built a settlement'},
-  {id: 'fixture-3', type: 'tradeConfirm', actor: 'seat-c', at: '2026-09-12T19:00:14.000Z', summary: 'Theo and Lin completed a trade'}
+  {id: 'fixture-3', type: 'tradeConfirm', actor: 'seat-c', at: '2026-09-12T19:00:14.000Z', summary: 'Theo and Lin completed a trade',details:{trade:{id:'fixture-trade',from:'seat-c',to:'seat-d',fromName:'Theo',toName:'Lin',give:{brick:1},get:{wool:1},status:'confirmed'}}}
 ];
 
 export function createFixture(view = 'play') {
@@ -244,7 +244,11 @@ export function createFixture(view = 'play') {
 
 export function legalActionsFor(view = 'play', game = null) {
   if (view === 'spectator' || view === 'hands') return [];
+  if(game?.yearOfPlentyPicks>0)return RESOURCES.map(resource=>({type:'yearOfPlentyPick',payload:{resource}}));
+  const roads=ROAD_TARGETS.filter(edgeKey=>!game||isPhysicalEdgeEmpty(game.edges,edgeKey)).map(edgeKey=>({type:'placeRoad',payload:{edgeKey}}));
+  if(game?.freeRoads>0)return [...roads,{type:'finishFreeRoads',payload:{}}];
   return [
+    ...(view==='play'?(game?.players[0]?.developmentCards||[]).flatMap(cardType=>cardType==='monopoly'?RESOURCES.map(resource=>({type:'playDevCard',payload:{cardType,params:{resource}}})):[{type:'playDevCard',payload:{cardType}}]):[]),
     ...ROAD_TARGETS.filter(edgeKey => !game || isPhysicalEdgeEmpty(game.edges, edgeKey)).map(edgeKey => ({type: 'placeRoad', payload: {edgeKey}})),
     ...SETTLEMENT_TARGETS.filter(vertexKey => !game || isPhysicalVertexEmpty(game.vertices, vertexKey)).map(vertexKey => ({type: 'placeSettlement', payload: {vertexKey}})),
     ...CITY_TARGETS.filter(vertexKey => !game || isPhysicalSettlement(game.vertices, vertexKey, 0)).map(vertexKey => ({type: 'upgradeToCity', payload: {vertexKey}})),

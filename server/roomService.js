@@ -28,6 +28,24 @@ const setTrades=(room,trades)=>{room.trades=trades;room.trade=trades[0]||null;};
 const publicTrade=trade=>({id:trade.id,from:trade.from,to:trade.to,give:clone(trade.give),get:clone(trade.get),status:trade.status,counterOf:trade.counterOf||null});
 const terminal=room=>['won','ended','closed'].includes(recordingStatus(room));
 const meaningfulRecordingEvent=event=>!['aiLease','aiHeartbeat','crashgap','partialBaseline'].includes(event.type);
+const PUBLIC_DEV_CARD_NAMES={knight:'Knight',roadBuilding:'Road Building',yearOfPlenty:'Year of Plenty',monopoly:'Monopoly'};
+const PUBLIC_RESOURCES=new Set(['brick','lumber','wool','grain','ore']);
+const PUBLIC_EVENT_DIE_FACES=new Set(['barbarian','science','trade','politics']);
+const publicGameActionDetails=(type,payload,beforeGame,game)=>{
+  if(type==='playDevCard'&&Object.hasOwn(PUBLIC_DEV_CARD_NAMES,payload.cardType)) {
+    const details={devCard:{cardType:payload.cardType}};
+    if(payload.cardType==='monopoly'&&PUBLIC_RESOURCES.has(payload.params?.resource))details.monopoly={resource:payload.params.resource};
+    return details;
+  }
+  if(type==='yearOfPlentyPick'&&PUBLIC_RESOURCES.has(payload.resource))
+    return {yearOfPlenty:{resource:payload.resource,remainingPicks:game.yearOfPlentyPicks}};
+  if(['placeRoad','placeShip'].includes(type)&&beforeGame?.freeRoads>0&&game?.edges?.[payload.edgeKey])
+    return {freeRoute:{kind:type==='placeRoad'?'road':'ship',edgeKey:payload.edgeKey,remaining:game.freeRoads}};
+  if(type==='finishFreeRoads'&&beforeGame?.freeRoads>0)return {freeRoads:{remaining:game.freeRoads}};
+  if(type==='moveRobber'&&game?.robber!==beforeGame?.robber&&Object.hasOwn(game.hexes,payload.hexKey))
+    return {robber:{hexKey:game.robber,victimSeatId:game.pendingRobberPick?.victimId||null}};
+  return null;
+};
 const prepareLobbyRules=(gameOptions,count)=>gameOptions.scenario==='new_world'
   ? SF.previewNewWorldSetup(gameOptions,count) : {success:true,gameOptions};
 
@@ -484,13 +502,18 @@ export class RoomService {
       const details=result.trade?{trade:{...publicTrade(result.trade),
         fromName:copy.slots.find(candidate=>candidate.id===result.trade.from)?.name||'Player',
         toName:copy.slots.find(candidate=>candidate.id===result.trade.to)?.name||'Player'}}:
-        type==='rollDice'&&result.roll?{dice:{die1:result.roll.die1,die2:result.roll.die2,total:result.roll.total}}:
-        type==='bankTrade'?{bankTrade:{give:{[payload.giveResource]:payload.giveAmount},get:{[payload.getResource]:1}}}:null;
+        type==='rollDice'&&result.roll?{dice:{die1:result.roll.die1,die2:result.roll.die2,total:result.roll.total,
+          ...(copy.game.citiesKnights&&PUBLIC_EVENT_DIE_FACES.has(result.eventDie)?{eventDie:result.eventDie}:{})}}:
+        type==='bankTrade'?{bankTrade:{give:{[payload.giveResource]:payload.giveAmount},get:{[payload.getResource]:1}}}:
+        publicGameActionDetails(type,payload,beforeGame,copy.game);
       const trade=result.trade,partner=trade?copy.slots.find(candidate=>candidate.id===(trade.from===member.seatId?trade.to:trade.from))?.name||'another player':null;
       const tradeSummary={tradeOffer:`${member.name} offered a trade to ${partner}`,tradeCounter:`${member.name} countered ${partner}'s trade`,
         tradeAccept:`${member.name} accepted ${partner}'s trade`,tradeReject:`${member.name} rejected ${partner}'s trade`,
         tradeConfirm:`${member.name} confirmed a trade with ${partner}`,tradeCancel:`${member.name} cancelled a trade with ${partner}`};
       const summary=trade?tradeSummary[type]:type==='rollDice'&&result.roll?`${member.name} rolled ${result.roll.total} (${result.roll.die1} + ${result.roll.die2})`:
+        details?.devCard?`${member.name} played ${PUBLIC_DEV_CARD_NAMES[details.devCard.cardType]}${details.monopoly?` on ${details.monopoly.resource}`:''}`:
+        details?.yearOfPlenty?`${member.name} chose ${details.yearOfPlenty.resource} for Year of Plenty`:
+        details?.freeRoute?`${member.name} placed a free ${details.freeRoute.kind}`:
         labels[type]?`${member.name} ${labels[type]}`:`${member.name} performed ${type}`;
       if(labels[type])copy.events=[...(copy.events||[]),{id:randomUUID(),at:this.now(),actor:member.name,actorSeatId:member.seatId||null,type,summary,...(details?{details}: {})}].slice(-200);
       const response={success:true,revision:copy.revision};

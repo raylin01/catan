@@ -1,13 +1,25 @@
 export const PLACEMENT_CONFIRMATION_KEY = 'catanConfirmPlacements';
+export const ROBBER_CONFIRMATION_KEY = 'catanConfirmRobber';
 
-export const requiresPlacementConfirmation = type => [
-  'placeSettlement', 'placeRoad', 'upgradeToCity', 'placeShip', 'moveShip',
-  'placePort', 'moveRobber', 'movePirate', 'driveRobber'
-].includes(type);
+const placementTypes = new Set(['placeSettlement', 'placeRoad', 'upgradeToCity', 'placeShip', 'moveShip', 'placePort']);
+const robberTypes = new Set(['moveRobber', 'movePirate', 'driveRobber']);
+
+export const requiresPlacementConfirmation = type => placementTypes.has(type) || robberTypes.has(type);
 
 export function readPlacementConfirmation(storage) {
   try { return storage?.getItem(PLACEMENT_CONFIRMATION_KEY) !== 'off'; }
   catch { return true; }
+}
+
+export function readRobberConfirmation(storage) {
+  try { return storage?.getItem(ROBBER_CONFIRMATION_KEY) !== 'off'; }
+  catch { return true; }
+}
+
+export function shouldConfirmAction(type, {confirmPlacements, confirmRobber}) {
+  if (placementTypes.has(type)) return confirmPlacements;
+  if (robberTypes.has(type)) return confirmRobber;
+  return false;
 }
 
 export function actionKey(action) {

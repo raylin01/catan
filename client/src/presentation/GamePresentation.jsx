@@ -1,11 +1,11 @@
 import {createContext, useCallback, useContext, useEffect, useId, useRef, useState} from 'react';
 import {createGameAudio} from './sound';
-import {PLACEMENT_CONFIRMATION_KEY, readPlacementConfirmation} from '../components/placementConfirmation';
+import {PLACEMENT_CONFIRMATION_KEY, ROBBER_CONFIRMATION_KEY, readPlacementConfirmation, readRobberConfirmation} from '../components/placementConfirmation';
 import './presentation.css';
 import coastArtwork from '../assets/painted/coast.webp';
 
 const noop = () => {};
-const PresentationContext = createContext({soundEnabled:true, ambientEnabled:true, confirmPlacements:true, toggleSound:noop, toggleAmbient:noop, toggleConfirmPlacements:noop, playSound:noop});
+const PresentationContext = createContext({soundEnabled:true, ambientEnabled:true, confirmPlacements:true, confirmRobber:true, toggleSound:noop, toggleAmbient:noop, toggleConfirmPlacements:noop, toggleConfirmRobber:noop, playSound:noop});
 export const useGamePresentation = () => useContext(PresentationContext);
 
 export function GamePresentation({children}) {
@@ -18,6 +18,9 @@ export function GamePresentation({children}) {
   });
   const [confirmPlacements,setConfirmPlacements] = useState(() => {
     try { return readPlacementConfirmation(localStorage); } catch { return true; }
+  });
+  const [confirmRobber,setConfirmRobber] = useState(() => {
+    try { return readRobberConfirmation(localStorage); } catch { return true; }
   });
   const audio = useRef(null), request = useRef(0), soundWanted = useRef(soundEnabled);
   const enabling = useRef(false);
@@ -65,8 +68,12 @@ export function GamePresentation({children}) {
     try { localStorage.setItem(PLACEMENT_CONFIRMATION_KEY,value?'off':'on'); } catch { /* Optional browser preference. */ }
     return !value;
   }), []);
+  const toggleConfirmRobber = useCallback(() => setConfirmRobber(value => {
+    try { localStorage.setItem(ROBBER_CONFIRMATION_KEY,value?'off':'on'); } catch { /* Optional browser preference. */ }
+    return !value;
+  }), []);
   const playSound = useCallback(kind => audio.current?.play(kind,document.visibilityState === 'visible'), []);
-  return <PresentationContext.Provider value={{soundEnabled,ambientEnabled,confirmPlacements,toggleSound,toggleAmbient,toggleConfirmPlacements,playSound}}>
+  return <PresentationContext.Provider value={{soundEnabled,ambientEnabled,confirmPlacements,confirmRobber,toggleSound,toggleAmbient,toggleConfirmPlacements,toggleConfirmRobber,playSound}}>
     <IslandAtmosphere animated={ambientEnabled}/>
     {children}
     {audioUnavailable && <div className="presentation-audio-notice" role="status">Sound is unavailable in this browser. <button onClick={()=>setAudioUnavailable(false)}>Dismiss</button></div>}
@@ -80,12 +87,35 @@ function ControlIcon({sound,active}) {
 }
 
 export function PresentationControls() {
-  const {soundEnabled,ambientEnabled,confirmPlacements,toggleSound,toggleAmbient,toggleConfirmPlacements} = useGamePresentation();
+  const {soundEnabled,ambientEnabled,confirmPlacements,confirmRobber,toggleSound,toggleAmbient,toggleConfirmPlacements,toggleConfirmRobber} = useGamePresentation();
+  const settingsRef = useRef(null);
+  useEffect(() => {
+    const closeOutside = event => {
+      const settings = settingsRef.current;
+      if (settings?.open && !settings.contains(event.target)) settings.open = false;
+    };
+    const closeOnEscape = event => {
+      const settings = settingsRef.current;
+      if (event.key !== 'Escape' || !settings?.open) return;
+      const focusWasInside = settings.contains(document.activeElement);
+      settings.open = false;
+      if (focusWasInside) settings.querySelector('summary')?.focus();
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeOnEscape, true);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeOnEscape, true);
+    };
+  }, []);
   return <div className="presentation-controls" role="group" aria-label="Game preferences">
     <button type="button" aria-label="Sound effects" aria-pressed={soundEnabled} onClick={toggleSound} title={soundEnabled?'Mute sound effects':'Enable sound effects'}><ControlIcon sound active={soundEnabled}/><span>Sound {soundEnabled?'on':'off'}</span></button>
     <button type="button" aria-label="Background animation" aria-pressed={ambientEnabled} onClick={toggleAmbient} title={ambientEnabled?'Pause background animation':'Animate background'}><ControlIcon active={ambientEnabled}/><span>Scenery {ambientEnabled?'on':'off'}</span></button>
-    <details className="presentation-settings"><summary>Settings</summary><div className="presentation-settings-menu">
+    <details className="presentation-settings" ref={settingsRef}><summary>Settings</summary><div className="presentation-settings-menu">
       <label><input type="checkbox" aria-label="Confirm placements" checked={confirmPlacements} onChange={toggleConfirmPlacements}/><span>Confirm placements</span></label>
+      <label><input type="checkbox" aria-label="Confirm robber" checked={confirmRobber} onChange={toggleConfirmRobber}/><span>Confirm robber</span></label>
     </div></details>
   </div>;
 }

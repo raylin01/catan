@@ -10,6 +10,7 @@ const ALIASES = {
   resourceCards: 'cards',
   diceRoll: 'dice',
   largestArmy: 'knight',
+  roadBuilding: 'road',
   longestRoad: 'road',
   overview: 'compass',
   setup: 'settlement',
@@ -174,12 +175,7 @@ function iconShape(name) {
         </>
       );
     case 'trade':
-      return (
-        <>
-          <path d="M4 8h13l-2.5-2.5M20 16H7l2.5 2.5" fill="none" strokeWidth="2" />
-          <path d="M17 8h3v3M7 16H4v-3" fill="none" strokeWidth="2" />
-        </>
-      );
+      return <><path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4" fill="none" strokeWidth="1.8"/></>;
     case 'history':
       return <><path d="M4 10a8 8 0 1 1 1 7M4 4v6h6M12 7v5l3 2" fill="none"/></>;
     case 'chat':
@@ -221,13 +217,7 @@ function iconShape(name) {
         </>
       );
     case 'players':
-      return (
-        <>
-          <circle cx="9" cy="8" r="3" fill="currentColor" opacity=".75" />
-          <circle cx="16.5" cy="9.5" r="2.4" fill="currentColor" opacity=".5" />
-          <path d="M3.5 19c.3-3.4 2.1-5.2 5.5-5.2s5.2 1.8 5.5 5.2M14 14.8c3.5-.9 5.8.7 6.4 4.2" />
-        </>
-      );
+      return <g fill="none" strokeWidth="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v2M16 5a3 3 0 0 1 0 6M18 14a4 4 0 0 1 3 4v2"/></g>;
     case 'yearOfPlenty':
       return (
         <>

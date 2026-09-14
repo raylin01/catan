@@ -5,7 +5,14 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {RoomStore} from './store.js';
 import {RoomService} from './roomService.js';
-import {captureState,projectState} from './recording.js';
+import {captureState,projectState,projectEvent} from './recording.js';
+
+test('public roll projection admits only known event-die faces and dice fields',()=>{
+  const event={type:'rollDice',seq:1,details:{dice:{die1:2,die2:3,total:5,eventDie:'science',privateMarker:'secret'}}};
+  assert.deepEqual(projectEvent(event).details,{dice:{die1:2,die2:3,total:5,eventDie:'science'}});
+  assert.deepEqual(projectEvent({...event,details:{dice:{...event.details.dice,eventDie:'secret'}}}).details,
+    {dice:{die1:2,die2:3,total:5}});
+});
 
 let request=0;
 const envelope=(service,code,actor,type,payload={})=>{

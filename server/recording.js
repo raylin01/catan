@@ -84,6 +84,12 @@ export function createRecording(room,{id,now,partial=false,sample=false,title}={
 }
 
 const pick=(payload,names)=>Object.fromEntries(names.filter(name=>Object.hasOwn(payload,name)).map(name=>[name,clone(payload[name])]));
+const publicDevCards=new Set(['knight','roadBuilding','yearOfPlenty','monopoly']);
+const publicResources=new Set(['brick','lumber','wool','grain','ore']);
+const publicRemaining=value=>Number.isSafeInteger(value)&&value>=0&&value<=2;
+const publicEdgeKey=value=>typeof value==='string'&&/^e_-?\d+_-?\d+_[0-5]$/.test(value);
+const publicHexKey=value=>typeof value==='string'&&/^-?\d+,-?\d+$/.test(value);
+const publicSeatId=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const safeEventPayload=(type,payload,room)=> {
   if(!payload||typeof payload!=='object'||Array.isArray(payload))return null;
   if(type==='aiHeartbeat')return {status:payload.status,...(payload.error?{error:'AI runner reported an error'}:{})};
@@ -126,11 +132,26 @@ const safeEventDetails=(type,details)=>{
       fromName:trade.fromName,toName:trade.toName,
       give:clone(trade.give),get:clone(trade.get),status:trade.status,counterOf:trade.counterOf??null}};
   }
-  if(type==='rollDice'&&details.dice)return {dice:{die1:details.dice.die1,die2:details.dice.die2,total:details.dice.total}};
+  if(type==='rollDice'&&details.dice)return {dice:{die1:details.dice.die1,die2:details.dice.die2,total:details.dice.total,
+    ...(['barbarian','science','trade','politics'].includes(details.dice.eventDie)?{eventDie:details.dice.eventDie}:{})}};
   if(type==='bankTrade'&&details.bankTrade) {
     const trade=details.bankTrade;
     return {bankTrade:{give:clone(trade.give),get:clone(trade.get)}};
   }
+  if(type==='playDevCard'&&publicDevCards.has(details.devCard?.cardType)) {
+    const cardType=details.devCard.cardType,clean={devCard:{cardType}};
+    if(cardType==='monopoly'&&publicResources.has(details.monopoly?.resource))clean.monopoly={resource:details.monopoly.resource};
+    return clean;
+  }
+  if(type==='yearOfPlentyPick'&&publicResources.has(details.yearOfPlenty?.resource)&&publicRemaining(details.yearOfPlenty?.remainingPicks))
+    return {yearOfPlenty:{resource:details.yearOfPlenty.resource,remainingPicks:details.yearOfPlenty.remainingPicks}};
+  if(['placeRoad','placeShip'].includes(type)&&details.freeRoute?.kind===(type==='placeRoad'?'road':'ship')&&
+    publicEdgeKey(details.freeRoute.edgeKey)&&publicRemaining(details.freeRoute.remaining))
+    return {freeRoute:{kind:details.freeRoute.kind,edgeKey:details.freeRoute.edgeKey,remaining:details.freeRoute.remaining}};
+  if(type==='finishFreeRoads'&&details.freeRoads?.remaining===0)return {freeRoads:{remaining:0}};
+  if(type==='moveRobber'&&publicHexKey(details.robber?.hexKey)&&
+    (details.robber.victimSeatId===null||publicSeatId(details.robber.victimSeatId)))
+    return {robber:{hexKey:details.robber.hexKey,victimSeatId:details.robber.victimSeatId}};
   return null;
 };
 
