@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {RoomService,MAX_OPEN_TRADES} from './roomService.js';
 import {PROVIDERS} from './providers.js';
+import * as SF from './seafarersCore.js';
 
 let requestNumber=0;
 const nextRequest=()=>`room-test-${++requestNumber}`;
@@ -406,6 +407,143 @@ test('roll receipts preserve exact production, isolate seats, and survive replay
     assert.equal(replacement.success,true);
     assert.deepEqual(service.observe(lobby.code,replacement.token).rollEvent.gains,{},'replacement cannot see previous roll history');
   } finally {Math.random=originalRandom;}
+});
+
+test('development card actions expose bounded public choices in live events and replay',()=>{
+  const service=new RoomService(),lobby=makeLobby(service),players=fillHumanLobby(service,lobby);startRoom(service,lobby);
+  const room=setMainTurn(service,lobby.code),game=()=>service.rooms.get(lobby.code).game;
+  const actor=players.find(player=>player.seatId===game().players[0].id);
+  const actorName=room.slots.find(slot=>slot.id===actor.seatId).name;
+  const opponent=players.find(player=>player.seatId===game().players[1].id);
+  const spectator=service.join(lobby.code,{name:'Watcher',role:'spectator'});
+  const hand=game().players[0];
+  game().devCardDeck=['knight'];
+  for(const resource of ['ore','grain','wool'])hand.resources[resource]=1;
+  assert.equal(issue(service,lobby.code,actor,'buyDevCard').card,'knight');
+  const bought=service.watch(lobby.code).events.at(-1);
+  assert.equal(bought.type,'buyDevCard');assert.equal(Object.hasOwn(bought,'details'),false);
+  assert.equal(JSON.stringify(bought).includes('knight'),false,'bought card identity stays hidden');
+
+  game().players[0].developmentCards.push('monopoly','yearOfPlenty','roadBuilding','knight');
+  game().players[1].resources.brick=2;
+  const privateMarker='private-param-must-not-appear';
+  assert.equal(issue(service,lobby.code,actor,'playDevCard',{cardType:'monopoly',params:{resource:'brick',privateMarker},privateMarker}).success,true);
+  let event=service.watch(lobby.code).events.at(-1);
+  assert.deepEqual(event.details,{devCard:{cardType:'monopoly'},monopoly:{resource:'brick'}});
+  assert.equal(event.summary,`${actorName} played Monopoly on brick`);
+
+  game().devCardPlayedThisTurn=false;
+  assert.equal(issue(service,lobby.code,actor,'playDevCard',{cardType:'yearOfPlenty',params:{privateMarker}}).success,true);
+  event=service.watch(lobby.code).events.at(-1);
+  assert.deepEqual(event.details,{devCard:{cardType:'yearOfPlenty'}});
+  for(const [resource,remainingPicks] of [['wool',1],['grain',0]]) {
+    assert.equal(issue(service,lobby.code,actor,'yearOfPlentyPick',{resource,privateMarker}).success,true);
+    event=service.watch(lobby.code).events.at(-1);
+    assert.deepEqual(event.details,{yearOfPlenty:{resource,remainingPicks}});
+    assert.equal(event.summary,`${actorName} chose ${resource} for Year of Plenty`);
+  }
+
+  game().devCardPlayedThisTurn=false;
+  const anchor=Object.keys(game().edges).find(key=>key.endsWith('_0'));
+  const [,q,r]=anchor.match(/^e_(-?\d+)_(-?\d+)_0$/);
+  game().vertices[`v_${q}_${r}_0`]={building:'settlement',owner:0};
+  assert.equal(issue(service,lobby.code,actor,'playDevCard',{cardType:'roadBuilding'}).success,true);
+  event=service.watch(lobby.code).events.at(-1);
+  assert.deepEqual(event.details,{devCard:{cardType:'roadBuilding'}});
+  assert.equal(event.summary,`${actorName} played Road Building`);
+  const road=service.observe(lobby.code,actor.token).legalActions.find(action=>action.type==='placeRoad');
+  assert.ok(road,'a free road is available from the anchored settlement');
+  assert.equal(issue(service,lobby.code,actor,'placeRoad',{...road.payload,privateMarker}).success,true);
+  event=service.watch(lobby.code).events.at(-1);
+  assert.deepEqual(event.details,{freeRoute:{kind:'road',edgeKey:road.payload.edgeKey,remaining:1}});
+  game().players[0].roads=0;
+  assert.equal(issue(service,lobby.code,actor,'finishFreeRoads',{privateMarker}).success,true);
+  event=service.watch(lobby.code).events.at(-1);
+  assert.deepEqual(event.details,{freeRoads:{remaining:0}});
+
+  game().devCardPlayedThisTurn=false;
+  assert.equal(issue(service,lobby.code,actor,'playDevCard',{cardType:'knight'}).success,true);
+  event=service.watch(lobby.code).events.at(-1);
+  assert.deepEqual(event.details,{devCard:{cardType:'knight'}});
+  assert.equal(event.summary,`${actorName} played Knight`);
+  const targetKey=Object.keys(game().hexes).find(key=>key!==game().robber),target=game().hexes[targetKey];
+  game().vertices[`v_${target.q}_${target.r}_0`]={building:'settlement',owner:1};
+  game().players[1].resources.ore=1;
+  assert.equal(issue(service,lobby.code,actor,'moveRobber',{hexKey:targetKey,stealFromPlayerId:opponent.seatId,privateMarker}).success,true);
+  event=service.watch(lobby.code).events.at(-1);
+  assert.deepEqual(event.details,{robber:{hexKey:targetKey,victimSeatId:opponent.seatId}});
+  const privateCardId=game().pendingRobberPick.cards[0].id;
+  assert.equal(issue(service,lobby.code,actor,'chooseRobberCard',{cardId:privateCardId,privateMarker}).success,true);
+  event=service.watch(lobby.code).events.at(-1);
+  assert.equal(Object.hasOwn(event,'details'),false);
+
+  const live=service.observe(lobby.code,spectator.token).events;
+  const replay=service.replayEvents(room.recordingId).events;
+  const types=new Set(['buyDevCard','playDevCard','yearOfPlentyPick','placeRoad','finishFreeRoads','moveRobber','chooseRobberCard']);
+  assert.deepEqual(replay.filter(item=>types.has(item.type)).map(({type,details,summary})=>({type,details,summary})),
+    live.filter(item=>types.has(item.type)).map(({type,details,summary})=>({type,details,summary})));
+  assert.equal(JSON.stringify(live).includes(privateMarker),false);
+  assert.equal(JSON.stringify(replay).includes(privateMarker),false);
+  assert.equal(JSON.stringify(replay).includes(privateCardId),false,'robber card choice remains private');
+  assert.equal(JSON.stringify(replay.find(item=>item.type==='buyDevCard')).includes('knight'),false);
+  assert.equal(replay.find(item=>item.type==='moveRobber').details.robber.victimSeatId,opponent.seatId);
+});
+
+test('Cities & Knights roll exposes the event die equally in live events and replay',()=>{
+  const service=new RoomService();
+  const created=service.create({name:'Knight dice',seatCount:3,
+    gameOptions:{version:1,extension56:false,expansions:['cities_knights'],scenario:'base'}});
+  assert.equal(created.success,true);
+  const lobby={code:created.code,host:{token:created.token}},players=fillHumanLobby(service,lobby);
+  startRoom(service,lobby);
+  const room=service.rooms.get(lobby.code),game=room.game;
+  game.phase='playing';game.turnPhase='roll';game.currentPlayerIndex=0;
+  const actor=players.find(player=>player.seatId===game.players[0].id);
+  const spectator=service.join(lobby.code,{name:'Watcher',role:'spectator'});
+  assert.equal(spectator.success,true);
+  const privateMarker='not-a-public-roll-property';
+  assert.equal(issue(service,lobby.code,actor,'rollDice',{privateMarker}).success,true);
+  const live=service.observe(lobby.code,spectator.token).events.at(-1);
+  const replay=service.replayEvents(room.recordingId).events.at(-1);
+  const rolledGame=service.rooms.get(lobby.code).game;
+  assert.equal(live.type,'rollDice');
+  assert.deepEqual(live.details,replay.details);
+  assert.deepEqual(live.details,{dice:{...rolledGame.diceRoll,eventDie:rolledGame.citiesKnights.eventDie}});
+  assert.ok(['barbarian','science','trade','politics'].includes(live.details.dice.eventDie));
+  assert.equal(JSON.stringify(live).includes(privateMarker),false);
+  assert.equal(JSON.stringify(replay).includes(privateMarker),false);
+});
+
+test('a free ship placement records its public edge without exposing private cards',()=>{
+  const service=new RoomService();
+  const created=service.create({name:'Ships',seatCount:3,
+    gameOptions:{version:1,extension56:false,expansions:['seafarers'],scenario:'heading_for_new_shores',setup:{layout:'fixed',seed:42}}});
+  assert.equal(created.success,true);
+  const lobby={code:created.code,host:{token:created.token}},players=fillHumanLobby(service,lobby);
+  startRoom(service,lobby);setMainTurn(service,lobby.code);
+  const game=()=>service.rooms.get(lobby.code).game;
+  const actor=players.find(player=>player.seatId===game().players[0].id);
+  game().players[0].developmentCards.push('roadBuilding');
+  assert.equal(issue(service,lobby.code,actor,'playDevCard',{cardType:'roadBuilding'}).success,true);
+  assert.equal(game().freeRoads,2);
+  let edgeKey=null;
+  for(const candidate of Object.keys(game().edges)) {
+    for(const endpoint of SF.edgeEndpoints(candidate)) {
+      const vertexKey=SF.canonicalVertex(game(),endpoint);
+      if(!vertexKey||SF.buildingAt(game(),vertexKey))continue;
+      const previous=game().vertices[vertexKey];
+      game().vertices[vertexKey]={building:'settlement',owner:0};
+      if(SF.canPlaceShip(game(),actor.seatId,candidate).valid){edgeKey=candidate;break;}
+      game().vertices[vertexKey]=previous;
+    }
+    if(edgeKey)break;
+  }
+  assert.ok(edgeKey,'the fixed scenario has a legal coastal edge for a free ship');
+  assert.equal(issue(service,lobby.code,actor,'placeShip',{edgeKey,ignored:'private-shipping-param'}).success,true);
+  const live=service.watch(lobby.code).events.at(-1),replay=service.replayEvents(created.replayId).events.at(-1);
+  assert.deepEqual(live.details,{freeRoute:{kind:'ship',edgeKey,remaining:1}});
+  assert.deepEqual(replay.details,live.details);
+  assert.equal(JSON.stringify(replay).includes('private-shipping-param'),false);
 });
 
 test('robber choices are opaque, private, persistent, and settle once',()=>{

@@ -71,6 +71,7 @@ export default function RoomTradePanel({snapshot,gameState,seatId,onCommand,onCl
   return <div className="modal-overlay exchange-overlay" onClick={onClose}><section ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="exchange-title" className="exchange-dialog" onClick={e=>e.stopPropagation()}>
     <header className="exchange-header"><h2 id="exchange-title"><GameIcon name={bank?'bank':'trade'} size={26}/>{bank?'Trade with bank':'Trade with player'}</h2><button type="button" className="exchange-close" onClick={onClose} aria-label="Close trade"><GameIcon name="close" size={22}/></button></header>
     {Number.isSafeInteger(gameState.bankTotal)&&<p className="exchange-note">{gameState.bankTotal} resource cards remain in the bank.</p>}
+    {!gameState.citiesKnights&&Number.isSafeInteger(gameState.devCardDeck)&&<p className="exchange-note">{gameState.devCardDeck} development cards remain in the deck.</p>}
     {error&&<p role="alert" className="exchange-error">{error}</p>}
     {!canTrade&&<p className="exchange-note">{snapshot.paused?'The room is paused.':'Trading is available after the roll and any required actions.'}</p>}
     {!bank&&(gameState.turnRole==='paired'||gameState.playerTradingAllowed===false)&&<p className="exchange-note">Player trades are unavailable during the extra action phase. Bank and port trades are allowed.</p>}

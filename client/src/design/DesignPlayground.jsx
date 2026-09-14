@@ -53,7 +53,7 @@ function createSyntheticSocket(commandRef) {
   };
 }
 
-export default function DesignPlayground({tradePanelComponent:TradePanel=RoomTradePanel}) {
+export default function DesignPlayground({tradePanelComponent:TradePanel=RoomTradePanel,extraEvents=[]}) {
   const [sceneryPreview,setSceneryPreview]=useState(false);
   const {playSound, soundEnabled, toggleSound}=useGamePresentation();
   const [view, setView] = useState('play');
@@ -87,13 +87,13 @@ export default function DesignPlayground({tradePanelComponent:TradePanel=RoomTra
     setNotifications(current => [...current.slice(-3), {id, message}]);
     window.setTimeout(() => setNotifications(current => current.filter(item => item.id !== id)), 4200);
   }, [nextId]);
-  const addEvent = useCallback((type, summary, actor = 'seat-a') => {
+  const addEvent = useCallback((type, summary, actor = 'seat-a',details) => {
     setEvents(current => [...current.slice(-14), {
       id: nextId('event'),
       type,
       actor,
       at: new Date().toISOString(),
-      summary
+      summary, ...(details?{details}:{})
     }]);
   }, [nextId]);
 
@@ -110,6 +110,7 @@ export default function DesignPlayground({tradePanelComponent:TradePanel=RoomTra
       next.turnPhase = 'main';
       next.discardingPlayers = [];
       mutator?.(next);
+      next.bankTotal=95-next.players.reduce((sum,player)=>sum+(typeof player.resources==='number'?player.resources:Object.values(player.resources).reduce((n,count)=>n+count,0)),0);
       return next;
     });
   }, [view]);
@@ -158,12 +159,13 @@ export default function DesignPlayground({tradePanelComponent:TradePanel=RoomTra
     const mutate = next => {
       setPhysicalEdge(next.edges, target, {road: true, owner: 0});
       next.players[0].roads = Math.max(0, next.players[0].roads - 1);
+      if(next.freeRoads)next.freeRoads=Math.max(0,next.freeRoads-1);
     };
     if (requestedKey && view === 'setup') setGame(current => { const next = cloneFixture(current); mutate(next); return next; });
     else ensurePlay(mutate, true);
-    addEvent('placeRoad', 'Ada placed a road on the synthetic board');
+    addEvent('placeRoad', game.freeRoads?'Ada placed a free road with Road Building':'Ada placed a road on the synthetic board', 'seat-a', game.freeRoads?{freeRoute:{kind:'road',edgeKey:target,remaining:Math.max(0,game.freeRoads-1)}}:undefined);
     return {success: true};
-  }, [addEvent, addNotification, ensurePlay, game.edges, view]);
+  }, [addEvent, addNotification, ensurePlay, game.edges, game.freeRoads, view]);
 
   const buildSettlement = useCallback((requestedKey) => {
     const target = requestedKey || SETTLEMENT_TARGETS.find((key, index) => index >= settlementIndex.current && isPhysicalVertexEmpty(game.vertices, key)) || SETTLEMENT_TARGETS.find(key => isPhysicalVertexEmpty(game.vertices, key));
@@ -225,7 +227,7 @@ export default function DesignPlayground({tradePanelComponent:TradePanel=RoomTra
     const roomTrade = {id, status: 'offered', from: 'seat-b', to: 'seat-a', give: {wool: 2}, get: {grain: 1}};
     ensurePlay(next => { next.tradeOffer = offer; });
     setTrade(roomTrade);
-    addEvent('tradeOffer', 'Mara offered Ada two wool for one grain', 'seat-b');
+    addEvent('tradeOffer', 'Mara offered Ada two wool for one grain', 'seat-b', {trade:{id,from:'seat-b',to:'seat-a',fromName:'Mara',toName:'Ada',give:{wool:2},get:{grain:1},status:'offered'}});
   }, [addEvent, ensurePlay, nextId]);
 
   const showDevelopmentCard = useCallback(() => {
@@ -263,6 +265,7 @@ export default function DesignPlayground({tradePanelComponent:TradePanel=RoomTra
       case 'rollDice':
         rollAndDraw();
         return {success: true, roll: {die1: 2, die2: 6, total: 8}};
+      case 'finishFreeRoads': ensurePlay(next=>{next.freeRoads=0;});addEvent('finishFreeRoads','Ada finished placing free roads','seat-a',{freeRoads:{remaining:0}});return {success:true};
       case 'placeRoad': return placeRoad(payload.edgeKey);
       case 'placeSettlement': return buildSettlement(payload.vertexKey);
       case 'upgradeToCity': return upgradeCity(payload.vertexKey);
@@ -288,7 +291,7 @@ export default function DesignPlayground({tradePanelComponent:TradePanel=RoomTra
       }
       case 'buyDevCard': {
         const cardType = DEVELOPMENT_CARDS[devIndex.current++ % DEVELOPMENT_CARDS.length];
-        ensurePlay(next => { next.players[0].newDevCards.push(cardType); });
+        ensurePlay(next => { next.players[0].newDevCards.push(cardType);next.devCardDeck=Math.max(0,next.devCardDeck-1); });
         setCardEvents(current => [...current, {id: nextId('development'), type: 'buyDevCard', transfers: [{from: 'bank', to: 'seat-a', resource: 'development', count: 1}]}]);
         return {success: true, card: cardType};
       }
@@ -300,14 +303,15 @@ export default function DesignPlayground({tradePanelComponent:TradePanel=RoomTra
           if (payload.cardType === 'roadBuilding') next.freeRoads = 2;
           if (payload.cardType === 'yearOfPlenty') next.yearOfPlentyPicks = 2;
         });
-        addEvent('playDevCard', `Ada played ${payload.cardType}`);
+        addEvent('playDevCard', `Ada played ${{knight:'Knight',roadBuilding:'Road Building',yearOfPlenty:'Year of Plenty',monopoly:'Monopoly'}[payload.cardType]||payload.cardType}`, 'seat-a', {devCard:{cardType:payload.cardType},...(payload.cardType==='monopoly'?{monopoly:{resource:payload.params.resource}}:{})});
         return {success: true};
       case 'yearOfPlentyPick':
         ensurePlay(next => {
           next.players[0].resources[payload.resource] += 1;
           next.yearOfPlentyPicks = Math.max(0, next.yearOfPlentyPicks - 1);
         });
-        return {success: true};
+        addEvent('yearOfPlentyPick', `Ada chose ${payload.resource} with Year of Plenty`, 'seat-a', {yearOfPlenty:{resource:payload.resource,remainingPicks:Math.max(0,game.yearOfPlentyPicks-1)}});
+        return {success:true};
       case 'bankTrade':
         ensurePlay(next => {
           next.players[0].resources[payload.giveResource] -= payload.giveAmount;
@@ -369,7 +373,7 @@ export default function DesignPlayground({tradePanelComponent:TradePanel=RoomTra
       default:
         return {success: false, error: `${type} is outside this synthetic fixture.`};
     }
-  }, [addEvent, addNotification, buildSettlement, ensurePlay, moveRobber, nextId, placeRoad, rollAndDraw, switchView, upgradeCity]);
+  }, [game.yearOfPlentyPicks, addEvent, addNotification, buildSettlement, ensurePlay, moveRobber, nextId, placeRoad, rollAndDraw, switchView, upgradeCity]);
   commandRef.current = issueCommand;
 
   const snapshot = useMemo(() => ({
@@ -456,6 +460,7 @@ export default function DesignPlayground({tradePanelComponent:TradePanel=RoomTra
         <button type="button" onClick={showRobberPick}>Choose robber card</button>
         <button type="button" onClick={showDiscard}>Discard</button>
         <button type="button" onClick={showPlayerTrade}>Player trade</button>
+        <button type="button" onClick={()=>issueCommand('playDevCard',{cardType:'yearOfPlenty'})}>Play Year of Plenty</button>
         <button type="button" onClick={showDevelopmentCard}>Development card</button>
         <button type="button" onClick={()=>setMessages(current=>[...current,...Array.from({length:8},(_,i)=>({id:nextId('sample-chat'),playerId:'seat-b',playerName:'Mara',playerColor:'#3f82b5',message:['I can offer wool for grain.','Does anyone have a brick to trade?','I am saving for a settlement.','Two wool for one grain?'][i%4],timestamp:new Date().toISOString()}))])}>Chat activity</button>
         <button type="button" className="design-reset" onClick={reset}>Reset</button>
@@ -488,7 +493,7 @@ export default function DesignPlayground({tradePanelComponent:TradePanel=RoomTra
         onLeaveGame={() => addNotification('Leave is disabled in the synthetic playground.')}
         addNotification={addNotification}
         legalActions={legalActions}
-        events={events}
+        events={[...events,...extraEvents].sort((a,b)=>new Date(a.at)-new Date(b.at))}
         rollEvent={spectator && rollEvent ? {id: rollEvent.id, roll: rollEvent.roll} : rollEvent}
         cardEvents={displayedCardEvents}
         slots={DESIGN_SLOTS}

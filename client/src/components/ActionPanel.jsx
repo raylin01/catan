@@ -170,7 +170,7 @@ function ActionPanel({
           <GameIcon name="bank" size={22}/> Bank
         </button>
       <button className="action-btn trade-btn" aria-label={turnRole === 'paired'?'Player trades unavailable during the extra action phase':!playerTradingAllowed?'Player trades unavailable until required choices finish':'Trade with player'} title={turnRole==='paired'?'Player trades are unavailable during the extra action phase':!playerTradingAllowed?'Finish the required choices before trading':undefined} onClick={() => onOpenTrade('player')} disabled={!canPlayerTrade || freeRoads > 0 || yearOfPlentyPicks > 0}>
-        <GameIcon name="trade" size={22}/> Players
+        <GameIcon name="players" size={22}/> Players
       </button>
 
       </div>

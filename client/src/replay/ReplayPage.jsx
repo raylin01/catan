@@ -61,6 +61,7 @@ function ChatList({ messages = [] }) {
 
 function SnapshotFacts({ frame, event }) {
   const game = frame?.state?.gameState;
+  const eventDie = event?.details?.dice?.eventDie || game?.citiesKnights?.eventDie;
   const trades = frame?.state?.trades ?? (frame?.state?.trade ? [frame.state.trade] : []);
   const playerName = id => game?.players?.find(player => player.id === id)?.name || id;
   const bundle = quantities => Object.entries(quantities || {}).filter(([,count]) => count > 0).map(([resource,count]) => `${count} ${resource}`).join(', ');
@@ -70,8 +71,8 @@ function SnapshotFacts({ frame, event }) {
     ['Turn', game?.phase === 'setup' ? 'Setup' : ['lobby','waiting'].includes(game?.phase) ? 'Lobby' : (frame?.turn ?? game?.turnNumber) == null ? '—' : (frame?.turn ?? game?.turnNumber) + 1],
     ['Phase', game?.turnPhase || game?.phase || 'Waiting'],
     ['Current event', event?.summary || 'Initial state'],
-    ['Dice', game?.diceRoll?.total ? `${game.diceRoll.die1} + ${game.diceRoll.die2} = ${game.diceRoll.total}` : 'Not rolled'],
-    ['Bank development cards', Array.isArray(game?.devCardDeck) ? game.devCardDeck.length : Number.isFinite(game?.devCardDeck) ? game.devCardDeck : '—'],
+    ['Dice', game?.diceRoll?.total ? `${game.diceRoll.die1} + ${game.diceRoll.die2} = ${game.diceRoll.total}${eventDie?` · ${eventDie} event`:''}` : 'Not rolled'],
+    ...(!game?.citiesKnights?[['Bank development cards', Array.isArray(game?.devCardDeck) ? game.devCardDeck.length : Number.isFinite(game?.devCardDeck) ? game.devCardDeck : '—']]:[]),
     ['Room state', frame?.state?.paused ? 'Paused' : 'Running']
   ];
   for (const [index,trade] of trades.entries()) facts.push([`Offer ${index+1}`, `${playerName(trade.from)} → ${playerName(trade.to)} · ${trade.status}: ${bundle(trade.give)} for ${bundle(trade.get)}`]);

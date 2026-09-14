@@ -21,3 +21,5 @@
 @keyframes island-water-roll{0%{transform:translate(-1.5px,-.8px) scaleX(1.002)}50%{transform:translate(1px,.6px) scaleX(1.001)}100%{transform:translate(2px,-.4px) scaleX(1.003)}}
 @keyframes island-ripple-drift{0%,100%{opacity:.04;transform:translateX(-5px);stroke-dashoffset:0}45%{opacity:.25}85%{opacity:.07;transform:translateX(8px);stroke-dashoffset:-13}}
 @keyframes island-sun-breathe{from{opacity:.5}to{opacity:1}}
+
+.presentation-settings-menu{display:grid;gap:4px}.presentation-settings-menu label{min-height:30px}

@@ -4,7 +4,7 @@ import ProgressCards from './ProgressCards';
 import {CK_ACTION_NAMES,choiceForVariant} from './citiesKnightsView';
 import './CitiesKnights.css';
 import {PresentationControls, useGamePresentation} from '../presentation/GamePresentation';
-import {actionKey, canConfirmPlacement, consumePlacement, requiresPlacementConfirmation, stagePlacement} from './placementConfirmation';
+import {actionKey, canConfirmPlacement, consumePlacement, requiresPlacementConfirmation, shouldConfirmAction, stagePlacement} from './placementConfirmation';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import HexBoard from './HexBoard';
 import SeafarersPanel from './SeafarersPanel';
@@ -52,7 +52,7 @@ function GameBoard({
   presentationKey
 }) {
   const isReplay = Boolean(replay);
-  const {confirmPlacements} = useGamePresentation();
+  const {confirmPlacements, confirmRobber} = useGamePresentation();
   const motionRate = Math.max(.25, Math.min(8, Number(isReplay ? replay.speed : playbackRate) || 1));
   const [choiceVariant,setChoiceVariant]=useState('');
   useEffect(()=>setChoiceVariant(''),[gameState.pendingChoice?.id]);
@@ -125,7 +125,7 @@ function GameBoard({
     const release = () => {
       if (placementRef.current?.status === 'sending') clearPlacement();
     };
-    if (!confirmPlacements || !requiresPlacementConfirmation(action.type)) {
+    if (!shouldConfirmAction(action.type, {confirmPlacements, confirmRobber})) {
       placementRef.current = {status: 'sending'};
       commit(release);
       return;
@@ -142,7 +142,10 @@ function GameBoard({
     setPendingPlacement(sending);
     sending.commit(() => { if (placementRef.current === sending) clearPlacement(); });
   };
-  useEffect(() => { if (!confirmPlacements && placementRef.current?.status === 'pending') clearPlacement(); }, [confirmPlacements, clearPlacement]);
+  useEffect(() => {
+    if (placementRef.current?.status === 'pending' &&
+      !shouldConfirmAction(placementRef.current.action.type, {confirmPlacements, confirmRobber})) clearPlacement();
+  }, [confirmPlacements, confirmRobber, clearPlacement]);
   useEffect(() => {
     if (pendingRobberHex && (robberChoiceContext.current !== placementContext ||
       !legalActions.some(action => action.type === 'moveRobber' && action.payload.hexKey === pendingRobberHex))) {
@@ -648,7 +651,7 @@ function GameBoard({
       {/* The board and its contextual controls share the main playing field. */}
       <div className="game-main">
         <div className="board-container">
-          <div className="bank-anchor" data-card-bank><GameIcon name="bank" size={22}/><span>Bank{Number.isSafeInteger(gameState.bankTotal)&&<small>{gameState.bankTotal} resource cards</small>}</span></div>
+          <div className="bank-anchor" data-card-bank><GameIcon name="bank" size={22}/><span>Bank{Number.isSafeInteger(gameState.bankTotal)&&<small>{gameState.bankTotal} resource cards</small>}{!isCitiesKnights&&Number.isSafeInteger(gameState.devCardDeck)&&<small>{gameState.devCardDeck} development cards</small>}</span></div>
           <HexBoard
             cameraKey={gameCode}
             cameraState={replay?.boardCamera}
