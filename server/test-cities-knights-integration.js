@@ -148,7 +148,8 @@ test('off-turn progress card bundles reach AI decisions and replay without expos
   const events=service.replayEvents(host.replayId,{perspective:target.id,token:other.token}).events;
   const resolved=events.findLast(event=>event.type==='resolveCitiesKnightsChoice');assert.ok(resolved);
   assert.equal(projectEvent(resolved,{}).payload,undefined);
-  const publicView=service.observe(host.code,host.token),model=modelObservation(publicView);
+  const publicView=service.observe(host.code,host.token),model=modelObservation(service.observe(host.code,other.token));
+  assert.throws(()=>modelObservation(publicView),/authorized own hand/,'An unseated host cannot receive a playable agent observation');
   assert.equal(JSON.stringify(model).includes(card.id),false);
 });
 

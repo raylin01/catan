@@ -126,10 +126,11 @@ test('Fog setup, ships, actual seed and private piles survive SQLite recovery an
       assert.deepEqual(view.gameOptions,raw.gameOptions);
       for(const hidden of ['fogTerrainPile','fogNumberPile','rewardDeck','choiceQueue','portDrawPile']) {
         assert.equal(JSON.stringify(view).includes(`"${hidden}"`),false,hidden);
-        assert.equal(JSON.stringify(modelObservation(view)).includes(`"${hidden}"`),false,`AI ${hidden}`);
+        if(view.seatId)assert.equal(JSON.stringify(modelObservation(view)).includes(`"${hidden}"`),false,`AI ${hidden}`);
       }
     }
     assert.equal(publicView.gameState.players.every(player=>typeof player.resources==='number'),true);
+    assert.throws(()=>modelObservation(publicView),/authorized own hand/);
     const recovered=new RoomService({store});
     const after=recovered.observe(host.code,actors[0].token);
     assert.equal(after.paused,true);assert.deepEqual(after.gameState,views[0].gameState);

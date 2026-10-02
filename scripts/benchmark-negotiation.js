@@ -30,7 +30,8 @@ const report={version:1,startedAt:new Date().toISOString(),live:values.live,
     'Hard server gates are verified by deterministic tests, separately from these model judgments.',
     'No prompts, private strategic memory, context IDs or model transcripts are included.'],results:[]};
 report.sources=Object.fromEntries(await Promise.all(['bridge/connectors/codex.js','bridge/negotiation-policy.js',
-  'bridge/runner.js','bridge/fixtures/negotiation-scenarios.js','server/negotiation.js'].map(async path=>
+  'bridge/runner.js','bridge/fixtures/negotiation-scenarios.js','server/negotiation.js',
+  'server/agentBoard.js','server/agentFacts.js','server/agentObservation.js'].map(async path=>
   [path,createHash('sha256').update(await readFile(new URL(`../${path}`,import.meta.url))).digest('hex')])));
 const persist=async()=>{await mkdir(dirname(output),{recursive:true});await writeFile(output,JSON.stringify(report,null,2)+'\n',{mode:0o600});};
 if(values.live)await codexConnector.ready();

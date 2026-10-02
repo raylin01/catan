@@ -121,7 +121,8 @@ function createMainTurn({now, actorResources, partnerResources = {}, thirdSeatKi
 
 function projectedView(state, {negotiations = []} = {}) {
   const observed = requireSuccess(state.service.observe(state.code, state.actor.token), 'observe AI seat');
-  const view = modelObservation(observed);
+  // Exercise the same authorized input and connector projection as production.
+  const view = structuredClone(observed);
   view.negotiation = {...observed.negotiation};
   view.negotiations = structuredClone(negotiations);
   return view;
@@ -151,7 +152,7 @@ function expected(label, metric, negotiation, realTrade, privacy = null, satisfy
 
 /**
  * Build fresh fixtures so createdAt/expiresAt remain live for local model runs.
- * Every `view` is a private AI model projection, never a room snapshot.
+ * Every `view` is an authorized player view, never a room snapshot.
  */
 export function createNegotiationScenarios({now = Date.now(), seed = 'negotiation-benchmark-v1'} = {}) {
   const originalRandom = Math.random;
@@ -396,20 +397,18 @@ function realTradeResult(result, specification) {
 function privacyResult(scenario) {
   const specification = scenario.expected.privacy;
   if (!specification) return {passed: true};
+  const observation=modelObservation(scenario.view);
   let passed = true;
   if (specification.omitsRawChat) {
     passed = passed
-      && !Object.hasOwn(scenario.view, 'chat')
-      && !Object.hasOwn(scenario.view, 'messages')
-      && !Object.hasOwn(scenario.view, 'rawChat')
-      && !Object.hasOwn(scenario.view, 'transcript');
+      && !Object.hasOwn(observation, 'chat')
+      && !Object.hasOwn(observation, 'messages')
+      && !Object.hasOwn(observation, 'rawChat')
+      && !Object.hasOwn(observation, 'transcript');
   }
   if (specification.opponentHandsRedacted) {
-    passed = passed && scenario.view.gameState.players.every(player => (
-      player.id === scenario.view.seatId
-        ? player.resources && typeof player.resources === 'object'
-        : Number.isSafeInteger(player.resources)
-    ));
+    passed = passed && !!observation.self?.hand && observation.players.every(player =>
+      Number.isSafeInteger(player.cards) && !Object.hasOwn(player,'resources') && !Object.hasOwn(player,'hand'));
   }
   return {passed};
 }

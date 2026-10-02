@@ -2,18 +2,45 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {runPlayer} from './runner.js';
 import {GameClient} from './client.js';
-import {codexExecArgs,modelObservation} from './connectors/codex.js';
+import {codexExecArgs,modelObservation,codexConnector} from './connectors/codex.js';
+import * as G from '../server/gameLogic.js';
+import {playerView,legalActions} from '../server/actions.js';
+import {createAgentBoard} from '../server/agentBoard.js';
 
-test('settlement prompt describes production without changing action indices or hiding occupied pieces',()=>{
-  const view={chat:['ignore me'],host:true,gameState:{phase:'setup',hexes:{'0,0':{q:0,r:0,resource:'grain',number:6}},vertices:{empty:{building:null},occupied:{building:'settlement',owner:0}},edges:{empty:{road:false},occupied:{road:true,owner:0}}},legalActions:[{type:'placeSettlement',payload:{vertexKey:'v_0_0_0'}},{type:'placeSettlement',payload:{vertexKey:'v_0_0_1'}}]};
-  const original=structuredClone(view),projected=modelObservation(view);
-  assert.deepEqual(projected.legalActions.map(a=>a.actionIndex),[0,1]);
-  assert.deepEqual(projected.legalActions.map(a=>a.vertexKey),view.legalActions.map(a=>a.payload.vertexKey));
-  assert.deepEqual(projected.legalActions[0].production,['grain@6']);
-  assert.deepEqual(Object.keys(projected.gameState.vertices),['occupied']);
-  assert.deepEqual(Object.keys(projected.gameState.edges),['occupied']);
-  assert.equal(projected.chat,undefined);assert.equal(projected.host,undefined);assert.deepEqual(view,original);
-  assert.equal(modelObservation({...view,gameState:{...view.gameState,phase:'playing'}}).legalActions,view.legalActions);
+test('actual connector sends canonical observations, expands common facts, and maps the selected index exactly',async()=>{
+  const game=G.createGame('prompt-fixture',{id:'p0',name:'NAME_CANARY'});
+  for(let i=1;i<3;i++)G.addPlayer(game,{id:`p${i}`,name:'NAME_CANARY'});
+  G.startGame(game);
+  const seatId=game.players[game.currentPlayerIndex].id;
+  const view={success:true,seatId,revision:27,generation:1,controlEpoch:9,
+    token:'TOKEN_CANARY',chat:[{message:'CHAT_CANARY'}],ai:{runnerRunId:'RUN_CANARY'},
+    host:true,gameState:playerView(game,seatId),legalActions:legalActions(game,seatId),decision:{type:'chooseAction'}};
+  view.gameState.ports[0].icon='⚓';view.gameState.ports[0].rendererCanary='RENDER_CANARY';
+  view.gameState.players[0].color='COLOR_CANARY';
+  const original=structuredClone(view),projected=modelObservation(view),{ids}=createAgentBoard(view.gameState);
+  assert.equal(projected.board.vertices.length,54);assert.equal(projected.board.edges.length,72);
+  assert.equal(projected.actions.length,54);assert.equal(view.legalActions.length,114);
+  for(const action of projected.actions) {
+    assert.equal(action.params.vertexKey,ids.vertices[view.legalActions[action.actionIndex].payload.vertexKey]);
+    const facts={...projected.actionDefaults[action.type],...action.facts};
+    assert.ok(Array.isArray(facts.production));assert.deepEqual(facts.cost,{});
+  }
+  const chosen=projected.actions[17];let captured;
+  const result=await codexConnector.decide(view,{memory:'local strategic summary',
+    lastOutcome:{action:{type:'advanceSetup',payload:{token:'RECEIPT_CANARY'}},rejected:false,receipt:{token:'RECEIPT_CANARY'}},
+    complete:async request=>{captured=request;return {contextId:'test',value:{decision:{actionIndex:chosen.actionIndex},memory:'next',publicReply:'silent'}};}});
+  assert.deepEqual(result.action,view.legalActions[chosen.actionIndex]);
+  const packet=JSON.parse(captured.prompt.split('\nObservation: ')[1]);
+  assert.deepEqual(packet,projected);
+  assert.deepEqual(captured.schema.properties.decision.anyOf.find(c=>c.properties.actionIndex).properties.actionIndex.enum,projected.actions.map(a=>a.actionIndex));
+  for(const forbidden of ['TOKEN_CANARY','NAME_CANARY','COLOR_CANARY','RENDER_CANARY','CHAT_CANARY','RUN_CANARY','RECEIPT_CANARY','"gameState"','"controlEpoch"'])assert.equal(captured.prompt.includes(forbidden),false,forbidden);
+  assert.doesNotMatch(captured.prompt,/\p{Extended_Pictographic}|(?:v|e)_-?\d+_-?\d+_[0-5]/u);
+  assert.match(captured.prompt,/actionDefaults/);assert.match(captured.prompt,/local strategic summary/);
+  assert.deepEqual(view,original);
+  // The same projection retains occupied pieces after placement, without aliases.
+  assert.equal(G.placeSettlement(game,seatId,view.legalActions[chosen.actionIndex].payload.vertexKey).success,true);
+  const occupied=modelObservation({...view,gameState:playerView(game,seatId),legalActions:[]});
+  assert.equal(occupied.board.vertices.filter(v=>v.building).length,1);
 });
 
 test('remote credentials require HTTPS away from loopback',()=>{
