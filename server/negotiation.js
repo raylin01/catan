@@ -34,6 +34,9 @@ export function negotiationState(room) {
   let aiTradeActionsBySeat=Object.fromEntries(Object.entries(prior.aiTradeActionsBySeat||{}).filter(([seatId,value])=>
     realSeatIds.has(seatId)&&value&&Number.isSafeInteger(value.count)&&value.count>=0&&value.count<=NEGOTIATION_LIMITS.maxTradeOffersPerTurn&&
     Array.isArray(value.fingerprints)&&value.fingerprints.length<=NEGOTIATION_LIMITS.maxTradeOffersPerTurn&&value.fingerprints.every(item=>typeof item==='string')));
+  let announcedTradeIdsBySeat=Object.fromEntries(Object.entries(prior.announcedTradeIdsBySeat||{})
+    .filter(([seatId,ids])=>realSeatIds.has(seatId)&&Array.isArray(ids))
+    .map(([seatId,ids])=>[seatId,[...new Set(ids.filter(validId))].slice(0,NEGOTIATION_LIMITS.maxTradeOffersPerTurn)]));
   let closedTradeSeatIdsBySeat={};
   for(const [seatId,blocked] of Object.entries(prior.closedTradeSeatIdsBySeat||{})) {
     if(!realSeatIds.has(seatId)||!Array.isArray(blocked))continue;
@@ -47,11 +50,12 @@ export function negotiationState(room) {
     rootStarted=false;
     root=null;
     aiTradeActionsBySeat={};
+    announcedTradeIdsBySeat={};
     closedTradeSeatIdsBySeat={};
   }
   const turnKey=activeSeatId?`${turnNumber}:${activeSeatId}`:null;
   if(root?.turnKey!==turnKey)root=null;
-  return {version:1,sequence:safeCounter(prior.sequence),turnNumber,activeSeatId,turnKey,rootStarted,root,lastPublishedAtBySeat,aiTradeActionsBySeat,closedTradeSeatIdsBySeat};
+  return {version:1,sequence:safeCounter(prior.sequence),turnNumber,activeSeatId,turnKey,rootStarted,root,lastPublishedAtBySeat,aiTradeActionsBySeat,announcedTradeIdsBySeat,closedTradeSeatIdsBySeat};
 }
 
 export function syncNegotiationTurn(room) {
@@ -72,12 +76,17 @@ export function negotiationOpportunity(room,slot,now) {
   const tradeOffersUsed=state.aiTradeActionsBySeat[slot?.id]?.count||0;
   const seatOrder=new Map((room.slots||[]).map((candidate,index)=>[candidate.id,index]));
   const blockedTradeSeatIds=[...(state.closedTradeSeatIdsBySeat[slot?.id]||[])].sort((a,b)=>(seatOrder.get(a)||0)-(seatOrder.get(b)||0));
+  const announced=state.announcedTradeIdsBySeat[slot?.id]||[];
+  const offerAnnouncementIds=enabled&&active&&announced.length<NEGOTIATION_LIMITS.maxTradeOffersPerTurn
+    ?tradesFor(room).filter(trade=>!announced.includes(trade.id)&&offeredTrade(room,slot.id,trade.id)
+      &&(currentSeatId(room)===slot.id||trade.to===currentSeatId(room))&&!blockedTradeSeatIds.includes(trade.to)).map(trade=>trade.id):[];
   return {
     canInitiate:Boolean(enabled&&active&&rootAvailable&&cooldownReady&&currentSeatId(room)===slot.id&&!state.rootStarted),
     canReply:Boolean(enabled&&active&&rootFresh&&replyBudgetReady&&cooldownReady),
     turnKey:state.turnKey,
     tradeOffersRemaining:Math.max(0,NEGOTIATION_LIMITS.maxTradeOffersPerTurn-tradeOffersUsed),
     blockedTradeSeatIds,
+    offerAnnouncementIds,
     ...NEGOTIATION_LIMITS
   };
 }
@@ -189,14 +198,13 @@ function packPhrase(pack) {
 }
 
 export function renderNegotiation(room,actorSeatId,intent,trade=null) {
-  const actor=nameFor(room,actorSeatId);
   if(intent.kind==='interest') {
-    const target=intent.to?` to ${nameFor(room,intent.to)}`:'';
-    return `${actor} is looking for ${phrase(intent.wants)} and can offer ${phrase(intent.offers)}${target}.`;
+    const target=intent.to?`${nameFor(room,intent.to)}, `:'';
+    return `${target}I'm looking for ${phrase(intent.wants)} and can offer ${phrase(intent.offers)}.`;
   }
-  if(intent.kind==='decline')return `${actor} declines ${nameFor(room,intent.to)}'s proposal.`;
+  if(intent.kind==='decline')return `${nameFor(room,intent.to)}, I'll pass on that proposal.`;
   const actual=trade||tradesFor(room).find(item=>item.id===intent.tradeId);
-  return `${actor} offers ${packPhrase(actual.give)} to ${nameFor(room,actual.to)} for ${packPhrase(actual.get)}.`;
+  return `${nameFor(room,actual.to)}, I've offered ${packPhrase(actual.give)} for ${packPhrase(actual.get)}.`;
 }
 
 /** Validate and prepare a single bounded public message without mutating the room. */
@@ -253,6 +261,19 @@ export function recordAiTradeAction(room,actorSeatId,tradeId=room.trade?.id) {
   if(prior.count>=NEGOTIATION_LIMITS.maxTradeOffersPerTurn)return fail('AI trade offer budget is exhausted for this turn',429);
   room.negotiationState={...state,aiTradeActionsBySeat:{...state.aiTradeActionsBySeat,
     [actorSeatId]:{count:prior.count+1,fingerprints:[...prior.fingerprints,fingerprint]}}};
+  return {success:true};
+}
+
+/** One public announcement for a real, still-open own offer; no new AI intent. */
+export function recordTradeAnnouncement(room,actorSeatId,tradeId) {
+  if(!canTradeWithPlayers(room.game))return fail('Trade announcements are unavailable outside the main trading phase',409);
+  const trade=offeredTrade(room,actorSeatId,tradeId);
+  if(!trade||actorSeatId!==currentSeatId(room)&&trade.to!==currentSeatId(room))return fail('Your current offered trade is unavailable',409);
+  const state=negotiationState(room),prior=state.announcedTradeIdsBySeat[actorSeatId]||[];
+  if(tradeCounterpartClosed(state,actorSeatId,trade.to))return fail('Trading with this player is closed for the turn',409);
+  if(prior.includes(tradeId))return fail('This trade was already announced',409);
+  if(prior.length>=NEGOTIATION_LIMITS.maxTradeOffersPerTurn)return fail('Trade announcement budget is exhausted for this turn',429);
+  room.negotiationState={...state,announcedTradeIdsBySeat:{...state.announcedTradeIdsBySeat,[actorSeatId]:[...prior,tradeId]}};
   return {success:true};
 }
 

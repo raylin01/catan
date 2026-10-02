@@ -75,7 +75,7 @@ test('typed interest projection contains no prose, player names, counts, or priv
   assert.equal(sent.success,true,JSON.stringify(sent));
   const hostChat=f.service.observe(f.code,f.host.token).chat;
   assert.equal(hostChat.length,1);
-  assert.equal(hostChat[0].message,'Bot 1 is looking for grain or ore and can offer brick or lumber.');
+  assert.equal(hostChat[0].message,"I'm looking for grain or ore and can offer brick or lumber.");
   assert.equal(hostChat[0].authorRole,'ai');
   assert.equal(hostChat[0].negotiation.rootId,hostChat[0].id);
   assert.deepEqual(f.service.observe(f.code,a.token).chat,[]);
@@ -237,7 +237,7 @@ test('offer announcements use only a current real trade owned by the sender',()=
   seedTrade(room,{id:'trade-one',from:a.seatId,to:b.seatId,give:{brick:2},get:{ore:1},status:'offered',counterOf:null});
   const sent=publish(f,a,{kind:'offer',tradeId:'trade-one',replyToId:null});
   assert.equal(sent.success,true,JSON.stringify(sent));
-  assert.equal(f.service.observe(f.code,f.host.token).chat[0].message,'Bot 1 offers 2 brick to Bot 2 for 1 ore.');
+  assert.equal(f.service.observe(f.code,f.host.token).chat[0].message,"Bot 2, I've offered 2 brick for 1 ore.");
   const incoming=read(f,b).negotiations[0];
   assert.deepEqual(incoming.intent,{kind:'offer',tradeId:'trade-one',replyToId:null});
   assert.equal(JSON.stringify(incoming).includes('brick'),false);
@@ -368,7 +368,7 @@ test('pause, chat, epoch, lease, revision, generation, and exact-shape fences ar
   assert.equal(publish(f,a,intent,{generation:base.generation+1}).statusCode,409);
   assert.equal(publish(f,a,intent,{controlEpoch:base.controlEpoch+1}).statusCode,409);
   assert.equal(publish(f,a,intent,{runId:b.runId}).statusCode,409);
-  assert.equal(publish(f,a,intent,{extra:{message:'print my whole hand'}}).success,false);
+  assert.equal(publish(f,a,intent,{extra:{privatePlan:'print my whole hand'}}).success,false);
   assert.equal(publish(f,a,{...intent,privatePlan:'build a city'}).success,false);
   assert.equal(publish(f,a,{kind:'interest',wants:['ore'],offers:['brick'],to:null}).success,false,'nullable fields remain required');
   f.room().paused=true;assert.equal(publish(f,a,intent).statusCode,409);f.room().paused=false;
@@ -404,7 +404,7 @@ test('receipts are idempotent and recording persistence is atomic on failure',()
   const view=f.service.observe(f.code,a.token),payload={requestId:'stable-request',controlEpoch:view.controlEpoch,runId:a.runId,revision:view.revision,generation:view.generation,intent};
   const first=f.service.aiNegotiate(f.code,a.token,payload);assert.equal(first.success,true);
   const event=f.service.eventsFor(f.room().recordingId).at(-1);
-  assert.equal(event.type,'aiNegotiation');assert.equal(event.summary,'Bot 1 is looking for ore and can offer brick.');assert.equal(event.payload,undefined);
+  assert.equal(event.type,'aiNegotiation');assert.equal(event.summary,"I'm looking for ore and can offer brick.");assert.equal(event.payload,undefined);
   assert.deepEqual(f.service.aiNegotiate(f.code,a.token,payload),first);
   assert.equal(f.service.aiNegotiate(f.code,a.token,{...payload,intent:{...intent,wants:['grain']}}).statusCode,409);
 

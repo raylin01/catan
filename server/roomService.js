@@ -10,7 +10,7 @@ import {PROVIDERS} from './providers.js';
 import {appendCardEvent,projectCardEvents} from './cardEvents.js';
 import {REASONING_VALUES,initializeAiSlot,leaseIsLive,fenceAiCommand,claimRunnerLease,heartbeatRunner,applyAiControl,projectAiStatus} from './aiControl.js';
 import {createRecording,advanceRecording,recordingStatus,publicMetadata,projectState,projectEvent,reconstruct,metrics,createPatch,applyPatch} from './recording.js';
-import {negotiationState,syncNegotiationTurn,negotiationOpportunity,prepareNegotiation,readNegotiations,recordAiTradeAction} from './negotiation.js';
+import {negotiationState,syncNegotiationTurn,negotiationOpportunity,prepareNegotiation,readNegotiations,recordAiTradeAction,recordTradeAnnouncement} from './negotiation.js';
 import {validateGameOptions,roomGameOptions,rulesVersionFor,canTradeWithPlayers} from './gameOptions.js';
 
 const secret=()=>randomBytes(32).toString('base64url');
@@ -551,6 +551,7 @@ export class RoomService {
         labels[type]?`${member.name} ${labels[type]}`:`${member.name} performed ${type}`;
       if(labels[type])copy.events=[...(copy.events||[]),{id:randomUUID(),at:this.now(),actor:member.name,actorSeatId:member.seatId||null,type,summary,...(details?{details}: {})}].slice(-200);
       const response={success:true,revision:copy.revision};
+      if(['tradeOffer','tradeCounter'].includes(type)&&result.trade)response.tradeId=result.trade.id;
       // Return private effects only to the authenticated actor, never the event stream.
       if(result.card)response.card=result.card;
       if(result.roll)response.roll=clone(result.roll);
@@ -623,11 +624,12 @@ export class RoomService {
     const room=this.roomFor(code);if(!room)return fail('Room not found',404);
     const member=this.authenticate(room,token);if(!member)return fail('Controller credential is invalid or revoked',401);
     if(member.role!=='ai')return fail('An AI playing seat is required',403);
-    if(!payload||typeof payload!=='object'||Array.isArray(payload)||!Object.keys(payload).every(key=>['requestId','controlEpoch','runId','revision','generation','intent'].includes(key)))return fail('Invalid AI negotiation request');
-    const {requestId,controlEpoch,runId,revision,generation,intent}=payload;
+    if(!payload||typeof payload!=='object'||Array.isArray(payload)||!Object.keys(payload).every(key=>['requestId','controlEpoch','runId','revision','generation','intent','message'].includes(key)))return fail('Invalid AI negotiation request');
+    const {requestId,controlEpoch,runId,revision,generation,intent,message}=payload;
     if(typeof requestId!=='string'||requestId.length<1||requestId.length>100||typeof runId!=='string'||runId.length<8||runId.length>100||!Number.isSafeInteger(revision)||!Number.isSafeInteger(generation))return fail('Invalid AI negotiation request');
+    if(message!=null&&(typeof message!=='string'||!message.trim()||message.length>500))return fail('Invalid public negotiation message');
     const key=hash(token),receiptKey=`${key}:${requestId}`;
-    let fingerprint;try{fingerprint=hash(JSON.stringify({kind:'aiNegotiation',controlEpoch,runId,revision,generation,intent}));}catch{return fail('Invalid AI negotiation request');}
+    let fingerprint;try{fingerprint=hash(JSON.stringify({kind:'aiNegotiation',controlEpoch,runId,revision,generation,intent,message}));}catch{return fail('Invalid AI negotiation request');}
     if(room.receipts[receiptKey])return room.receipts[receiptKey].fingerprint===fingerprint?clone(room.receipts[receiptKey].result):fail('Request ID already used for another command',409);
     if(terminal(room))return fail('Room has ended',410);
     if(revision!==room.revision)return fail('Game changed; observe before acting',409);
@@ -637,11 +639,18 @@ export class RoomService {
     if(!leaseIsLive(actor.slot,now)||actor.slot.runnerLease?.runId!==runId)return fail('AI runner lease is not active',409);
     if(copy.paused||copy.game?.phase==='finished')return fail('AI negotiation is paused',409);
     if(!actor.slot.chatEnabled)return fail('AI chat is disabled',409);
+    if(Number.isFinite(actor.slot.lastAiReplyAt)&&now-actor.slot.lastAiReplyAt<5000)return fail('AI chat reply cooldown is active',429);
     const prepared=prepareNegotiation(copy,actor.slot.id,intent,{id:randomUUID(),now});if(!prepared.success)return prepared;
     copy.negotiationState=prepared.state;
+    if(prepared.metadata.intent.kind==='offer') {
+      const announcement=recordTradeAnnouncement(copy,actor.slot.id,prepared.metadata.intent.tradeId);
+      if(!announcement.success)return announcement;
+    }
+    const publicMessage=message==null?prepared.message:message.trim();
+    actor.slot.lastAiReplyAt=now;
     copy.chatSequence=(copy.chatSequence||0)+1;
     copy.chat.push({id:prepared.metadata.id,sequence:copy.chatSequence,authorRole:'ai',playerName:member.name,playerId:actor.slot.id,
-      message:prepared.message,timestamp:now,negotiation:clone(prepared.metadata)});
+      message:publicMessage,timestamp:now,negotiation:clone(prepared.metadata)});
     copy.chat=copy.chat.slice(-100);copy.revision++;copy.lastActivityAt=now;
     const negotiation={...clone(prepared.metadata),sequence:prepared.sequence};
     const response={success:true,revision:copy.revision,negotiation};
@@ -649,7 +658,7 @@ export class RoomService {
     const keys=Object.keys(copy.receipts);for(const receipt of keys.slice(0,Math.max(0,keys.length-2000)))delete copy.receipts[receipt];
     try {
       this.persist(copy,{type:'aiNegotiation',actorSeatId:actor.slot.id,actorGeneration:actor.slot.generation,actorName:member.name,
-        summary:prepared.message,payload:null});
+        summary:publicMessage,payload:null});
     } catch(error) {
       const storage=error?.message==='Recording is unavailable'||error?.code?.startsWith?.('SQLITE_')||error?.code?.startsWith?.('ERR_SQLITE_');
       return fail(storage?'Unable to save the accepted negotiation':'Invalid negotiation parameters',storage?500:400);
@@ -662,27 +671,40 @@ export class RoomService {
     const room=this.roomFor(code);if(!room)return fail('Room not found',404);
     const member=this.authenticate(room,token);if(!member)return fail('Controller credential is invalid or revoked',401);
     if(member.role!=='ai')return fail('An AI playing seat is required',403);
-    const {requestId,replyToSequence,message}=payload;
-    if(typeof requestId!=='string'||requestId.length<1||requestId.length>100||!Number.isSafeInteger(replyToSequence)||replyToSequence<1||typeof message!=='string'||!message.trim()||message.length>500)return fail('Invalid AI chat reply');
+    if(!payload||typeof payload!=='object'||Array.isArray(payload))return fail('Invalid AI chat reply');
+    const {requestId,replyToSequence,tradeId,generation,message}=payload;
+    const tradeReply=Object.hasOwn(payload,'tradeId'),humanReply=Object.hasOwn(payload,'replyToSequence');
+    if(tradeReply===humanReply||typeof requestId!=='string'||requestId.length<1||requestId.length>100||
+      (tradeReply?typeof tradeId!=='string'||!tradeId||tradeId.length>100||!Number.isSafeInteger(generation):!Number.isSafeInteger(replyToSequence)||replyToSequence<1)||
+      typeof message!=='string'||!message.trim()||message.length>500)return fail('Invalid AI chat reply');
     const key=hash(token),receiptKey=`${key}:${requestId}`;
     let fingerprint;try{fingerprint=hash(JSON.stringify({kind:'aiChatReply',payload}));}catch{return fail('Invalid AI chat reply');}
     if(room.receipts[receiptKey])return room.receipts[receiptKey].fingerprint===fingerprint?clone(room.receipts[receiptKey].result):fail('Request ID already used for another command',409);
     if(terminal(room))return fail('Room has ended',410);
+    if(tradeReply&&generation!==member.generation)return fail('Seat controller changed',409);
     const copy=clone(room),actor=this.aiActor(copy,token);if(!actor)return fail('Seat controller changed',409);
     const fenced=fenceAiCommand(actor.slot,payload,this.now());if(!fenced.success)return fenced;
     if(copy.paused||copy.game?.phase==='finished')return fail('AI chat replies are paused',409);
     if(!actor.slot.chatEnabled)return fail('AI chat is disabled',409);
-    const target=(copy.chat||[]).find(candidate=>(candidate.authorRole||'human')==='human'&&candidate.sequence===replyToSequence);
-    if(!target||replyToSequence<=(actor.slot.lastAiReplyToSequence||0))return fail('Chat message is no longer available',409);
-    const now=this.now();if(now-(actor.slot.lastAiReplyAt||0)<5000)return fail('AI chat reply cooldown is active',429);
+    if(tradeReply) {
+      const announcement=recordTradeAnnouncement(copy,actor.slot.id,tradeId);
+      if(!announcement.success)return announcement;
+    } else {
+      const target=(copy.chat||[]).find(candidate=>(candidate.authorRole||'human')==='human'&&candidate.sequence===replyToSequence);
+      if(!target||replyToSequence<=(actor.slot.lastAiReplyToSequence||0))return fail('Chat message is no longer available',409);
+    }
+    const now=this.now(),state=negotiationState(copy);
+    const publishedAt=Math.max(actor.slot.lastAiReplyAt??-Infinity,state.lastPublishedAtBySeat[actor.slot.id]??-Infinity);
+    if(now-publishedAt<5000)return fail('AI chat reply cooldown is active',429);
+    copy.negotiationState={...state,lastPublishedAtBySeat:{...state.lastPublishedAtBySeat,[actor.slot.id]:now}};
     copy.chatSequence=(copy.chatSequence||0)+1;
-    copy.chat.push({id:randomUUID(),sequence:copy.chatSequence,authorRole:'ai',replyToSequence,playerName:member.name,playerId:actor.slot.id,message:message.trim(),timestamp:now});
-    copy.chat=copy.chat.slice(-100);actor.slot.lastAiReplyAt=now;actor.slot.lastAiReplyToSequence=replyToSequence;copy.revision++;copy.lastActivityAt=now;
+    copy.chat.push({id:randomUUID(),sequence:copy.chatSequence,authorRole:'ai',...(tradeReply?{tradeId}:{replyToSequence}),playerName:member.name,playerId:actor.slot.id,message:message.trim(),timestamp:now});
+    copy.chat=copy.chat.slice(-100);actor.slot.lastAiReplyAt=now;if(humanReply)actor.slot.lastAiReplyToSequence=replyToSequence;copy.revision++;copy.lastActivityAt=now;
     const response={success:true,revision:copy.revision,sequence:copy.chatSequence};
     copy.receipts[receiptKey]={fingerprint,result:clone(response)};
     const keys=Object.keys(copy.receipts);for(const receipt of keys.slice(0,Math.max(0,keys.length-2000)))delete copy.receipts[receipt];
     this.persist(copy,{type:'aiChatReply',actorSeatId:actor.slot.id,actorGeneration:actor.slot.generation,actorName:member.name,
-      summary:`${member.name} replied in chat`,payload:{replyToSequence,message:message.trim()}});
+      summary:`${member.name} replied in chat`,payload:{...(tradeReply?{tradeId}:{replyToSequence}),message:message.trim()}});
     this.markAiTool(copy,member);return clone(response);
   }
   recordingAccess(id,{perspective='public',token}={}) {

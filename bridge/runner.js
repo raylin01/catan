@@ -2,11 +2,13 @@ import {setTimeout as sleep} from 'node:timers/promises';
 import {createHash,randomUUID} from 'node:crypto';
 import {createChatReaderInput,validateChatProposals,projectSpeakerContext} from './chat-policy.js';
 import {projectNegotiations} from './negotiation-policy.js';
+import {projectTradeSpeech} from './trade-speech.js';
 import {compactionThreshold,safeToCompact,tradeNeedsReply,updateContext,runtimeMetadata} from './compaction.js';
 
 const fingerprint=view=>createHash('sha256').update(JSON.stringify({generation:view.generation,epoch:view.controlEpoch,game:view.gameState,trades:view.trades??view.trade,decision:view.decision})).digest('hex');
 const ownSlot=view=>view.slots?.find(slot=>slot.id===view.seatId);
 const paused=view=>view.paused||ownSlot(view)?.ai?.paused===true;
+const tradeOperation=type=>type?.startsWith('trade')||['bankTrade','proposeTrade','respondToTrade','cancelTrade'].includes(type);
 
 /** One serialized scheduler per seat. Polling is transport work, never a model turn. */
 export async function runPlayer(client,connector,{model,reasoning,memory='',contexts={},chatCursor=0,pendingProposals=[],pendingReplySequence=0,
@@ -65,6 +67,48 @@ export async function runPlayer(client,connector,{model,reasoning,memory='',cont
     try {return await invoke(decisionSignal,onRuntime);}
     finally {closed=true;clearInterval(timer);await reports.catch(()=>{});await persist();}
   };
+  const speechAvailable=source=>!paused(source)&&ownSlot(source)?.chatEnabled!==false&&source.gameState?.phase==='playing';
+  const sameControl=(source,latest)=>source.seatId===latest.seatId&&source.generation===latest.generation
+    &&source.controlEpoch===latest.controlEpoch&&(!registered||latest.ai?.runnerRunId===runId);
+  const sameSpeechSettings=(source,latest)=>ownSlot(source)?.chatModel===ownSlot(latest)?.chatModel
+    &&ownSlot(source)?.chatReasoning===ownSlot(latest)?.chatReasoning;
+  const speakTrade=async(source,input)=>{
+    if(!input||!speechAvailable(source)||!connector.speak)return null;
+    const slot=ownSlot(source),chatModel=slot?.chatModel||model,chatReasoning=slot?.chatReasoning||reasoning;
+    try {
+      const spoken=await callModel('speaking',source,(s,onRuntime)=>connector.speak(input,{onRuntime,model:chatModel,reasoning:chatReasoning,
+        contextId:contextFor('tradeSpeaker',chatModel,chatReasoning),signal:s,timeoutMs:decisionTimeoutMs}),'tradeSpeaker');
+      signal?.throwIfAborted();
+      remember('tradeSpeaker',spoken.contextId);await persist();
+      const message=spoken.value?.message;
+      return typeof message==='string'&&message.trim()&&message.length<=300?message:null;
+    } catch(error) {
+      signal?.throwIfAborted();
+      // Speech is optional. Keep the approved intent or committed offer; never
+      // retry an ambiguous model result or turn a speech failure into a move.
+      return null;
+    }
+  };
+  const announceTrade=async(source,tradeId)=>{
+    if(!tradeId||!connector.speak||!client.replyChat)return;
+    try {
+      const current=await client.observe();
+      if(!sameControl(source,current)||!speechAvailable(current))return;
+      const input=projectTradeSpeech(current,{tradeId});
+      if(!input)return;
+      const message=await speakTrade(current,input);
+      signal?.throwIfAborted();
+      if(!message)return;
+      const latest=await client.observe();
+      signal?.throwIfAborted();
+      if(!sameControl(current,latest)||!speechAvailable(latest)||!sameSpeechSettings(current,latest)
+        ||JSON.stringify(projectTradeSpeech(latest,{tradeId}))!==JSON.stringify(input))return;
+      await client.replyChat({runId,controlEpoch:latest.controlEpoch,generation:latest.generation,requestId:randomUUID(),tradeId,message});
+    } catch(error) {
+      signal?.throwIfAborted();
+      // The offer already exists. Failed or uncertain publication is not retried.
+    }
+  };
   try {
     if(client.lease){await client.lease({runId,controlEpoch:view.controlEpoch});registered=true;}
     while(!signal?.aborted) {
@@ -81,7 +125,7 @@ export async function runPlayer(client,connector,{model,reasoning,memory='',cont
       }
       const slot=ownSlot(view);
       const priorContexts=contexts;
-      for(const channel of ['gameplay','reader','speaker'])if(contexts[channel])
+      for(const channel of ['gameplay','reader','speaker','tradeSpeaker'])if(contexts[channel])
         contextFor(channel,channel==='gameplay'?model:(slot?.chatModel||model),channel==='gameplay'?reasoning:(slot?.chatReasoning||reasoning));
       if(contexts!==priorContexts)await persist();
       if(connector.capabilities?.compaction&&connector.compact&&safeToCompact(view)) {
@@ -157,11 +201,26 @@ export async function runPlayer(client,connector,{model,reasoning,memory='',cont
         if(!result.action&&!result.negotiation&&(view.decision||tradeNeedsReply(view)))
           throw Error('AI returned no action for a required decision; the seat remains reserved');
         let confirmed=null;
+        let announcementTradeId=null;
         if(result.negotiation) {
           if(!client.negotiate)throw Error('Connector requested negotiation without a negotiation transport');
+          let message=null;
+          if(result.negotiation.kind==='interest') {
+            const source=view,input=projectTradeSpeech(source,{intent:result.negotiation});
+            message=await speakTrade(source,input);
+            const latest=await client.observe();
+            signal?.throwIfAborted();
+            if(!sameControl(source,latest)||paused(latest)||fingerprint(source)!==fingerprint(latest)
+              ||JSON.stringify(source.negotiation)!==JSON.stringify(latest.negotiation)
+              ||input&&(!speechAvailable(latest)||!sameSpeechSettings(source,latest)
+                ||JSON.stringify(projectTradeSpeech(latest,{intent:result.negotiation}))!==JSON.stringify(input))) {
+              lastDecision=null;continue;
+            }
+            view=latest;
+          }
           try {
             const receipt=await client.negotiate({requestId:randomUUID(),runId,controlEpoch:view.controlEpoch,
-              revision:view.revision,generation:view.generation,intent:result.negotiation});
+              revision:view.revision,generation:view.generation,intent:result.negotiation,...(message?{message}:{})});
             lastOutcome={negotiation:result.negotiation,result:receipt};rejectedDecisions=0;
             if(result.negotiation.kind!=='decline')startResponseWait(view);
           } catch(error) {
@@ -169,7 +228,7 @@ export async function runPlayer(client,connector,{model,reasoning,memory='',cont
             lastOutcome={negotiation:result.negotiation,rejected:true,error:error.message};
             if(++rejectedDecisions>=3)throw Error('Repeated rejected AI negotiations; the seat remains waiting');
           }
-          proposals=[];negotiations=[];lastDecision=null;await persist();
+          proposals=[];negotiations=[];replySequence=0;lastDecision=null;await persist();
           await report('waiting');await sleep(pollMs,undefined,{signal});continue;
         }
         if(result.action) {
@@ -178,11 +237,15 @@ export async function runPlayer(client,connector,{model,reasoning,memory='',cont
             lastOutcome={action:result.action,result:receipt};rejectedDecisions=0;
             // Never pass the private command response (e.g. stolen card) to chat.
             confirmed={id:randomUUID(),actorSeatId:view.seatId,type:result.action.type,...result.action.payload};
+            if(['tradeOffer','tradeCounter'].includes(result.action.type))announcementTradeId=receipt.tradeId;
             if(['tradeOffer','tradeCounter','tradeAccept'].includes(result.action.type))startResponseWait(view);
           } catch(error){if(error.status===409){lastOutcome={action:result.action,rejected:true,error:error.message};if(++rejectedDecisions>=3)throw Error('Repeated rejected AI decisions; the seat remains waiting');lastDecision=null;continue;}throw error;}
         }
-        proposals=[];negotiations=[];await persist();
-        if(offeredProposals.length&&replySequence&&['acknowledge','decline'].includes(result.publicReply)&&connector.speak&&client.replyChat) {
+        proposals=[];negotiations=[];
+        if(tradeOperation(result.action?.type))replySequence=0;
+        await persist();
+        if(announcementTradeId)await announceTrade(view,announcementTradeId);
+        if(!tradeOperation(result.action?.type)&&offeredProposals.length&&replySequence&&['acknowledge','decline'].includes(result.publicReply)&&connector.speak&&client.replyChat) {
           const chatModel=slot?.chatModel||model,chatReasoning=slot?.chatReasoning||reasoning;
           view=await client.observe();
           if(paused(view))continue;

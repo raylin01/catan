@@ -58,6 +58,8 @@ export function projectNegotiationWindow(view) {
     ...(Number.isInteger(window.tradeOffersRemaining)?{tradeOffersRemaining:Math.max(0,Math.min(2,window.tradeOffersRemaining))}:{}),
     blockedTradeSeatIds: (Array.isArray(window.blockedTradeSeatIds)?window.blockedTradeSeatIds:[])
       .filter(id=>id!==view.seatId&&view.gameState?.players?.some(player=>player.id===id)),
+    ...(Array.isArray(window.offerAnnouncementIds)?{offerAnnouncementIds:window.offerAnnouncementIds
+      .filter(id=>tradesFor(view).some(trade=>trade.id===id&&trade.from===view.seatId&&trade.status==='offered'))}:{}),
     maxDepth: 2, maxMessagesPerRoot: 6, maxMessagesPerSeat: 2, cooldownMs: 5000};
 }
 
@@ -87,7 +89,8 @@ export function negotiationSchemaFor(view) {
     properties: {kind: {type: 'string', enum: ['decline']}, to: {type: 'string', enum: [parent.actorSeatId]},
       replyToId: {type: 'string', enum: [parent.id]}}, required: ['kind', 'to', 'replyToId']});
   }
-  const ownOffers=tradesFor(view).filter(trade=>trade.status==='offered'&&trade.from===view.seatId);
+  const ownOffers=tradesFor(view).filter(trade=>trade.status==='offered'&&trade.from===view.seatId
+    &&(!Array.isArray(view.negotiation.offerAnnouncementIds)||view.negotiation.offerAnnouncementIds.includes(trade.id)));
   if ((canStart || parents.length) && ownOffers.length) choices.push({
     type: 'object', additionalProperties: false, properties: {kind: {type: 'string', enum: ['offer']},
       tradeId: {type: 'string', enum: ownOffers.map(trade=>trade.id)}, replyToId: parentSchema}, required: ['kind', 'tradeId', 'replyToId']});
