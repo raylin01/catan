@@ -52,19 +52,22 @@ test('negotiation is a separate decision and unavailable outside permitted main-
   assert.throws(()=>decodeDecision({value},view),/unavailable/);
 });
 
-test('a relevant AI intent invokes gameplay once, creates a real trade, and never invokes reader/speaker',async()=>{
-  const view=state(),stop=new AbortController();let calls=0,reads=0,proseCalls=0,saved;
+test('a relevant AI intent invokes gameplay once and a real trade permits only public speech',async()=>{
+  const view=state(),stop=new AbortController();let calls=0,reads=0,readerCalls=0,speakerCalls=0,saved;
   const client={observe:async()=>structuredClone(view),heartbeat:async()=>{},
     readChat:async payload=>{reads++;assert.equal(payload.afterNegotiationSequence,reads===1?0:1);
       if(reads>3)stop.abort();return {messages:[],chatSequence:0,negotiationSequence:1,negotiations:reads===1?[interest()]:[]};},
-    act:async(_view,type,payload)=>{assert.equal(type,'tradeOffer');assert.equal(payload.give.brick,1);view.trade={id:'real',from:'a',to:'b',status:'offered'};return {success:true};}};
-  const connector={ready:async()=>{},readChat:async()=>proseCalls++,speak:async()=>proseCalls++,
+    replyChat:async()=>assert.fail('null speech must not publish'),
+    act:async(_view,type,payload)=>{assert.equal(type,'tradeOffer');assert.equal(payload.give.brick,1);view.trade={id:'real',from:'a',status:'offered',...payload};return {success:true,tradeId:'real'};}};
+  const connector={ready:async()=>{},readChat:async()=>readerCalls++,speak:async input=>{
+    speakerCalls++;assert.equal(input.purpose,'offer');assert.equal(input.offer.id,'real');
+    assert.equal(JSON.stringify(input).includes('PRIVATE_MEMORY'),false);return {value:{message:null}};},
     decide:async(input,options)=>{calls++;assert.equal(options.timeoutMs,300000);assert.equal(input.negotiations.length,1);
       assert.equal(JSON.stringify(input.negotiations).includes('PRIVATE_MEMORY'),false);
       return {memory:'private',action:{type:'tradeOffer',payload:{to:'b',give:{brick:1},get:{wool:1}}}};}};
   await assert.rejects(runPlayer(client,connector,{signal:stop.signal,pollMs:1,chatBatchMs:0,decisionTimeoutMs:300000,
     negotiationGraceMs:100,save:async(_memory,record)=>saved=record}),{name:'AbortError'});
-  assert.equal(calls,1);assert.equal(proseCalls,0);assert.equal(saved.negotiationCursor,1);
+  assert.equal(calls,1);assert.equal(readerCalls,0);assert.equal(speakerCalls,1);assert.equal(saved.negotiationCursor,1);
   assert.deepEqual(saved.pendingNegotiations,[]);
 });
 
@@ -103,6 +106,20 @@ test('an exhausted AI trade budget still permits accepting or ending an existing
   assert.deepEqual(choiceFor(view,'trade').properties.operation.enum,['tradeAccept','tradeReject']);
   view.trade={id:'real',from:'a',to:'b',status:'accepted'};
   assert.deepEqual(choiceFor(view,'trade').properties.operation.enum,['tradeConfirm','tradeCancel']);
+});
+
+test('already announced offers cannot remain a selectable typed announcement',()=>{
+  const view=state();view.negotiation.canInitiate=true;
+  view.trades=[{id:'own',from:'a',to:'b',status:'offered'},{id:'other',from:'b',to:'a',status:'offered'}];
+  const announcements=()=>choiceFor(view,'negotiation')?.anyOf?.filter(choice=>choice.properties?.kind?.enum?.includes('offer'))||[];
+  view.negotiation.offerAnnouncementIds=['own','other','NOT_A_TRADE'];
+  assert.deepEqual(announcements()[0].properties.tradeId.enum,['own']);
+  assert.deepEqual(modelObservation(view).negotiation.offerAnnouncementIds,['own']);
+  view.negotiation.offerAnnouncementIds=[];
+  assert.deepEqual(announcements(),[]);
+  assert.ok(choiceFor(view,'trade').properties.operation.enum.includes('tradeAccept'),'real game replies remain available');
+  delete view.negotiation.offerAnnouncementIds;
+  assert.equal(announcements().length,1,'compatibility with older game servers');
 });
 
 

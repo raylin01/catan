@@ -61,7 +61,7 @@ function installExpansionRoute(room, actorSeatId) {
   return expansionVertex;
 }
 
-function fakeConnector({seatId, actorSeatId, partnerSeatId, counters, timeline}) {
+function fakeConnector({seatId, actorSeatId, partnerSeatId, counters, timeline, offerAnnounced}) {
   const forbiddenChannel = channel => async () => {
     counters[channel]++;
     throw new Error(`${channel} must not run for structured AI negotiation`);
@@ -70,12 +70,23 @@ function fakeConnector({seatId, actorSeatId, partnerSeatId, counters, timeline})
     id: `deterministic-${seatId}`,
     ready: async () => {},
     readChat: forbiddenChannel('reader'),
-    speak: forbiddenChannel('speaker'),
+    speak: async input => {
+      counters.speaker++;
+      assert.equal(input.gameState,undefined);assert.equal(input.confirmedOutcomes,undefined);
+      if(input.purpose==='interest') {
+        assert.deepEqual(input.approvedInterest,{wants:['brick'],offers:['wool'],to:partnerSeatId});
+        return {value:{message:'Basil, could I trade wool for brick?'}};
+      }
+      assert.equal(input.purpose,'offer');assert.deepEqual(input.offer.give,{brick:1});assert.deepEqual(input.offer.get,{wool:1});
+      return {value:{message:'Amber, I can give you one brick for one wool.'}};
+    },
     async decide(view, {signal}) {
       signal?.throwIfAborted();
       counters.gameplay[seatId]++;
       if (seatId === actorSeatId) {
         if (view.trade?.to === actorSeatId && view.trade.status === 'offered') {
+          await offerAnnounced;
+          signal?.throwIfAborted();
           timeline.push('amber-accepts');
           return {memory: 'amber', action: {type: 'tradeAccept', payload: {tradeId: view.trade.id}}};
         }
@@ -179,9 +190,17 @@ test('four HTTP runners negotiate a useful trade, settle it, and then stay bound
       speaker: 0
     };
     const timeline = [];
+    let resolveOfferSpeech;
+    const offerAnnounced=new Promise(resolve=>{resolveOfferSpeech=resolve;});
     let realTradeId = null;
     let confirmed = false;
     for (const client of clients) {
+      const replyChat=client.replyChat.bind(client);
+      client.replyChat=async payload=>{
+        const response=await replyChat(payload);
+        if(payload.tradeId)resolveOfferSpeech();
+        return response;
+      };
       const act = client.act.bind(client);
       client.act = async (view, type, payload, requestId) => {
         const response = await act(view, type, payload, requestId);
@@ -206,7 +225,8 @@ test('four HTTP runners negotiate a useful trade, settle it, and then stay bound
         actorSeatId,
         partnerSeatId,
         counters,
-        timeline
+        timeline,
+        offerAnnounced
       }),
       {
         signal: stop.signal,
@@ -243,7 +263,7 @@ test('four HTTP runners negotiate a useful trade, settle it, and then stay bound
     assert.equal(counters.gameplay[sessions[2].seatId], 0);
     assert.equal(counters.gameplay[sessions[3].seatId], 0);
     assert.equal(counters.reader, 0);
-    assert.equal(counters.speaker, 0);
+    assert.equal(counters.speaker, 2);
 
     const settled = service.rooms.get(created.code);
     const amber = settled.game.players.find(player => player.id === actorSeatId);
@@ -258,8 +278,12 @@ test('four HTTP runners negotiate a useful trade, settle it, and then stay bound
     const negotiationMessage = publicView.chat.find(message => message.negotiation?.intent?.kind === 'interest');
     assert.ok(negotiationMessage);
     assert.equal(negotiationMessage.authorRole, 'ai');
-    assert.equal(negotiationMessage.message, 'Amber is looking for brick and can offer wool to Basil.');
+    assert.equal(negotiationMessage.message, 'Basil, could I trade wool for brick?');
     assert.equal(JSON.stringify(negotiationMessage).includes('amber'), false);
+    const tradeSpeech=publicView.chat.find(message=>message.tradeId===realTradeId);
+    assert.equal(tradeSpeech.message,'Amber, I can give you one brick for one wool.');
+    assert.equal(tradeSpeech.negotiation,undefined);
+    assert.equal(publicView.chat.length,2,'settlement adds no acknowledgment loop');
 
     const relevantEvents = service.eventsFor(settled.recordingId)
       .filter(event => ['aiNegotiation', 'tradeOffer', 'tradeAccept', 'tradeConfirm'].includes(event.type));
