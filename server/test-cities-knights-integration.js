@@ -137,9 +137,11 @@ test('off-turn progress card bundles reach AI decisions and replay without expos
   let view=service.observe(host.code,other.token);
   assert.equal(view.decision.type,'chooseCards');assert.equal(view.decision.count,2);
   assert.equal(service.observe(host.code,source.token).decision,null);
-  const schema=decisionSchemaFor(view);assert.equal(schema.properties.wait.enum[0],false);
+  const schema=decisionSchemaFor(view);
+  assert.equal(schema.properties.decision.anyOf.some(branch=>branch.properties.wait),false);
+  assert.ok(schema.properties.decision.anyOf.some(branch=>branch.properties.choiceCards));
   const cards=Object.fromEntries(cardTypesFor(view.gameState).map(type=>[type,type==='paper'?2:0]));
-  const decoded=decodeDecision({contextId:'synthetic',value:{actionIndex:null,discard:null,choiceCards:cards,trade:null,negotiation:null,wait:false,memory:'',publicReply:'silent'}},view);
+  const decoded=decodeDecision({contextId:'synthetic',value:{decision:{choiceCards:cards},memory:'',publicReply:'silent'}},view);
   assert.equal(decoded.action.type,'resolveCitiesKnightsChoice');
   const rejected=issue(service,host,source,decoded.action.type,decoded.action.payload);assert.equal(rejected.success,false);
   const accepted=issue(service,host,other,decoded.action.type,decoded.action.payload);assert.equal(accepted.success,true,accepted.error);

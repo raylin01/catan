@@ -138,8 +138,8 @@ test('paired phase blocks player trades and AI negotiations but offers the requi
   assert.equal(view.gameState.playerTradingAllowed,false);
   assert.equal(view.decision.type,'chooseAction');assert.equal(view.negotiation.canInitiate,false);
   assert.equal(view.negotiation.canReply,false);
-  assert.deepEqual(decisionSchemaFor(view).properties.trade,{type:'null'});
-  assert.deepEqual(decisionSchemaFor(view).properties.negotiation,{type:'null'});
+  assert.equal(decisionSchemaFor(view).properties.decision.anyOf.some(branch=>branch.properties.trade),false);
+  assert.equal(decisionSchemaFor(view).properties.decision.anyOf.some(branch=>branch.properties.negotiation),false);
   assert.equal(projectPublicState(view).playerTradingAllowed,false);
   assert.deepEqual(modelObservation(view).gameOptions,extended);
   assert.equal(issue(service,host,ai,'tradeOffer',{to:actors.find(a=>a.seatId!==ai.seatId).seatId,give:{brick:1},get:{ore:1}}).success,false);

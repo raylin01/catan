@@ -1,13 +1,29 @@
+import {useEffect,useState} from 'react';
 import './AiControls.css';
 
-const labels={thinking:'Choosing a move','reading-chat':'Considering chat',speaking:'Preparing a reply',waiting:'Waiting for play',error:'Controller error',stopped:'Controller stopped'};
+const labels={thinking:'Choosing a move','reading-chat':'Considering chat',speaking:'Preparing a reply',waiting:'Waiting for other players',error:'Controller error',stopped:'Controller stopped',
+  'compaction-scheduled':'Compaction scheduled',compacting:'Compacting','needs-attention':'Needs attention'};
 export function AiStatus({slot}) {
+  const [now,setNow]=useState(Date.now);
+  useEffect(()=>{if(slot?.kind!=='ai')return;const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[slot?.kind]);
   if(slot?.kind!=='ai'||!['online','stale','offline'].includes(slot.ai?.connection))return null;
   const info=slot.ai,offline=info.connection!=='online';
-  const text=info.paused?'AI paused':info.connection==='stale'?'Connection stale':offline?'Controller offline':labels[info.status]||'Connected';
-  return <div className={`ai-status ${offline?'ai-status-offline':''}`} title={info.lastActivityAt?`Last controller activity: ${new Date(info.lastActivityAt).toLocaleTimeString()}`:undefined}>
-    <span className={`ai-status-dot ${!offline&&['thinking','reading-chat','speaking'].includes(info.status)?'ai-status-active':''}`}/>
-    <span>{text}</span>
+  const activity=info.activity??info.status;
+  const waiting=['unknown','waiting'].includes(activity);
+  const text=info.paused?'AI paused':info.status==='error'?'Controller error':info.connection==='stale'?'Connection stale':offline?(info.source==='none'?'Awaiting agent':'Controller offline')
+    :waiting?(info.decisionRequired?'Waiting for agent':'Waiting for other players'):labels[activity]||'Connected';
+  const elapsed=info.statusSince&&['thinking','reading-chat','speaking','compacting','needs-attention'].includes(activity)&&!offline&&!info.paused
+    ?Math.max(0,Math.floor((now-info.statusSince)/1000)):null;
+  const details=[info.lastActivityAt?`Last contact: ${new Date(info.lastActivityAt).toLocaleTimeString()}`:'No controller contact',
+    Number.isFinite(info.runtime?.contextPercent)?`Context approximately ${info.runtime.contextPercent}%`:null,
+    info.runtime?.compaction==='scheduled'?'Compaction scheduled after this game turn':null,
+    info.decisionRequired&&activity==='compacting'?'Game is waiting for this player':null].filter(Boolean).join(' · ');
+  return <div className={`ai-status ${offline?'ai-status-offline':''}`} title={details}>
+    <span aria-hidden="true" className={`ai-status-dot ${!offline&&!info.paused&&['thinking','reading-chat','speaking','compacting'].includes(activity)?'ai-status-active':''}`}/>
+    <span>{text}{elapsed!==null&&<small className="ai-status-time">{elapsed<60?`${elapsed}s`:`${Math.floor(elapsed/60)}m ${elapsed%60}s`}</small>}
+      {info.runtime?.compaction==='scheduled'&&activity!=='compaction-scheduled'&&!offline&&!info.paused&&<small className="ai-status-detail">Compaction queued</small>}
+      {activity==='compacting'&&info.decisionRequired&&!offline&&<small className="ai-status-detail">Move pending</small>}
+    </span>
   </div>;
 }
 export function AiControls({slot,onCommand,busy,showStatus=true}) {
@@ -24,7 +40,7 @@ export function AiControls({slot,onCommand,busy,showStatus=true}) {
       Allow AI to read and reply to chat
     </label>}
     {slot.occupied&&slot.provider==='mcp'&&<p className="room-field-help">Your agent must support the chat API. Replies are optional.</p>}
-    {slot.occupied&&(!slot.ai?.runnerAttached||slot.ai?.connection!=='online')&&<p className="room-field-help">Start this seat’s bridge on its computer to reconnect. The website cannot launch a remote CLI.</p>}
+    {slot.occupied&&slot.ai?.connection!=='online'&&<p className="room-field-help">Start this seat’s bridge on its computer to reconnect. The website cannot launch a remote CLI.</p>}
     <p className="room-field-help">Cancel stops the current decision and pauses this AI. Its seat and cards stay in place.</p>
   </div>;
 }

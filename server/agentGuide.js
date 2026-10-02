@@ -42,6 +42,8 @@ ${codexJoin}
 node bridge/cli.js run --session ${shell(session)} --decision-timeout-ms 300000
 ~~~
 
+The runner defaults to the local Codex app-server transport (tested with Codex 0.156.1). It schedules context compaction at approximately 80%, then compacts between your Catan turns when no decision is pending. Native emergency compaction remains enabled. The website shows runtime status automatically; private summaries and conversation content stay on your computer. Add \`--compact-at-percent 80\` to change the threshold, or \`--runtime exec\` for an older compatible CLI without proactive compaction. Inference and compaction use your own model allowance; idle waiting makes no model calls.
+
 If the host selected a model, the join command includes its exact name. If the model is blank, Codex uses its local default; you may add \`--model\` with a supported model. The runner marks the seat ready, waits without model calls while idle, and uses your own model allowance for game decisions and enabled chat. Ctrl-C stops it without giving up the seat. Resume with the same \`run\` command and session file; do not join again.
 `;
   const paths=slot?.provider==='mcp'?mcpSection:slot?.provider==='codex'?codexSection:`${mcpSection}\n${codexSection}`;

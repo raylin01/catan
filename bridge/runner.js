@@ -2,21 +2,22 @@ import {setTimeout as sleep} from 'node:timers/promises';
 import {createHash,randomUUID} from 'node:crypto';
 import {createChatReaderInput,validateChatProposals,projectSpeakerContext} from './chat-policy.js';
 import {projectNegotiations} from './negotiation-policy.js';
+import {compactionThreshold,safeToCompact,tradeNeedsReply,updateContext,runtimeMetadata} from './compaction.js';
 
 const fingerprint=view=>createHash('sha256').update(JSON.stringify({generation:view.generation,epoch:view.controlEpoch,game:view.gameState,trades:view.trades??view.trade,decision:view.decision})).digest('hex');
 const ownSlot=view=>view.slots?.find(slot=>slot.id===view.seatId);
 const paused=view=>view.paused||ownSlot(view)?.ai?.paused===true;
-const tradeNeedsReply=view=>(view.trades??(view.trade?[view.trade]:[])).some(trade=>
-  (trade.to===view.seatId&&trade.status==='offered')||(trade.from===view.seatId&&trade.status==='accepted'));
 
 /** One serialized scheduler per seat. Polling is transport work, never a model turn. */
 export async function runPlayer(client,connector,{model,reasoning,memory='',contexts={},chatCursor=0,pendingProposals=[],pendingReplySequence=0,
   negotiationCursor=0,pendingNegotiations=[],negotiationWait=null,decisionTimeoutMs=60000,negotiationGraceMs=6000,
-  save=async()=>{},signal,pollMs=1500,heartbeatMs=2000,chatBatchMs=2500}={}) {
+  compactAtPercent=80,compactionTimeoutMs=300000,save=async()=>{},signal,pollMs=1500,heartbeatMs=2000,chatBatchMs=2500}={}) {
+  const threshold=compactionThreshold(compactAtPercent);
   await connector.ready();
   const runId=randomUUID();
   let view=await client.observe(),lastDecision=null,lastOutcome=null,status='waiting',proposals=pendingProposals.slice(-24),replySequence=pendingReplySequence,lastReadAt=0;
-  let registered=false,stopped=false,rejectedDecisions=0;
+  let registered=false,stopped=false,rejectedDecisions=0,sequence=0;
+  let reports=Promise.resolve();
   let negotiations=pendingNegotiations.slice(-24);
   const persist=()=>save(memory,{contexts,chatCursor,pendingProposals:proposals,pendingReplySequence:replySequence,
     negotiationCursor,pendingNegotiations:negotiations,negotiationWait});
@@ -24,7 +25,10 @@ export async function runPlayer(client,connector,{model,reasoning,memory='',cont
     notBefore:Date.now()+negotiationGraceMs,until:Date.now()+decisionTimeoutMs+negotiationGraceMs};};
   const report=async(next,source=view)=>{
     status=next;
-    if(client.heartbeat)await client.heartbeat({runId,controlEpoch:source.controlEpoch,status:next});
+    if(client.heartbeat) {
+      const payload={runId,controlEpoch:source.controlEpoch,status:next,sequence:++sequence,runtime:runtimeMetadata(connector,contexts,next)};
+      reports=reports.catch(()=>{}).then(()=>client.heartbeat(payload));await reports;
+    }
   };
   // A channel's history is private to this seat and purpose; switching its
   // configured model starts a fresh channel rather than mixing histories.
@@ -34,22 +38,32 @@ export async function runPlayer(client,connector,{model,reasoning,memory='',cont
     return contexts[channel].id;
   };
   const remember=(channel,id)=>{if(id)contexts={...contexts,[channel]:{...contexts[channel],id}};};
-  const callModel=async(kind,source,invoke)=>{
+  const callModel=async(kind,source,invoke,channel)=>{
     const controller=new AbortController();
     const decisionSignal=signal?AbortSignal.any([signal,controller.signal]):controller.signal;
     await report(kind,source);
-    let heartbeatBusy=false;
+    let heartbeatBusy=false,closed=false;
     const timer=setInterval(async()=>{
       if(heartbeatBusy)return;heartbeatBusy=true;
       try {
         const latest=await client.observe();
+        if(closed)return;
         if(latest.generation!==source.generation||latest.controlEpoch!==source.controlEpoch||paused(latest)||latest.gameState?.phase==='finished')controller.abort();
-        else await report(kind,source);
+        else await report(status,source);
       } catch {controller.abort();}
       finally {heartbeatBusy=false;}
     },heartbeatMs);
-    try {return await invoke(decisionSignal);}
-    finally {clearInterval(timer);}
+    const onRuntime=event=>{
+      if(controller.signal.aborted||signal?.aborted)return;
+      if(channel&&contexts[channel])updateContext(contexts[channel],event,threshold);
+      if(event.type==='compaction-started')status='compacting';
+      if(event.type==='compaction-completed')status=kind==='compaction-scheduled'?'waiting':kind;
+      if(event.type==='attention')status='needs-attention';
+      if(['compaction-started','compaction-completed','attention'].includes(event.type))
+        void report(status,source).catch(()=>controller.abort());
+    };
+    try {return await invoke(decisionSignal,onRuntime);}
+    finally {closed=true;clearInterval(timer);await reports.catch(()=>{});await persist();}
   };
   try {
     if(client.lease){await client.lease({runId,controlEpoch:view.controlEpoch});registered=true;}
@@ -66,6 +80,30 @@ export async function runPlayer(client,connector,{model,reasoning,memory='',cont
         await sleep(pollMs,undefined,{signal});continue;
       }
       const slot=ownSlot(view);
+      const priorContexts=contexts;
+      for(const channel of ['gameplay','reader','speaker'])if(contexts[channel])
+        contextFor(channel,channel==='gameplay'?model:(slot?.chatModel||model),channel==='gameplay'?reasoning:(slot?.chatReasoning||reasoning));
+      if(contexts!==priorContexts)await persist();
+      if(connector.capabilities?.compaction&&connector.compact&&safeToCompact(view)) {
+        const pending=Object.entries(contexts).find(([,ctx])=>ctx.id&&ctx.compactionPending);
+        if(pending) {
+          const [channel,context]=pending;
+          // Model changes invalidate the old channel before maintenance too.
+          const selectedModel=channel==='gameplay'?model:(slot?.chatModel||model);
+          const selectedReasoning=channel==='gameplay'?reasoning:(slot?.chatReasoning||reasoning);
+          if(contextFor(channel,selectedModel,selectedReasoning)!==context.id)continue;
+          const latest=await client.observe();
+          if(latest.generation!==view.generation||latest.controlEpoch!==view.controlEpoch||!safeToCompact(latest))continue;
+          try {
+            await callModel('compaction-scheduled',latest,(s,onRuntime)=>connector.compact({model:selectedModel,reasoning:selectedReasoning,
+              contextId:context.id,signal:s,onRuntime,timeoutMs:compactionTimeoutMs}),channel);
+          } catch(error){if(error.name==='AbortError'&&!signal?.aborted)continue;throw error;}
+          // Require a confirmed native completion; no blind retries on ambiguity.
+          if(contexts[channel].compactionPending)throw Error('Runtime did not confirm compaction; restart the controller to retry');
+          lastDecision=null;await persist();await report('waiting');
+          continue; // Refresh all state before considering chat or choosing a move.
+        }
+      }
       let batch=null;
       if(view.gameState&&slot?.chatEnabled!==false&&client.readChat&&Date.now()-lastReadAt>=chatBatchMs) {
         batch=await client.readChat({runId,controlEpoch:view.controlEpoch,afterSequence:chatCursor,afterNegotiationSequence:negotiationCursor});
@@ -77,7 +115,7 @@ export async function runPlayer(client,connector,{model,reasoning,memory='',cont
           const input=createChatReaderInput({messages:batch.messages,publicState:view});
           const chatModel=slot?.chatModel||model,chatReasoning=slot?.chatReasoning||reasoning;
           try {
-            const result=await callModel('reading-chat',view,s=>connector.readChat(input,{model:chatModel,reasoning:chatReasoning,contextId:contextFor('reader',chatModel,chatReasoning),signal:s,timeoutMs:decisionTimeoutMs}));
+            const result=await callModel('reading-chat',view,(s,onRuntime)=>connector.readChat(input,{onRuntime,model:chatModel,reasoning:chatReasoning,contextId:contextFor('reader',chatModel,chatReasoning),signal:s,timeoutMs:decisionTimeoutMs}),'reader');
             remember('reader',result.contextId);
             proposals=[...proposals,...validateChatProposals(result.value,input)].slice(-24);
             replySequence=Math.max(replySequence,...batch.messages.map(m=>m.sequence||0));
@@ -107,7 +145,7 @@ export async function runPlayer(client,connector,{model,reasoning,memory='',cont
         let result;
         const offeredProposals=proposals;
         try {
-          result=await callModel('thinking',view,s=>connector.decide({...view,proposals:offeredProposals,negotiations},{model,reasoning,memory,contextId:contextFor('gameplay',model,reasoning),lastOutcome,signal:s,timeoutMs:decisionTimeoutMs}));
+          result=await callModel('thinking',view,(s,onRuntime)=>connector.decide({...view,proposals:offeredProposals,negotiations},{onRuntime,model,reasoning,memory,contextId:contextFor('gameplay',model,reasoning),lastOutcome,signal:s,timeoutMs:decisionTimeoutMs}),'gameplay');
         } catch(error){if(error.name==='AbortError'&&!signal?.aborted)continue;throw error;}
         if(result.action&&result.negotiation)throw Error('Connector must choose a game action or negotiation, not both');
         memory=result.memory;remember('gameplay',result.contextId);await persist();
@@ -150,7 +188,7 @@ export async function runPlayer(client,connector,{model,reasoning,memory='',cont
           if(paused(view))continue;
           const input={...projectSpeakerContext({publicState:view,confirmedOutcomes:confirmed?[confirmed]:[],approvedNegotiation:offeredProposals}),seatId:view.seatId,replyKind:result.publicReply};
           try {
-            const spoken=await callModel('speaking',view,s=>connector.speak(input,{model:chatModel,reasoning:chatReasoning,contextId:contextFor('speaker',chatModel,chatReasoning),signal:s,timeoutMs:decisionTimeoutMs}));
+            const spoken=await callModel('speaking',view,(s,onRuntime)=>connector.speak(input,{onRuntime,model:chatModel,reasoning:chatReasoning,contextId:contextFor('speaker',chatModel,chatReasoning),signal:s,timeoutMs:decisionTimeoutMs}),'speaker');
             remember('speaker',spoken.contextId);await persist();
             if(spoken.value?.message)await client.replyChat({runId,controlEpoch:view.controlEpoch,requestId:randomUUID(),replyToSequence:replySequence,message:spoken.value.message});
           } catch(error){if(error.name==='AbortError'&&!signal?.aborted)continue;if(![409,429].includes(error.status))throw error;}
