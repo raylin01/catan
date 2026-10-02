@@ -5,6 +5,7 @@ import * as CK from './citiesKnightsCore.js';
 import {cardTypesFor,combinedHand} from '../shared/cardTypes.js';
 import {CITIES_KNIGHTS_CARDS} from '../shared/citiesKnights.js';
 import {executeAction,playerView,legalActions} from './actions.js';
+import {agentEnvelope,agentDecisionId,createAgentObservation} from './agentObservation.js';
 import {PROVIDERS} from './providers.js';
 import {appendCardEvent,projectCardEvents} from './cardEvents.js';
 import {REASONING_VALUES,initializeAiSlot,leaseIsLive,fenceAiCommand,claimRunnerLease,heartbeatRunner,applyAiControl,projectAiStatus} from './aiControl.js';
@@ -273,6 +274,11 @@ export class RoomService {
   observe(code,token) {
     return this.#view(code,token,false);
   }
+  agentObserve(code,token) {
+    const view=this.#view(code,token,false);
+    if(view.success&&!view.seatId)return fail('An occupied player seat is required for the agent interface',403);
+    return agentEnvelope(view);
+  }
   watch(code) {
     return this.#view(code,null,true);
   }
@@ -342,16 +348,28 @@ export class RoomService {
     const room=this.roomFor(code);if(!room)return fail('Room not found',404);
     const member=this.authenticate(room,token);if(!member)return fail('Controller credential is invalid or revoked',401);
     if(!command||typeof command!=='object'||Array.isArray(command))return fail('Invalid command envelope');
-    const {requestId,revision,generation,controlEpoch,runId,type,payload={}}=command;
-    if(typeof requestId!=='string'||requestId.length<1||requestId.length>100||typeof type!=='string'||!payload||typeof payload!=='object'||Array.isArray(payload))return fail('Invalid command envelope');
+    const {requestId,revision,generation,controlEpoch,runId,actionId,decisionId}=command;
+    let {type,payload={}}=command;
+    const selected=actionId!==undefined||decisionId!==undefined;
+    if(typeof requestId!=='string'||requestId.length<1||requestId.length>100||
+      (selected?typeof actionId!=='string'||!/^a\d+$/.test(actionId)||typeof decisionId!=='string'||Object.hasOwn(command,'type')||Object.hasOwn(command,'payload'):
+        typeof type!=='string'||!payload||typeof payload!=='object'||Array.isArray(payload)))return fail('Invalid command envelope');
     const key=hash(token),receiptKey=`${key}:${requestId}`;
     let fingerprint;
-    try {fingerprint=hash(JSON.stringify({type,payload,generation,controlEpoch,runId}));}
+    try {fingerprint=hash(JSON.stringify(selected?{actionId,decisionId,generation,controlEpoch,runId}:{type,payload,generation,controlEpoch,runId}));}
     catch {return fail('Invalid command envelope');}
     if(room.receipts[receiptKey])return room.receipts[receiptKey].fingerprint===fingerprint?clone(room.receipts[receiptKey].result):fail('Request ID already used for another command',409);
     if(terminal(room))return fail('Room has ended',410);
     if(revision!==room.revision)return fail('Game changed; observe before acting',409);
     if(member.seatId && generation!==member.generation)return fail('Seat controller changed',409);
+    if(selected) {
+      if(!member.seatId)return fail('An occupied player seat is required for the agent interface',403);
+      const view=this.#view(code,token,false);
+      if(decisionId!==agentDecisionId(view))return fail('Decision changed; observe before acting',409);
+      const offered=createAgentObservation(view).actions.find(action=>action.id===actionId);
+      if(!offered)return fail('Action is not offered in this decision',409);
+      ({type,payload}=view.legalActions[offered.actionIndex]);
+    }
     const copy=clone(room),beforeGame=room.game?clone(room.game):null;let result={success:true};
     try {
       const hostTypes=['configureGame','configureSeat','aiSetChat','start','removeController','pause','resume','endGame','closeRoom'];

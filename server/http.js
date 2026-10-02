@@ -24,7 +24,7 @@ export function createAppServer({service,hostKey,publicUrl,siteName="Catan Onlin
     // Same-origin browser requests; remote CLIs do not send Origin.
     if(req.headers.origin){let origin;try{origin=new URL(req.headers.origin);}catch{return res.status(403).json({success:false,error:'Invalid origin'});}
       if(origin.host!==req.headers.host)return res.status(403).json({success:false,error:'Cross-origin browser request denied'});}
-    const privateRoute=/^\/rooms\/([a-f0-9]{8})(?:\/(?:commands|ai\/(?:lease|heartbeat|chat\/read|chat\/reply|negotiation)))?$/i.exec(req.path);
+    const privateRoute=/^\/rooms\/([a-f0-9]{8})(?:\/(?:commands|agent(?:\/commands)?|ai\/(?:lease|heartbeat|chat\/read|chat\/reply|negotiation)))?$/i.exec(req.path);
     const candidate=privateRoute?token(req):null;
     const room=candidate?service.roomFor(privateRoute[1].toUpperCase()):null;
     const verified=room&&service.authenticate(room,candidate)?candidate:null;
@@ -76,6 +76,7 @@ export function createAppServer({service,hostKey,publicUrl,siteName="Catan Onlin
   app.get('/api/rooms/:code/watch',(req,res)=>send(res,service.watch(code(req))));
   app.get('/api/rooms/:code/invitation',(req,res)=>send(res,service.invitation(code(req))));
   app.get('/agent-guide.md',(req,res)=>res.type('text/markdown').set('Cache-Control','no-store').send(agentGuide({serverUrl:requestPublicUrl(req,canonicalOrigin),bridgeRef})));
+  app.get('/agent-api.md',(_req,res)=>res.type('text/markdown').sendFile(fileURLToPath(new URL('../docs/agent-api.md',import.meta.url))));
   app.get('/api/rooms/:code/agent-guide',(req,res)=>{
     const room=service.invitation(code(req));if(!room.success)return send(res,room);
     if(['won','ended','closed'].includes(room.status))return send(res,{success:false,statusCode:410,error:'This room has ended. Open its replay instead.'});
@@ -90,6 +91,11 @@ export function createAppServer({service,hostKey,publicUrl,siteName="Catan Onlin
   });
   app.post('/api/rooms/:code/join',(req,res)=>send(res,service.join(code(req),req.body)));
   app.get('/api/rooms/:code',(req,res)=>send(res,service.observe(code(req),token(req))));
+  app.get('/api/rooms/:code/agent',(req,res)=>send(res,service.agentObserve(code(req),token(req))));
+  app.post('/api/rooms/:code/agent/commands',(req,res)=>{
+    const result=service.command(code(req),token(req),req.body);
+    send(res,result.success?{...result,next:service.agentObserve(code(req),token(req))}:result);
+  });
   app.post('/api/rooms/:code/ai/lease',(req,res)=>send(res,service.aiLease(code(req),token(req),req.body)));
   app.post('/api/rooms/:code/ai/heartbeat',(req,res)=>send(res,service.aiHeartbeat(code(req),token(req),req.body)));
   app.post('/api/rooms/:code/ai/chat/read',(req,res)=>send(res,service.aiChatRead(code(req),token(req),req.body)));

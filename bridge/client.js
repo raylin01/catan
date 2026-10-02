@@ -22,6 +22,7 @@ export class GameClient {
   replyChat(body){return this.request('/ai/chat/reply',body);}
   negotiate(body){return this.request('/ai/negotiation',body);}
   observe(){return this.request('');}
+  observeAgent(){return this.request('/agent');}
   act(view,type,payload={},requestId=randomUUID()) {
     return this.request('/commands',{requestId,revision:view.revision,generation:view.generation,controlEpoch:view.controlEpoch,runId:view.runId,type,payload});
   }
