@@ -2,3 +2,5 @@
 .room-seat-config .ai-chat-settings,.room-host-seat-controls .ai-chat-settings{grid-column:1/-1;width:100%;box-sizing:border-box}.room-seat-config .ai-chat-toggle,.room-host-seat-controls .ai-chat-toggle{display:flex;flex-direction:row;align-items:center;grid-column:1/-1}.room-seat-config .ai-chat-toggle input,.room-host-seat-controls .ai-chat-toggle input{width:18px;height:18px;min-height:18px;padding:0;flex:none}.ai-chat-settings label{min-width:160px}.ai-chat-settings .ai-chat-toggle{min-width:0}
 
 .ai-live-chat-toggle{display:flex;align-items:center;gap:9px;font-size:12px;line-height:1.5;color:#d8e3dc;cursor:pointer}.ai-live-chat-toggle input{width:18px;height:18px;min-height:18px;flex:none;accent-color:#a1c5ae}.ai-live-chat-toggle:has(input:disabled){opacity:.65;cursor:wait}
+
+.ai-status-time{margin-left:7px;font-variant-numeric:tabular-nums;color:#a8b8b2;font-size:10px;white-space:nowrap}.ai-status-detail{display:block;font-size:10px;color:#b8c8bf;line-height:1.4}

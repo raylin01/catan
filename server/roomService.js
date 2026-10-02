@@ -302,14 +302,24 @@ export class RoomService {
     const pending=room.game?.pendingRobberPick;
     const robberPick=pending?{id:pending.id,thiefId:pending.thiefId,victimId:pending.victimId,count:pending.cards.length,
       ...(member.seatId===pending.thiefId?{cardIds:pending.cards.map(card=>card.id)}:{})}:null;
+    const obligation=slot=>{
+      if(!room.game||room.paused||room.closed||room.game.phase==='finished')return {decisionRequired:false};
+      const game=room.game,index=game.players.findIndex(p=>p.id===slot.id);
+      return {decisionRequired:game.pendingChoice?.actorId===slot.id
+        ||game.discardingPlayers?.some(d=>d.playerIndex===index)
+        ||(!game.pendingChoice&&game.players[game.currentPlayerIndex]?.id===slot.id)
+        ||roomTrades(room).some(t=>(t.to===slot.id&&t.status==='offered')||(t.from===slot.id&&t.status==='accepted'))};
+    };
     const slots=room.slots.map(slot=>{
       const {controller,runnerLease,lastAiReplyAt,lastAiReplyToSequence,...publicSlot}=slot;
-      if(anonymous)return {id:slot.id,kind:slot.kind,name:slot.name,occupied:!!controller,ready:!!slot.ready,
+      const publicAi=slot.kind==='ai'?projectAiStatus(slot,now,this.toolActivity(room,slot),obligation(slot)):null;
+      if(publicAi)delete publicAi.controlEpoch;
+      if(anonymous)return {...(publicAi?{ai:publicAi}:{}),id:slot.id,kind:slot.kind,name:slot.name,occupied:!!controller,ready:!!slot.ready,
         provider:slot.provider||null,model:slot.model||null,connected:!!controller&&now-(this.presence.get(controller)||0)<15000};
       return {...publicSlot,occupied:!!controller,connected:!!controller&&now-(this.presence.get(controller)||0)<15000,
-        ...(slot.kind==='ai'?{ai:projectAiStatus(slot,now,this.toolActivity(room,slot))}:{})};
+        ...(slot.kind==='ai'?{ai:projectAiStatus(slot,now,this.toolActivity(room,slot),obligation(slot))}:{})};
     });
-    const ownAi=member.role==='ai'&&ownSlot?{...projectAiStatus(ownSlot,now,this.toolActivity(room,ownSlot)),
+    const ownAi=member.role==='ai'&&ownSlot?{...projectAiStatus(ownSlot,now,this.toolActivity(room,ownSlot),obligation(ownSlot)),
       ...(ownSlot.runnerLease?.runId?{runnerRunId:ownSlot.runnerLease.runId}:{})}:null;
     const publicChat=(room.chat||[]).map((message,index)=>({...message,sequence:message.sequence??index+1,authorRole:message.authorRole||'human'}));
     const trades=roomTrades(room).map(publicTrade);
@@ -562,7 +572,7 @@ export class RoomService {
     if(member.role!=='ai')return fail('An AI playing seat is required',403);
     const copy=clone(room),actor=this.aiActor(copy,token);if(!actor)return fail('Seat controller changed',409);
     const previous=this.recordedAiStatus(actor.slot);
-    const result=heartbeatRunner(actor.slot,payload,this.now());if(!result.success)return result;
+    const result=heartbeatRunner(actor.slot,payload,this.now());if(!result.success||result.ignored)return result;
     const changed=JSON.stringify(previous)!==JSON.stringify(this.recordedAiStatus(actor.slot));
     this.persistRuntime(copy,changed?{type:'aiHeartbeat',actorSeatId:actor.slot.id,actorGeneration:actor.slot.generation,actorName:member.name,
       summary:`${member.name} AI status changed to ${actor.slot.runnerLease?.status}`,payload:{status:actor.slot.runnerLease?.status,error:actor.slot.runnerLease?.error}}:null);

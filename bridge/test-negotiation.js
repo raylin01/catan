@@ -4,6 +4,7 @@ import {runPlayer} from './runner.js';
 import {projectNegotiations} from './negotiation-policy.js';
 import {decisionSchemaFor,modelObservation,decodeDecision} from './connectors/codex.js';
 import {decisionTimeout} from './options.js';
+const choiceFor=(view,key)=>decisionSchemaFor(view).properties.decision.anyOf.find(choice=>Object.hasOwn(choice.properties,key))?.properties[key];
 
 const state = () => ({seatId:'a',generation:1,revision:1,controlEpoch:0,paused:false,
   slots:[{id:'a',kind:'ai',ready:true,chatEnabled:true,ai:{paused:false}},
@@ -35,7 +36,7 @@ test('AI decision and negotiation projections include a second matching trade',(
   view.trade=view.trades[0];
   const offer={...interest(),intent:{kind:'offer',tradeId:'matching',replyToId:null}};
   assert.equal(projectNegotiations(view,[offer]).length,1);
-  const schema=decisionSchemaFor(view).properties.trade.anyOf[0];
+  const schema=choiceFor(view,'trade');
   assert.ok(schema.properties.operation.enum.includes('tradeAccept'));
   assert.ok(schema.properties.tradeId.enum.includes('matching'));
   assert.equal(modelObservation(view).trades.length,2);
@@ -43,11 +44,11 @@ test('AI decision and negotiation projections include a second matching trade',(
 
 test('negotiation is a separate decision and unavailable outside permitted main-phase windows',()=>{
   const view=state();view.negotiation.canInitiate=true;
-  const value={actionIndex:null,discard:null,trade:null,negotiation:{kind:'interest',wants:['wool'],offers:['brick'],to:null,replyToId:null},wait:false,memory:'private',publicReply:'silent'};
+  const value={decision:{negotiation:{kind:'interest',wants:['wool'],offers:['brick'],to:null,replyToId:null}},memory:'private',publicReply:'silent'};
   assert.equal(decodeDecision({value},view).negotiation.kind,'interest');
-  assert.throws(()=>decodeDecision({value:{...value,wait:true}},view),/exactly one/);
+  assert.throws(()=>decodeDecision({value:{...value,decision:{...value.decision,wait:true}}},view),/exactly one/);
   view.gameState.turnPhase='discard';
-  assert.deepEqual(decisionSchemaFor(view).properties.negotiation,{type:'null'});
+  assert.deepEqual(choiceFor(view,'negotiation'),undefined);
   assert.throws(()=>decodeDecision({value},view),/unavailable/);
 });
 
@@ -97,22 +98,22 @@ test('timeout configuration has an explicit finite range',()=>{
 
 test('an exhausted AI trade budget still permits accepting or ending an existing offer',()=>{
   const view=state();view.negotiation.tradeOffersRemaining=0;
-  assert.deepEqual(decisionSchemaFor(view).properties.trade,{type:'null'});
+  assert.deepEqual(choiceFor(view,'trade'),undefined);
   view.trade={id:'real',from:'b',to:'a',status:'offered'};
-  assert.deepEqual(decisionSchemaFor(view).properties.trade.anyOf[0].properties.operation.enum,['tradeAccept','tradeReject']);
+  assert.deepEqual(choiceFor(view,'trade').properties.operation.enum,['tradeAccept','tradeReject']);
   view.trade={id:'real',from:'a',to:'b',status:'accepted'};
-  assert.deepEqual(decisionSchemaFor(view).properties.trade.anyOf[0].properties.operation.enum,['tradeConfirm','tradeCancel']);
+  assert.deepEqual(choiceFor(view,'trade').properties.operation.enum,['tradeConfirm','tradeCancel']);
 });
 
 
 test('declined counterparts cannot be targeted by new trades or wake gameplay again',()=>{
   const view=state();view.negotiation.blockedTradeSeatIds=['b'];
   assert.deepEqual(projectNegotiations(view,[interest()]),[]);
-  assert.deepEqual(decisionSchemaFor(view).properties.trade,{type:'null'});
+  assert.deepEqual(choiceFor(view,'trade'),undefined);
   view.trade={id:'existing',from:'b',to:'a',status:'offered'};
-  assert.deepEqual(decisionSchemaFor(view).properties.trade.anyOf[0].properties.operation.enum,['tradeAccept','tradeReject']);
+  assert.deepEqual(choiceFor(view,'trade').properties.operation.enum,['tradeAccept','tradeReject']);
   view.trade=null;view.negotiation.blockedTradeSeatIds=[];
-  assert.deepEqual(decisionSchemaFor(view).properties.trade.anyOf[0].properties.operation.enum,['tradeOffer']);
+  assert.deepEqual(choiceFor(view,'trade').properties.operation.enum,['tradeOffer']);
 });
 
 
@@ -140,39 +141,65 @@ test('terminal negotiation facts reach gameplay without allowing another chat re
   const view=state();view.negotiations=[{...interest(),id:'final-reply',depth:2}];
   assert.equal(projectNegotiations(view,view.negotiations).length,1);
   assert.equal(modelObservation(view).negotiations.length,1);
-  assert.deepEqual(decisionSchemaFor(view).properties.negotiation,{type:'null'});
-  assert.deepEqual(decisionSchemaFor(view).properties.trade.anyOf[0].properties.operation.enum,['tradeOffer']);
+  assert.deepEqual(choiceFor(view,'negotiation'),undefined);
+  assert.deepEqual(choiceFor(view,'trade').properties.operation.enum,['tradeOffer']);
   view.negotiations=[interest()];view.negotiation.canReply=false;
   assert.equal(projectNegotiations(view,view.negotiations).length,1);
-  assert.deepEqual(decisionSchemaFor(view).properties.negotiation,{type:'null'});
+  assert.deepEqual(choiceFor(view,'negotiation'),undefined);
 });
 
 
 test('resumed model output is constrained to this observation’s legal action indices',()=>{
   const view=state();view.legalActions=[{type:'endTurn',payload:{}}];
-  const offered=decisionSchemaFor(view).properties.actionIndex.enum;
-  assert.deepEqual(offered,[0,null]);assert.equal(offered.includes(7),false);
-  const result={memory:'private',actionIndex:0,wait:false,trade:null,discard:null,negotiation:null,publicReply:'silent'};
+  const offered=choiceFor(view,'actionIndex')?.enum;
+  assert.deepEqual(offered,[0]);assert.equal(offered.includes(7),false);
+  const result={memory:'private',decision:{actionIndex:0},publicReply:'silent'};
   assert.equal(decodeDecision({value:result},view).action.type,'endTurn');
-  assert.throws(()=>decodeDecision({value:{...result,actionIndex:7}},view),/Invalid legal action index/);
+  assert.throws(()=>decodeDecision({value:{...result,decision:{actionIndex:7}}},view),/Invalid legal action index/);
   view.legalActions=[];
-  assert.deepEqual(decisionSchemaFor(view).properties.actionIndex.enum,[null]);
+  assert.equal(choiceFor(view,'actionIndex'),undefined);
 });
 
 
 test('optional proposals may be silent but mandatory game and trade decisions cannot wait',async()=>{
   const view=state();
-  assert.deepEqual(decisionSchemaFor(view).properties.wait,{type:'boolean'});
+  assert.deepEqual(choiceFor(view,'wait'),{type:'boolean',enum:[true]});
   view.decision={type:'chooseAction'};view.legalActions=[{type:'endTurn',payload:{}}];
-  assert.deepEqual(decisionSchemaFor(view).properties.wait,{type:'boolean',enum:[false]});
+  assert.deepEqual(choiceFor(view,'wait'),undefined);
   let calls=0;const statuses=[];
   const client={observe:async()=>structuredClone(view),heartbeat:async({status})=>statuses.push(status)};
   const connector={ready:async()=>{},decide:async()=>{calls++;return {memory:'private'};}};
   await assert.rejects(runPlayer(client,connector,{pollMs:1}),/no action for a required decision/);
   assert.equal(calls,1);assert.equal(statuses.at(-1),'error');
   view.decision=null;view.trade={id:'offered',from:'b',to:'a',status:'offered'};
-  assert.deepEqual(decisionSchemaFor(view).properties.wait,{type:'boolean',enum:[false]});
+  assert.deepEqual(choiceFor(view,'wait'),undefined);
   await assert.rejects(runPlayer(client,connector,{pollMs:1}),/no action for a required decision/);
   view.trade={id:'accepted',from:'a',to:'b',status:'accepted'};
-  assert.deepEqual(decisionSchemaFor(view).properties.wait,{type:'boolean',enum:[false]});
+  assert.deepEqual(choiceFor(view,'wait'),undefined);
+});
+
+test('structured output requires one non-null decision and rejects the observed empty response',()=>{
+  const view=state();view.decision={type:'chooseAction'};
+  view.legalActions=[{type:'endTurn',payload:{}}];view.negotiation.canInitiate=true;
+  const schema=decisionSchemaFor(view);
+  assert.deepEqual(schema.required,['decision','memory','publicReply']);
+  assert.equal(schema.additionalProperties,false);
+  assert.deepEqual(schema.properties.decision.anyOf.map(branch=>branch.required[0]),['actionIndex','trade','negotiation']);
+  for(const branch of schema.properties.decision.anyOf) {
+    assert.deepEqual(Object.keys(branch.properties),branch.required);
+    assert.equal(branch.additionalProperties,false);
+    const definition=Object.values(branch.properties)[0];
+    assert.equal([definition,...(definition.anyOf||[])].some(d=>d.type==='null'||Array.isArray(d.type)&&d.type.includes('null')),false);
+  }
+  const metadata={memory:'private',publicReply:'silent'};
+  for(const decision of [null,{},[],{actionIndex:null},{wait:false},{actionIndex:0,wait:true}])
+    assert.throws(()=>decodeDecision({value:{...metadata,decision}},view),/exactly one/);
+  // Regression: the old independently nullable fields admitted no decision.
+  assert.throws(()=>decodeDecision({value:{...metadata,actionIndex:null,discard:null,trade:null,negotiation:null,wait:false}},view),/exactly one/);
+  assert.equal(decodeDecision({value:{...metadata,decision:{actionIndex:0}}},view).action.type,'endTurn');
+  view.gameState.turnPhase='discard';view.decision={type:'discardCards',count:2};view.legalActions=[];
+  assert.deepEqual(decisionSchemaFor(view).properties.decision.anyOf.map(branch=>branch.required[0]),['discard']);
+  assert.equal(decodeDecision({value:{...metadata,decision:{discard:{brick:2}}}},view).action.type,'discardCards');
+  view.decision=null;
+  assert.deepEqual(decisionSchemaFor(view).properties.decision.anyOf.map(branch=>branch.required[0]),['wait']);
 });

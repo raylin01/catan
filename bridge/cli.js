@@ -7,6 +7,8 @@ import {GameClient} from './client.js';
 import {connectors} from './connectors/index.js';
 import {runPlayer} from './runner.js';
 import {decisionTimeout} from './options.js';
+import {compactionThreshold} from './compaction.js';
+import {codexRuntimeConnector} from './connectors/codex-runtime.js';
 
 const [command,...raw]=process.argv.slice(2),options={};
 for(let i=0;i<raw.length;i+=2){if(!raw[i].startsWith('--')||raw[i+1]===undefined)throw Error('Options require --name value');options[raw[i].slice(2)]=raw[i+1];}
@@ -77,16 +79,19 @@ async function main(){
     const client=await load();
     if(session.provider==='mcp')throw Error('External MCP seats have no automatic runner. Configure a local STDIO MCP server with: node bridge/cli.js mcp --server '+session.server+' --session '+sessionPath);
     const connector=connectors.get(session.provider);if(!connector)throw Error('Connector unavailable');
+    session.runtime=options.runtime||session.runtime||'app-server';
+    if(!['app-server','exec'].includes(session.runtime))throw Error('Runtime must be app-server or exec');
+    session.compactAtPercent=compactionThreshold(options['compact-at-percent']??session.compactAtPercent);
     session.decisionTimeoutMs=decisionTimeout(options['decision-timeout-ms']??session.decisionTimeoutMs);
     await save();
     const controller=new AbortController();process.once('SIGINT',()=>controller.abort());process.once('SIGTERM',()=>controller.abort());
     console.error(`Running ${session.provider} for room ${session.code}. Stop with Ctrl-C; the seat remains reserved.`);
-    await runPlayer(client,connector,{model:session.model,reasoning:reasoning(session.reasoning),memory:session.memory,
+    await runPlayer(client,session.provider==='codex'&&session.runtime==='app-server'?codexRuntimeConnector:connector,{compactAtPercent:session.compactAtPercent,model:session.model,reasoning:reasoning(session.reasoning),memory:session.memory,
       decisionTimeoutMs:session.decisionTimeoutMs,contexts:session.contexts||{},chatCursor:session.chatCursor||0,
       pendingProposals:session.pendingProposals||[],pendingReplySequence:session.pendingReplySequence||0,
       negotiationCursor:session.negotiationCursor||0,pendingNegotiations:session.pendingNegotiations||[],negotiationWait:session.negotiationWait||null,
       signal:controller.signal,save:async (memory,state)=>{Object.assign(session,state,{memory});await save();}});
   } else if(command==='mcp')await mcp();
-  else console.log('Catan bridge\n  join --server https://game.example --code ROOM --name NAME [--provider codex|mcp] [--model MODEL] [--reasoning EFFORT] [--decision-timeout-ms 300000] [--session FILE]\n  run [--session FILE] [--decision-timeout-ms 300000] (Codex seats only)\n  observe [--session FILE]\n  act --command JSON_ENVELOPE [--session FILE]\n  mcp --server https://game.example [--session FILE] (catan_join defaults to mcp)\nEach AI seat must use its own session file.');
+  else console.log('Catan bridge\n  join --server https://game.example --code ROOM --name NAME [--provider codex|mcp] [--model MODEL] [--reasoning EFFORT] [--decision-timeout-ms 300000] [--session FILE]\n  run [--session FILE] [--runtime app-server|exec] [--compact-at-percent 80] [--decision-timeout-ms 300000] (Codex seats only)\n  observe [--session FILE]\n  act --command JSON_ENVELOPE [--session FILE]\n  mcp --server https://game.example [--session FILE] (catan_join defaults to mcp)\nEach AI seat must use its own session file.');
 }
 main().catch(error=>{if(error.name!=='AbortError'){console.error(error.message);process.exitCode=1;}});

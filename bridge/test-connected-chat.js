@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {runPlayer} from './runner.js';
 import {codexExecArgs,modelObservation,decisionSchemaFor,decodeDecision} from './connectors/codex.js';
+const choiceFor=(view,key)=>decisionSchemaFor(view).properties.decision.anyOf.find(choice=>Object.hasOwn(choice.properties,key))?.properties[key];
 
 const base=()=>({seatId:'ai',role:'ai',generation:1,controlEpoch:0,revision:1,paused:false,
   slots:[{id:'ai',kind:'ai',ready:true,chatEnabled:true,chatModel:'chat-model',chatReasoning:'low',ai:{paused:false}}],
@@ -83,17 +84,18 @@ test('rejected actions are explained to the next decision and repeated rejection
 
 test('chat suggestions cannot turn into acceptance of a nonexistent game offer',()=>{
   const view=base();
-  assert.deepEqual(decisionSchemaFor(view).properties.trade.anyOf[0].properties.operation.enum,['tradeOffer']);
+  assert.deepEqual(choiceFor(view,'trade').properties.operation.enum,['tradeOffer']);
   view.trade={id:'real',from:'human',to:'ai',status:'offered'};
-  assert.deepEqual(decisionSchemaFor(view).properties.trade.anyOf[0].properties.operation.enum,['tradeOffer','tradeCounter','tradeAccept','tradeReject']);
-  view.gameState.turnPhase='robber';assert.deepEqual(decisionSchemaFor(view).properties.trade,{type:'null'});
+  assert.deepEqual(choiceFor(view,'trade').properties.operation.enum,['tradeOffer','tradeCounter','tradeAccept','tradeReject']);
+  view.gameState.turnPhase='robber';view.trade=null;
+  assert.deepEqual(choiceFor(view,'trade'),undefined);
 });
 
 
 test('Codex decision decoding preserves the public reply choice for the runner',()=>{
   const view=base();view.legalActions=[{type:'endTurn',payload:{}}];
   for(const publicReply of ['silent','acknowledge','decline']) {
-    const result=decodeDecision({contextId:'private-gameplay',value:{actionIndex:0,discard:null,trade:null,memory:'private plan',wait:false,publicReply}},view);
+    const result=decodeDecision({contextId:'private-gameplay',value:{decision:{actionIndex:0},memory:'private plan',publicReply}},view);
     assert.equal(result.publicReply,publicReply);
     assert.deepEqual(result.action,view.legalActions[0]);
     assert.equal(result.contextId,'private-gameplay');

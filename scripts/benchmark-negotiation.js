@@ -39,7 +39,7 @@ for(let round=0;round<repeat;round++)for(const id of ids){
   const projected=modelObservation(scenario.view);
   const started=Date.now();
   let row={scenario:id,round:round+1,description:scenario.description};
-  if(!values.live)row={...row,dryRun:true,negotiationAvailable:decisionSchemaFor(scenario.view).properties.negotiation.type!=='null',
+  if(!values.live)row={...row,dryRun:true,negotiationAvailable:decisionSchemaFor(scenario.view).properties.decision.anyOf.some(choice=>choice.properties.negotiation),
     relevantIncoming:projected.negotiations?.length||0,expected:scenario.expected};
   else try{
     const decision=await codexConnector.decide(scenario.view,{model:values.model,reasoning:values.reasoning,timeoutMs,

@@ -30,9 +30,12 @@ test('AI status requires live connection evidence and preserves authenticated st
       ['thinking','Choosing a move',true],
       ['reading-chat','Considering chat',true],
       ['speaking','Preparing a reply',true],
-      ['waiting','Waiting for play',false],
+      ['waiting','Waiting for other players',false],
       ['error','Controller error',false],
       ['stopped','Controller stopped',false],
+      ['compacting','Compacting',true],
+      ['compaction-scheduled','Compaction scheduled',false],
+      ['needs-attention','Needs attention',false],
     ];
     for(const [status,label,active] of cases){
       const live={...slot,runnerLease:{...slot.runnerLease,status}};
@@ -41,6 +44,8 @@ test('AI status requires live connection evidence and preserves authenticated st
       assert.equal(html.includes('ai-status-active'),active,status);
       assert.ok(!html.includes('ai-status-offline'),status);
     }
+    assert.ok(render({kind:'ai',ai:{connection:'online',activity:'unknown',decisionRequired:true}}).includes('Waiting for agent'));
+    assert.ok(render({kind:'ai',ai:{connection:'online',activity:'compacting',decisionRequired:true}}).includes('Move pending'));
     const stale=render({...slot,ai:projectAiStatus(slot,now+LEASE_TTL_MS+1)});
     assert.ok(stale.includes('Connection stale'));assert.ok(stale.includes('ai-status-offline'));
     const offline=render({...slot,ai:projectAiStatus(slot,now+OFFLINE_TTL_MS+1)});
